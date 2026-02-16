@@ -1,8 +1,23 @@
 # PostalCode2NUTS
 
-FastAPI microservice that maps European postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) using GISCO TERCET flat files.
+FastAPI microservice that maps European postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
 
-Returns NUTS levels 1, 2, and 3 for any postal code across EU-27, EFTA, candidate countries, and the UK.
+Returns NUTS levels 1, 2, and 3 for any postal code across 41 European countries and territories.
+
+## Coverage
+
+Based on GISCO TERCET NUTS-2024 correspondence tables (last updated March 2025).
+
+**EU-27** (27 countries):
+AT, BE, BG, CY, CZ, DE, DK, EE, EL, ES, FI, FR, HR, HU, IE, IT, LT, LU, LV, MT, NL, PL, PT, RO, SE, SI, SK
+
+**EFTA** (4 countries):
+CH, IS, LI, NO
+
+**EU candidate and potential candidate countries** (10):
+AL, BA, GE, MD, ME, MK, RS, TR, UA, XK
+
+> **Note:** The UK is not covered by the NUTS-2024 correspondence. Non-geographical postal codes (PO boxes, large organisations) are excluded from the source data.
 
 ## Quick start
 
@@ -34,6 +49,8 @@ GET /lookup?country=AT&postal_code=1010
 }
 ```
 
+Greece uses the GISCO code `EL`, but you can query with either `EL` or `GR` — the service maps `GR` to `EL` automatically.
+
 Interactive API docs are available at `/docs` (Swagger UI) and `/redoc`.
 
 ## Endpoints
@@ -62,7 +79,7 @@ The SQLite cache is version-scoped (`postalcode2nuts_NUTS-{version}.db`), TTL-ch
 
 ## Data source
 
-GISCO TERCET flat files, &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Covers EU-27, EFTA, candidate countries, and the UK.
+[GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 
 ## License
 

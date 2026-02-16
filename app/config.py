@@ -9,14 +9,13 @@ class Settings(BaseSettings):
     data_dir: str = "./data"
     db_cache_ttl_days: int = 30
 
-    # Countries covered by TERCET (EU + EFTA + candidates + UK)
+    # Countries covered by TERCET NUTS-2024 (EU + EFTA + candidates)
     countries: list[str] = [
         "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES",
         "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
         "NL", "PL", "PT", "RO", "SE", "SI", "SK",            # EU-27
         "CH", "IS", "LI", "NO",                                # EFTA
         "AL", "BA", "GE", "ME", "MD", "MK", "RS", "TR", "UA", "XK",  # Candidates
-        "UK",                                                   # UK
     ]
 
     model_config = {"env_prefix": "PC2NUTS_"}
