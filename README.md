@@ -17,7 +17,6 @@ CH, IS, LI, NO
 **EU candidate countries** (3):
 MK (North Macedonia), RS (Serbia), TR (Türkiye)
 
-> **Note:** Non-geographical postal codes (PO boxes, large organisations) are excluded from the source data. Some candidate countries (AL, BA, GE, MD, ME, UA, XK) are listed in the TERCET documentation but do not yet have correspondence files available.
 
 ## Quick start
 
