@@ -6,7 +6,8 @@ class Settings(BaseSettings):
         "https://gisco-services.ec.europa.eu/tercet/NUTS-2024/"
     )
     nuts_version: str = "2024"
-    data_dir: str = "/tmp/postalcode2nuts_data"
+    data_dir: str = "./data"
+    db_cache_ttl_days: int = 30
 
     # Countries covered by TERCET (EU + EFTA + candidates + UK)
     countries: list[str] = [
