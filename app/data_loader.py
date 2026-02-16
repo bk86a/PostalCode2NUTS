@@ -377,12 +377,14 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
 
     Returns a dict with nuts1, nuts2, nuts3 or None if not found.
     """
+    from app.postal_patterns import extract_postal_code
+
     # Handle Greece: ISO is GR but GISCO uses EL
     cc = country_code.upper()
     if cc == "GR":
         cc = "EL"
 
-    key = (cc, normalize_postal_code(postal_code))
+    key = (cc, extract_postal_code(cc, postal_code))
     nuts3 = _lookup.get(key)
     if nuts3 is None:
         return None
