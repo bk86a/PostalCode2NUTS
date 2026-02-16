@@ -2,7 +2,7 @@
 
 FastAPI microservice that maps European postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
 
-Returns NUTS levels 1, 2, and 3 for any postal code across 41 European countries and territories.
+Returns NUTS levels 1, 2, and 3 for any postal code across 34 European countries and territories.
 
 ## Coverage
 
@@ -14,10 +14,10 @@ AT, BE, BG, CY, CZ, DE, DK, EE, EL, ES, FI, FR, HR, HU, IE, IT, LT, LU, LV, MT, 
 **EFTA** (4 countries):
 CH, IS, LI, NO
 
-**EU candidate and potential candidate countries** (10):
-AL, BA, GE, MD, ME, MK, RS, TR, UA, XK
+**EU candidate countries** (3):
+MK (North Macedonia), RS (Serbia), TR (Türkiye)
 
-> **Note:** The UK is not covered by the NUTS-2024 correspondence. Non-geographical postal codes (PO boxes, large organisations) are excluded from the source data.
+> **Note:** Non-geographical postal codes (PO boxes, large organisations) are excluded from the source data. Some candidate countries (AL, BA, GE, MD, ME, UA, XK) are listed in the TERCET documentation but do not yet have correspondence files available.
 
 ## Quick start
 
