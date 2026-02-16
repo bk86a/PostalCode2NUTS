@@ -9,13 +9,13 @@ Returns NUTS levels 1, 2, and 3 for any postal code across 34 European countries
 Based on GISCO TERCET NUTS-2024 correspondence tables (last updated March 2025).
 
 **EU-27** (27 countries):
-AT, BE, BG, CY, CZ, DE, DK, EE, EL, ES, FI, FR, HR, HU, IE, IT, LT, LU, LV, MT, NL, PL, PT, RO, SE, SI, SK
+Austria (AT), Belgium (BE), Bulgaria (BG), Croatia (HR), Cyprus (CY), Czechia (CZ), Denmark (DK), Estonia (EE), Finland (FI), France (FR), Germany (DE), Greece (EL), Hungary (HU), Ireland (IE), Italy (IT), Latvia (LV), Lithuania (LT), Luxembourg (LU), Malta (MT), Netherlands (NL), Poland (PL), Portugal (PT), Romania (RO), Slovakia (SK), Slovenia (SI), Spain (ES), Sweden (SE)
 
 **EFTA** (4 countries):
-CH, IS, LI, NO
+Iceland (IS), Liechtenstein (LI), Norway (NO), Switzerland (CH)
 
 **EU candidate countries** (3):
-MK (North Macedonia), RS (Serbia), TR (Türkiye)
+North Macedonia (MK), Serbia (RS), Türkiye (TR)
 
 
 ## Quick start
