@@ -262,6 +262,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_TERCET_BASE_URL` | `https://gisco-services.ec.europa.eu/tercet/NUTS-2024/` (NUTS-2024 at present) | GISCO TERCET base URL. The NUTS version is derived from this URL. |
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
+| `PC2NUTS_ESTIMATES_CSV` | `./tests/tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 
 ## Three-tier lookup
 
@@ -323,11 +324,11 @@ The SQLite cache is scoped by the NUTS version derived from the base URL (e.g. `
 
 At startup the service also loads any pre-computed estimates from the DB, removes estimates that now have exact TERCET matches (revalidation), and builds a prefix index over all TERCET codes for runtime approximation.
 
-## Importing estimates
+## Estimates
 
-The `scripts/import_estimates.py` script imports pre-computed NUTS estimates into the SQLite cache DB.
+Pre-computed NUTS estimates cover postal codes that are absent from TERCET. The service loads them automatically at startup from the CSV file configured via `PC2NUTS_ESTIMATES_CSV` (default: `./tests/tercet_missing_codes.csv`). No manual import step is needed — just update the CSV and restart.
 
-**Input CSV format:**
+**CSV format:**
 
 ```
 COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE
@@ -337,17 +338,15 @@ AT,3082,AT123,AT12,AT1,low
 
 The `CONFIDENCE` column accepts `high`, `medium`, or `low`. Rows with empty or unrecognized labels are skipped.
 
-**Usage:**
+If the CSV is not present, estimates are loaded from the SQLite cache (backward-compatible with previous versions).
+
+**Manual import (optional):**
+
+The `scripts/import_estimates.py` script can be used to import estimates directly into the SQLite DB, e.g. for a custom CSV path or one-off imports:
 
 ```bash
-# Import using defaults (reads tests/tercet_missing_codes.csv, writes to the auto-detected DB)
-python -m scripts.import_estimates
-
-# Specify paths explicitly
 python -m scripts.import_estimates --csv /path/to/estimates.csv --db /path/to/cache.db
 ```
-
-The script creates the `estimates` table if it doesn't exist, clears any previous estimates, and inserts the new data. It can be run before or after the first API startup — on the next startup the service will pick up the estimates automatically.
 
 ## Project structure
 

@@ -328,6 +328,45 @@ def _load_estimates_from_db(db: Path) -> bool:
         return False
 
 
+def _load_estimates_from_csv(csv_path: Path) -> bool:
+    """Load pre-computed estimates directly from CSV into memory."""
+    if not csv_path.is_file():
+        return False
+    try:
+        count = 0
+        skipped = 0
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                cc = row["COUNTRY_CODE"].strip().upper()
+                pc = normalize_postal_code(row["POSTAL_CODE"])
+                n3 = row["ESTIMATED_NUTS3"].strip()
+                n2 = row["ESTIMATED_NUTS2"].strip()
+                n1 = row["ESTIMATED_NUTS1"].strip()
+                label = row["CONFIDENCE"].strip().lower()
+
+                conf = CONFIDENCE_MAP.get(label)
+                if conf is None:
+                    skipped += 1
+                    continue
+
+                _estimates[(cc, pc)] = {
+                    "nuts3": n3, "nuts2": n2, "nuts1": n1,
+                    "nuts3_confidence": conf["nuts3"],
+                    "nuts2_confidence": conf["nuts2"],
+                    "nuts1_confidence": conf["nuts1"],
+                }
+                count += 1
+        if skipped:
+            logger.warning("Skipped %d estimate rows with unknown confidence labels", skipped)
+        if count:
+            logger.info("Loaded %d estimates from %s", count, csv_path)
+        return count > 0
+    except Exception as exc:
+        logger.warning("Failed to load estimates from CSV: %s", exc)
+        return False
+
+
 def _revalidate_estimates() -> int:
     """Remove estimates that now have exact matches. Returns count removed."""
     to_remove = [key for key in _estimates if key in _lookup]
@@ -509,11 +548,14 @@ def load_data() -> None:
     data_dir = Path(settings.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
 
+    estimates_csv = Path(settings.estimates_csv)
+
     # Fast path: load from SQLite cache if valid
     db = _db_path()
     if _db_is_valid(db) and _load_from_db(db):
         _data_loaded_at = _read_db_created_at(db)
-        _load_estimates_from_db(db)
+        if not _load_estimates_from_csv(estimates_csv):
+            _load_estimates_from_db(db)
         _revalidate_estimates()
         _build_prefix_index()
         return
@@ -568,14 +610,16 @@ def load_data() -> None:
     if _lookup:
         # Fresh download succeeded
         _data_loaded_at = datetime.now(timezone.utc).isoformat()
-        _load_estimates_from_db(db)
+        if not _load_estimates_from_csv(estimates_csv):
+            _load_estimates_from_db(db)
         _revalidate_estimates()
         _save_to_db(db)
     elif db.is_file():
         # Download failed but stale DB exists — fallback
         _load_from_db(db)
         _data_loaded_at = _read_db_created_at(db)
-        _load_estimates_from_db(db)
+        if not _load_estimates_from_csv(estimates_csv):
+            _load_estimates_from_db(db)
         _revalidate_estimates()
         _data_stale = True
         logger.warning("TERCET refresh failed — serving stale cache")
