@@ -215,35 +215,35 @@ User input: "Traiskirchen"
 | BG | 4 digits | BG- | `1000`, `BG-1000` |
 | CH | 4 digits | CH- | `8000`, `CH-8000` |
 | CY | 4 digits | CY- | `1010`, `CY-1010` |
-| CZ | 3+2 digits | CZ- | `11000`, `110 00`, `CZ-11000` |
+| CZ | 3 digits + optional space + 2 digits | CZ- | `11000`, `110 00`, `CZ-11000` |
 | DE | 5 digits | D-, DE- | `10115`, `D-10115`, `DE-10115` |
 | DK | 4 digits | DK- | `1050`, `DK-1050` |
 | EE | 5 digits | EE- | `10111`, `EE-10111` |
-| EL | 5 digits | GR- | `10431`, `GR-10431` |
+| EL | 5 digits or 2+3 / 3+2 with space | GR-, EL- | `10431`, `GR-10431`, `EL-10431`, `105 57` |
 | ES | 5 digits | E- | `28001`, `E-28001` |
 | FI | 5 digits | FI- | `00100`, `FI-00100` |
 | FR | 5 digits | F- | `75001`, `F-75001` |
 | HR | 5 digits | HR- | `10000`, `HR-10000` |
 | HU | 4 digits | H- | `1011`, `H-1011` |
-| IE | Eircode | — | `D02 X285`, `A65 F4E2` |
+| IE | Eircode: letter + 2 digits (or 6W) + space + 4 alphanumerics; lookup uses routing key (first 3 chars) | — | `D02 X285`, `A65 F4E2` |
 | IS | 3 digits | IS- | `101`, `IS-101` |
 | IT | 5 digits | I-, IT- | `00118`, `I-00118`, `IT-00118` |
 | LI | 4 digits | FL- | `9490`, `FL-9490` |
 | LT | 5 digits | LT- | `01100`, `LT-01100` |
 | LU | 4 digits | L- | `1009`, `L-1009` |
-| LV | 4 digits | — | `1010` |
+| LV | 4 digits; TERCET key prefixed with "LV" | LV-, LV | `1010`, `LV-1010`, `LV 1010` |
 | MK | 4 digits | MK- | `1000`, `MK-1000` |
-| MT | 2-3 letters + 2-4 digits | — | `VLT 1010`, `MSK 1234` |
-| NL | 4 digits + 2 letters | NL- | `1012 AB`, `NL-1012AB` |
+| MT | 2–3 letters + space + 2–4 digits; lookup uses letter prefix only | — | `VLT 1010`, `FNT 1010`, `MSK 1234` |
+| NL | 4 digits + optional space + 2 letters | NL- | `1012 AB`, `NL-1012AB` |
 | NO | 4 digits | N- | `0150`, `N-0150` |
-| PL | 2+3 digits | PL- | `00-950`, `00950`, `PL-00-950` |
-| PT | 4+3 digits | — | `1000-001`, `1000001` |
+| PL | 2 digits + optional dash + 3 digits | PL- | `00-950`, `00950`, `PL-00-950` |
+| PT | 4 digits + optional dash + 3 digits | — | `1000-001`, `1000001` |
 | RO | 6 digits | RO- | `010001`, `RO-010001` |
 | RS | 5 digits | — | `11000` |
-| SE | 3+2 digits | S-, SE- | `10005`, `100 05`, `S-10005` |
+| SE | 3 digits + optional space + 2 digits | S-, SE- | `10005`, `100 05`, `S-10005`, `SE-10005` |
 | SI | 4 digits | SI- | `1000`, `SI-1000` |
-| SK | 3+2 digits | SK- | `81101`, `811 01`, `SK-81101` |
-| TR | 5 digits | TR- | `06100`, `TR-06100` |
+| SK | 3 digits + optional space + 2 digits | SK- | `81101`, `811 01`, `SK-81101` |
+| TR | 5 digits | TR- | `06100`, `TR-06100`, `34000` |
 
 ## Configuration
 
