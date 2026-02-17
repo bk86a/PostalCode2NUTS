@@ -36,6 +36,11 @@ def get_lookup_table() -> dict[tuple[str, str], str]:
     return _lookup
 
 
+def get_loaded_countries() -> set[str]:
+    """Return the set of country codes that have data loaded."""
+    return {cc for cc, _ in _lookup}
+
+
 def _discover_zip_urls(client: httpx.Client, base_url: str) -> list[str]:
     """Try to discover ZIP file URLs from the TERCET directory listing."""
     urls: list[str] = []
