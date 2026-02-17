@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     data_dir: str = "./data"
     db_cache_ttl_days: int = 30
     estimates_csv: str = "./tests/tercet_missing_codes.csv"
+    extra_sources: str = ""
 
     # Countries with TERCET flat files available
     countries: list[str] = [
@@ -21,6 +22,13 @@ class Settings(BaseSettings):
     ]
 
     model_config = {"env_prefix": "PC2NUTS_"}
+
+    @property
+    def extra_source_urls(self) -> list[str]:
+        """Parse PC2NUTS_EXTRA_SOURCES comma-separated list into URL list."""
+        if not self.extra_sources.strip():
+            return []
+        return [u.strip() for u in self.extra_sources.split(",") if u.strip()]
 
     @property
     def nuts_version(self) -> str:

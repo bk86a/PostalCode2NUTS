@@ -148,6 +148,7 @@ Returns service status and data statistics.
   "total_postal_codes": 830032,
   "total_estimates": 6477,
   "nuts_version": "2024",
+  "extra_sources": 0,
   "data_stale": false,
   "last_updated": "2025-01-15T12:00:00+00:00"
 }
@@ -156,6 +157,7 @@ Returns service status and data statistics.
 | Field | Description |
 |-------|-------------|
 | `status` | `ok` if data is loaded, `no_data` otherwise |
+| `extra_sources` | Number of extra ZIP source URLs configured (0 when not using extra sources) |
 | `data_stale` | `true` if serving expired cache after a failed TERCET refresh |
 | `last_updated` | ISO 8601 timestamp of when TERCET data was last successfully loaded |
 
@@ -263,6 +265,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
 | `PC2NUTS_ESTIMATES_CSV` | `./tests/tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
+| `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
 
 ## Three-tier lookup
 
@@ -347,6 +350,52 @@ The `scripts/import_estimates.py` script can be used to import estimates directl
 ```bash
 python -m scripts.import_estimates --csv /path/to/estimates.csv --db /path/to/cache.db
 ```
+
+## Extra data sources
+
+You can supplement or override TERCET data by providing additional ZIP files containing postal code → NUTS3 mappings. This is useful for mirrors, corrections, or internal datasets.
+
+**Configuration:**
+
+Set the `PC2NUTS_EXTRA_SOURCES` environment variable to a comma-separated list of ZIP URLs:
+
+```bash
+export PC2NUTS_EXTRA_SOURCES="https://example.com/corrections_AT.zip,https://example.com/custom_data.zip"
+```
+
+**Expected ZIP/CSV format:**
+
+Each ZIP must contain one or more CSV files with at least two columns:
+
+| Column | Required | Aliases accepted |
+|--------|----------|-----------------|
+| Postal code | yes | `CODE`, `PC`, `POSTAL_CODE`, `POSTCODE`, `PC_FMT` |
+| NUTS3 code | yes | `NUTS3_2024` (current version), `NUTS3`, `NUTS_ID`, `NUTS` |
+| Country code | no | `COUNTRY_CODE`, `CC`, `CNTR_CODE` |
+
+Minimal example CSV:
+
+```csv
+POSTAL_CODE,NUTS3,COUNTRY_CODE
+1010,AT130,AT
+10115,DE300,DE
+```
+
+**Country code resolution:**
+
+The country code for each row is resolved in this order:
+
+1. **CSV column** — if the file has a `COUNTRY_CODE` (or `CC`, `CNTR_CODE`) column, the per-row value is used
+2. **URL filename** — if the URL matches the pattern `pc{year}_{CC}_...` (e.g. `pc2025_AT_custom.zip`), that country code is used for all rows
+3. **Skip** — if neither is available, the file is skipped with a warning
+
+**Conflict resolution:**
+
+Sources are processed left-to-right in the order listed. All extra sources use last-write-wins, meaning they overwrite any existing TERCET entry for the same country + postal code combination. If the same key appears in multiple extra sources, the last source wins.
+
+**Cache behavior:**
+
+Changing the `PC2NUTS_EXTRA_SOURCES` list invalidates the SQLite cache automatically on the next startup, triggering a full rebuild.
 
 ## Project structure
 

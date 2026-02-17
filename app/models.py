@@ -38,6 +38,9 @@ class HealthResponse(BaseModel):
     total_postal_codes: int
     total_estimates: int
     nuts_version: str
+    extra_sources: int = Field(
+        default=0, description="Number of extra ZIP source URLs configured"
+    )
     data_stale: bool = Field(
         description="True if serving expired cache after a failed TERCET refresh"
     )
