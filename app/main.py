@@ -10,7 +10,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 
 from app.config import settings
-from app.data_loader import get_loaded_countries, get_lookup_table, load_data, lookup
+from app.data_loader import (
+    get_estimates_table,
+    get_loaded_countries,
+    get_lookup_table,
+    load_data,
+    lookup,
+)
 from app.models import ErrorResponse, HealthResponse, NUTSResult, PatternResponse
 from app.postal_patterns import POSTAL_PATTERNS
 
@@ -26,7 +32,12 @@ async def lifespan(app: FastAPI):
     logger.info("Loading TERCET data (NUTS %s)...", settings.nuts_version)
     load_data()
     table = get_lookup_table()
-    logger.info("Ready — %d postal codes loaded.", len(table))
+    estimates = get_estimates_table()
+    logger.info(
+        "Ready — %d postal codes loaded, %d estimates available.",
+        len(table),
+        len(estimates),
+    )
     yield
 
 
@@ -36,7 +47,7 @@ app = FastAPI(
         "Look up European NUTS codes (levels 1-3) for a given postal code "
         "and country. Data sourced from GISCO TERCET flat files."
     ),
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -145,8 +156,10 @@ def get_pattern(
 )
 def health():
     table = get_lookup_table()
+    estimates = get_estimates_table()
     return HealthResponse(
         status="ok" if len(table) > 0 else "no_data",
         total_postal_codes=len(table),
+        total_estimates=len(estimates),
         nuts_version=settings.nuts_version,
     )
