@@ -29,6 +29,10 @@ _estimates: dict[tuple[str, str], dict] = {}
 # Prefix index: country_code -> prefix -> list of nuts3 codes
 _prefix_index: dict[str, dict[str, list[str]]] = {}
 
+# Staleness tracking
+_data_stale: bool = False
+_data_loaded_at: str = ""
+
 # Maps text confidence labels to per-level numerical values
 CONFIDENCE_MAP = {
     "high":   {"nuts3": 0.90, "nuts2": 0.95, "nuts1": 0.98},
@@ -57,6 +61,29 @@ def get_estimates_table() -> dict[tuple[str, str], dict]:
 def get_loaded_countries() -> set[str]:
     """Return the set of country codes that have data loaded."""
     return {cc for cc, _ in _lookup}
+
+
+def get_data_stale() -> bool:
+    return _data_stale
+
+
+def get_data_loaded_at() -> str:
+    return _data_loaded_at
+
+
+def _read_db_created_at(db: Path) -> str:
+    """Read the created_at timestamp from the DB metadata table."""
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "SELECT value FROM metadata WHERE key = 'created_at'"
+            ).fetchone()
+        finally:
+            con.close()
+        return row[0] if row else ""
+    except Exception:
+        return ""
 
 
 def _discover_zip_urls(client: httpx.Client, base_url: str) -> list[str]:
@@ -472,8 +499,11 @@ def _save_to_db(db: Path) -> None:
 
 def load_data() -> None:
     """Download all TERCET flat files and build the in-memory lookup table."""
+    global _data_stale, _data_loaded_at
+
     _lookup.clear()
     _estimates.clear()
+    _data_stale = False
 
     # Ensure data directory exists
     data_dir = Path(settings.data_dir)
@@ -482,6 +512,7 @@ def load_data() -> None:
     # Fast path: load from SQLite cache if valid
     db = _db_path()
     if _db_is_valid(db) and _load_from_db(db):
+        _data_loaded_at = _read_db_created_at(db)
         _load_estimates_from_db(db)
         _revalidate_estimates()
         _build_prefix_index()
@@ -534,12 +565,20 @@ def load_data() -> None:
         len(loaded_countries),
     )
 
-    # Load estimates from existing DB (import_estimates writes directly to the DB)
-    _load_estimates_from_db(db)
-    _revalidate_estimates()
-
     if _lookup:
+        # Fresh download succeeded
+        _data_loaded_at = datetime.now(timezone.utc).isoformat()
+        _load_estimates_from_db(db)
+        _revalidate_estimates()
         _save_to_db(db)
+    elif db.is_file():
+        # Download failed but stale DB exists — fallback
+        _load_from_db(db)
+        _data_loaded_at = _read_db_created_at(db)
+        _load_estimates_from_db(db)
+        _revalidate_estimates()
+        _data_stale = True
+        logger.warning("TERCET refresh failed — serving stale cache")
 
     _build_prefix_index()
 
