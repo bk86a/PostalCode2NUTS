@@ -13,6 +13,12 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+class PatternResponse(BaseModel):
+    country_code: str = Field(description="ISO 3166-1 alpha-2 country code")
+    regex: str = Field(description="Regex pattern for postal code validation")
+    example: str = Field(description="Example postal code inputs")
+
+
 class HealthResponse(BaseModel):
     status: str
     total_postal_codes: int
