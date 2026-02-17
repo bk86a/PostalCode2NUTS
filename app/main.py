@@ -10,8 +10,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 
 from app.config import settings
-from app.data_loader import get_lookup_table, load_data, lookup
-from app.models import ErrorResponse, HealthResponse, NUTSResult
+from app.data_loader import get_loaded_countries, get_lookup_table, load_data, lookup
+from app.models import ErrorResponse, HealthResponse, NUTSResult, PatternResponse
+from app.postal_patterns import POSTAL_PATTERNS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,12 +41,17 @@ app = FastAPI(
 )
 
 
+def _available_countries_str() -> str:
+    """Sorted comma-separated list of country codes with loaded data."""
+    return ", ".join(sorted(get_loaded_countries()))
+
+
 @app.get(
     "/lookup",
     response_model=NUTSResult,
     responses={
+        400: {"model": ErrorResponse, "description": "Unsupported country"},
         404: {"model": ErrorResponse, "description": "Postal code not found"},
-        422: {"model": ErrorResponse, "description": "Invalid parameters"},
     },
     summary="Look up NUTS codes for a postal code",
 )
@@ -59,23 +65,76 @@ def lookup_postal_code(
         ...,
         min_length=2,
         max_length=2,
+        pattern=r"^[A-Za-z]{2}$",
         description="ISO 3166-1 alpha-2 country code (e.g. 'PL', 'AT', 'DE')",
         examples=["PL", "AT", "DE"],
     ),
 ):
+    cc = country.upper()
+    if cc == "GR":
+        cc = "EL"
+
+    if cc not in get_loaded_countries():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Country '{cc}' is not supported. "
+                f"Available countries: {_available_countries_str()}"
+            ),
+        )
+
     result = lookup(country, postal_code)
     if result is None:
+        pattern = POSTAL_PATTERNS.get(cc)
+        hint = f" Expected format: {pattern['example']}" if pattern else ""
         raise HTTPException(
             status_code=404,
             detail=(
                 f"No NUTS mapping found for postal code '{postal_code}' "
-                f"in country '{country.upper()}'"
+                f"in country '{cc}'.{hint}"
             ),
         )
     return NUTSResult(
         postal_code=postal_code,
-        country_code=country.upper(),
+        country_code=cc,
         **result,
+    )
+
+
+@app.get(
+    "/pattern",
+    response_model=PatternResponse | list[str],
+    responses={
+        404: {"model": ErrorResponse, "description": "No pattern for this country"},
+    },
+    summary="Get postal code regex pattern for a country",
+)
+def get_pattern(
+    country: str | None = Query(
+        default=None,
+        min_length=2,
+        max_length=2,
+        pattern=r"^[A-Za-z]{2}$",
+        description="ISO 3166-1 alpha-2 country code. Omit to list all available codes.",
+        examples=["AT", "DE", "NL"],
+    ),
+):
+    if country is None:
+        return sorted(POSTAL_PATTERNS.keys())
+    cc = country.upper()
+    pattern = POSTAL_PATTERNS.get(cc)
+    if pattern is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No postal code pattern defined for country '{cc}'. "
+                f"Available countries: {', '.join(sorted(POSTAL_PATTERNS.keys()))}"
+            ),
+        )
+    return PatternResponse(
+        country_code=cc,
+        regex=pattern["regex"],
+        example=pattern["example"],
     )
 
 
