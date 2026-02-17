@@ -403,12 +403,16 @@ Changing the `PC2NUTS_EXTRA_SOURCES` list invalidates the SQLite cache automatic
 app/
 ├── main.py              # FastAPI app, endpoints (/lookup, /pattern, /health)
 ├── config.py            # Settings (env vars, country list, NUTS version derived from URL)
+├── settings.json        # Countries, confidence map, approximate thresholds
 ├── data_loader.py       # TERCET download, parsing, SQLite cache, three-tier lookup
 ├── models.py            # Pydantic response models
-└── postal_patterns.py   # Per-country regex patterns + extract_postal_code()
+├── postal_patterns.py   # Pattern loading + extract_postal_code()
+└── postal_patterns.json # Per-country regex patterns and examples
 scripts/
 └── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
 ```
+
+Postal patterns and confidence settings are stored in JSON files (`postal_patterns.json`, `settings.json`) for easy editing without touching Python code. The `countries` list can still be overridden via the `PC2NUTS_COUNTRIES` environment variable.
 
 ## Data source
 
