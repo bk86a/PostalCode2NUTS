@@ -1,6 +1,7 @@
 """Download and parse TERCET flat files into an in-memory lookup table."""
 
 import csv
+import hashlib
 import io
 import logging
 import re
@@ -32,6 +33,9 @@ _prefix_index: dict[str, dict[str, list[str]]] = {}
 # Staleness tracking
 _data_stale: bool = False
 _data_loaded_at: str = ""
+
+# Extra source tracking
+_extra_source_count: int = 0
 
 # Maps text confidence labels to per-level numerical values
 CONFIDENCE_MAP = {
@@ -69,6 +73,68 @@ def get_data_stale() -> bool:
 
 def get_data_loaded_at() -> str:
     return _data_loaded_at
+
+
+def get_extra_source_count() -> int:
+    return _extra_source_count
+
+
+def _infer_country_from_url(url: str) -> str:
+    """Extract country code from a TERCET-style filename (e.g. pc2025_AT_...).
+
+    Returns uppercase 2-letter code, or empty string if not found.
+    """
+    m = re.search(r"pc\d{4}_([A-Z]{2})_", url)
+    return m.group(1) if m else ""
+
+
+def _extra_sources_hash() -> str:
+    """SHA-256 hash of joined extra source URLs (truncated to 16 hex chars).
+
+    Returns empty string when no extra sources are configured.
+    """
+    urls = settings.extra_source_urls
+    if not urls:
+        return ""
+    joined = ",".join(urls)
+    return hashlib.sha256(joined.encode()).hexdigest()[:16]
+
+
+def _load_extra_sources(client: httpx.Client, cache_dir: Path) -> int:
+    """Download and parse extra data source ZIPs. Returns total entries written."""
+    global _extra_source_count
+
+    urls = settings.extra_source_urls
+    if not urls:
+        _extra_source_count = 0
+        return 0
+
+    _extra_source_count = len(urls)
+    total = 0
+
+    for url in urls:
+        # Validate URL scheme and extension
+        if not url.lower().startswith(("http://", "https://")):
+            logger.warning("Skipping extra source with invalid scheme: %s", url)
+            continue
+        if not url.lower().endswith(".zip"):
+            logger.warning("Skipping extra source (not a .zip URL): %s", url)
+            continue
+
+        cc = _infer_country_from_url(url)
+        if not cc:
+            logger.info(
+                "No country code in URL filename %s, will rely on CSV COUNTRY_CODE column", url
+            )
+
+        count = _download_and_parse_zip(client, url, cc, cache_dir, overwrite=True)
+        if count > 0:
+            logger.info("Extra source %s: loaded %d entries (overwrite mode)", url, count)
+        else:
+            logger.warning("Extra source %s: no entries loaded", url)
+        total += count
+
+    return total
 
 
 def _read_db_created_at(db: Path) -> str:
@@ -121,7 +187,9 @@ def _sniff_dialect(text: str) -> csv.Dialect | None:
         return None
 
 
-def _parse_csv_content(text: str, country_code: str) -> int:
+def _parse_csv_content(
+    text: str, country_code: str, *, overwrite: bool = False
+) -> int:
     """Parse CSV/TSV content and populate the lookup table. Returns row count."""
     count = 0
     skipped = 0
@@ -159,10 +227,22 @@ def _parse_csv_content(text: str, country_code: str) -> int:
         )
         return 0
 
+    # Detect optional COUNTRY_CODE column
+    cc_col = None
+    for candidate in ("COUNTRY_CODE", "CC", "CNTR_CODE"):
+        if candidate in fieldnames:
+            cc_col = candidate
+            break
+
     # Map back to original-case field names from DictReader
     orig_fields = list(reader.fieldnames or [])
     pc_orig = orig_fields[fieldnames.index(pc_col)]
     nuts3_orig = orig_fields[fieldnames.index(nuts3_col)]
+    cc_orig = orig_fields[fieldnames.index(cc_col)] if cc_col else None
+
+    if not country_code and cc_col is None:
+        logger.warning("No country code available (not in URL or CSV columns), skipping file")
+        return 0
 
     for row in reader:
         pc = row.get(pc_orig, "")
@@ -173,11 +253,21 @@ def _parse_csv_content(text: str, country_code: str) -> int:
         if not _NUTS3_RE.match(nuts3):
             skipped += 1
             continue
-        key = (country_code.upper(), normalize_postal_code(pc))
-        # First-write-wins: discovery-phase data takes priority
-        if key not in _lookup:
+        # Resolve country code: per-row CSV column takes priority, then function param
+        row_cc = row.get(cc_orig, "").strip().upper() if cc_orig else ""
+        cc = row_cc if row_cc else country_code.upper()
+        key = (cc, normalize_postal_code(pc))
+        if overwrite:
+            # Last-write-wins: extra sources overwrite TERCET data
+            is_new = key not in _lookup
             _lookup[key] = nuts3
-            count += 1
+            if is_new:
+                count += 1
+        else:
+            # First-write-wins: discovery-phase data takes priority
+            if key not in _lookup:
+                _lookup[key] = nuts3
+                count += 1
 
     if skipped:
         logger.warning(
@@ -210,7 +300,8 @@ def _download_zip(client: httpx.Client, url: str) -> bytes | None:
 
 
 def _download_and_parse_zip(
-    client: httpx.Client, url: str, country_code: str, cache_dir: Path
+    client: httpx.Client, url: str, country_code: str, cache_dir: Path,
+    *, overwrite: bool = False,
 ) -> int:
     """Download a single ZIP, extract CSVs, parse them. Returns row count."""
     filename = url.rsplit("/", 1)[-1]
@@ -258,7 +349,7 @@ def _download_and_parse_zip(
                             break
                         except UnicodeDecodeError:
                             continue
-                    total += _parse_csv_content(text, country_code)
+                    total += _parse_csv_content(text, country_code, overwrite=overwrite)
     except zipfile.BadZipFile:
         logger.warning("Bad ZIP file from %s", url)
     return total
@@ -290,6 +381,11 @@ def _db_is_valid(db: Path) -> bool:
         age_days = (datetime.now(timezone.utc) - created).total_seconds() / 86400
         if age_days > settings.db_cache_ttl_days:
             logger.info("DB cache expired (%.0f days old), will rebuild", age_days)
+            return False
+        # Check if extra sources configuration changed
+        stored_hash = meta.get("extra_sources_hash", "")
+        if stored_hash != _extra_sources_hash():
+            logger.info("Extra sources configuration changed, will rebuild")
             return False
         return True
     except Exception as exc:
@@ -521,6 +617,7 @@ def _save_to_db(db: Path) -> None:
                     ("created_at", datetime.now(timezone.utc).isoformat()),
                     ("entry_count", str(len(_lookup))),
                     ("estimate_count", str(len(_estimates))),
+                    ("extra_sources_hash", _extra_sources_hash()),
                 ],
             )
             con.commit()
@@ -538,11 +635,12 @@ def _save_to_db(db: Path) -> None:
 
 def load_data() -> None:
     """Download all TERCET flat files and build the in-memory lookup table."""
-    global _data_stale, _data_loaded_at
+    global _data_stale, _data_loaded_at, _extra_source_count
 
     _lookup.clear()
     _estimates.clear()
     _data_stale = False
+    _extra_source_count = len(settings.extra_source_urls)
 
     # Ensure data directory exists
     data_dir = Path(settings.data_dir)
@@ -577,11 +675,9 @@ def load_data() -> None:
                 "Discovered %d ZIP files from directory listing", len(discovered)
             )
             for url in discovered:
-                # Extract country code from filename like pc2025_AT_NUTS-2024_v1.0.zip
-                m = re.search(r"pc\d{4}_([A-Z]{2})_", url)
-                if not m:
+                cc = _infer_country_from_url(url)
+                if not cc:
                     continue
-                cc = m.group(1)
                 count = _download_and_parse_zip(client, url, cc, cache_dir)
                 if count > 0:
                     loaded_countries.add(cc)
@@ -600,6 +696,11 @@ def load_data() -> None:
                         loaded_countries.add(cc)
                         logger.info("Loaded %d entries for %s", count, cc)
                         break
+
+        # Extra data sources (overwrite TERCET entries)
+        extra_count = _load_extra_sources(client, cache_dir)
+        if extra_count:
+            logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
 
     logger.info(
         "Data loading complete: %d postal codes across %d countries",

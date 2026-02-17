@@ -15,6 +15,7 @@ from app.data_loader import (
     get_data_loaded_at,
     get_data_stale,
     get_estimates_table,
+    get_extra_source_count,
     get_loaded_countries,
     get_lookup_table,
     load_data,
@@ -41,6 +42,9 @@ async def lifespan(app: FastAPI):
         len(table),
         len(estimates),
     )
+    extra = get_extra_source_count()
+    if extra:
+        logger.info("Extra data sources configured: %d", extra)
     if get_data_stale():
         logger.warning("Serving STALE data — TERCET refresh failed, using expired cache")
     yield
@@ -168,6 +172,7 @@ def health():
         total_postal_codes=len(table),
         total_estimates=len(estimates),
         nuts_version=settings.nuts_version,
+        extra_sources=get_extra_source_count(),
         data_stale=stale,
         last_updated=get_data_loaded_at(),
     )
