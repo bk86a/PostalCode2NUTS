@@ -6,7 +6,7 @@ Returns NUTS levels 1, 2, and 3 for any postal code across 34 European countries
 
 ## Coverage
 
-Based on GISCO TERCET NUTS-2024 correspondence tables (last updated March 2025).
+Based on GISCO TERCET correspondence tables. The NUTS version is determined automatically from the configured TERCET base URL (default: NUTS-2024).
 
 **EU-27** (27 countries):
 Austria (AT), Belgium (BE), Bulgaria (BG), Croatia (HR), Cyprus (CY), Czechia (CZ), Denmark (DK), Estonia (EE), Finland (FI), France (FR), Germany (DE), Greece (EL), Hungary (HU), Ireland (IE), Italy (IT), Latvia (LV), Lithuania (LT), Luxembourg (LU), Malta (MT), Netherlands (NL), Poland (PL), Portugal (PT), Romania (RO), Slovakia (SK), Slovenia (SI), Spain (ES), Sweden (SE)
@@ -309,7 +309,7 @@ If all three tiers fail, the service returns a 404 with a format hint for the ex
 
 On first startup the service downloads TERCET flat files (one ZIP per country), parses CSV/TSV contents, and builds an in-memory dict for O(1) lookups. Parsed data is then persisted to a SQLite cache so subsequent startups load in ~1 second instead of re-downloading and re-parsing.
 
-The SQLite cache is version-scoped (`postalcode2nuts_NUTS-{version}.db`), TTL-checked, and written atomically. If the TERCET server is unreachable, a valid cached DB ensures the service still starts with data.
+The SQLite cache is scoped by the NUTS version derived from the base URL (e.g. `postalcode2nuts_NUTS-2024.db`), TTL-checked, and written atomically. If the TERCET server is unreachable, a valid cached DB ensures the service still starts with data. Changing the base URL to a new NUTS version automatically creates a separate cache.
 
 At startup the service also loads any pre-computed estimates from the DB, removes estimates that now have exact TERCET matches (revalidation), and builds a prefix index over all TERCET codes for runtime approximation.
 
@@ -344,7 +344,7 @@ The script creates the `estimates` table if it doesn't exist, clears any previou
 ```
 app/
 ├── main.py              # FastAPI app, endpoints (/lookup, /pattern, /health)
-├── config.py            # Settings (env vars, country list, NUTS version)
+├── config.py            # Settings (env vars, country list, NUTS version derived from URL)
 ├── data_loader.py       # TERCET download, parsing, SQLite cache, three-tier lookup
 ├── models.py            # Pydantic response models
 └── postal_patterns.py   # Per-country regex patterns + extract_postal_code()
