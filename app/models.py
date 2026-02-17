@@ -38,3 +38,9 @@ class HealthResponse(BaseModel):
     total_postal_codes: int
     total_estimates: int
     nuts_version: str
+    data_stale: bool = Field(
+        description="True if serving expired cache after a failed TERCET refresh"
+    )
+    last_updated: str = Field(
+        description="ISO 8601 timestamp of when TERCET data was last successfully loaded"
+    )

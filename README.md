@@ -147,9 +147,17 @@ Returns service status and data statistics.
   "status": "ok",
   "total_postal_codes": 830032,
   "total_estimates": 6477,
-  "nuts_version": "2024"
+  "nuts_version": "2024",
+  "data_stale": false,
+  "last_updated": "2025-01-15T12:00:00+00:00"
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `status` | `ok` if data is loaded, `no_data` otherwise |
+| `data_stale` | `true` if serving expired cache after a failed TERCET refresh |
+| `last_updated` | ISO 8601 timestamp of when TERCET data was last successfully loaded |
 
 ## Error handling
 
@@ -253,7 +261,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 |----------|---------|-------------|
 | `PC2NUTS_TERCET_BASE_URL` | `https://gisco-services.ec.europa.eu/tercet/NUTS-2024/` (NUTS-2024 at present) | GISCO TERCET base URL. The NUTS version is derived from this URL. |
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
-| `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Max age of the SQLite cache before rebuild |
+| `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
 
 ## Three-tier lookup
 
@@ -309,7 +317,9 @@ If all three tiers fail, the service returns a 404 with a format hint for the ex
 
 On first startup the service downloads TERCET flat files (one ZIP per country), parses CSV/TSV contents, and builds an in-memory dict for O(1) lookups. Parsed data is then persisted to a SQLite cache so subsequent startups load in ~1 second instead of re-downloading and re-parsing.
 
-The SQLite cache is scoped by the NUTS version derived from the base URL (e.g. `postalcode2nuts_NUTS-2024.db`), TTL-checked, and written atomically. If the TERCET server is unreachable, a valid cached DB ensures the service still starts with data. Changing the base URL to a new NUTS version automatically creates a separate cache.
+The SQLite cache is scoped by the NUTS version derived from the base URL (e.g. `postalcode2nuts_NUTS-2024.db`), TTL-checked, and written atomically. Changing the base URL to a new NUTS version automatically creates a separate cache.
+
+**Stale data fallback:** When the cache TTL expires and the service attempts a fresh download from TERCET, a failure (network error, server down) no longer results in empty data. Instead, the service falls back to the expired cache and continues serving lookups. The `/health` endpoint reports `data_stale: true` so monitoring systems can detect the condition. On the next restart the service will try to refresh again.
 
 At startup the service also loads any pre-computed estimates from the DB, removes estimates that now have exact TERCET matches (revalidation), and builds a prefix index over all TERCET codes for runtime approximation.
 
