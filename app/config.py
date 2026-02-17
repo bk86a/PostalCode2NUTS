@@ -1,6 +1,10 @@
+import json
 import re
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
+
+_defaults = json.loads((Path(__file__).parent / "settings.json").read_text())
 
 
 class Settings(BaseSettings):
@@ -13,13 +17,7 @@ class Settings(BaseSettings):
     extra_sources: str = ""
 
     # Countries with TERCET flat files available
-    countries: list[str] = [
-        "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES",
-        "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
-        "NL", "PL", "PT", "RO", "SE", "SI", "SK",  # EU-27
-        "CH", "IS", "LI", "NO",                      # EFTA
-        "MK", "RS", "TR",                             # Candidates
-    ]
+    countries: list[str] = _defaults["countries"]
 
     model_config = {"env_prefix": "PC2NUTS_"}
 
@@ -37,6 +35,18 @@ class Settings(BaseSettings):
         if m:
             return m.group(1)
         return "unknown"
+
+    @property
+    def confidence_map(self) -> dict:
+        return _defaults["confidence_map"]
+
+    @property
+    def approximate_confidence_caps(self) -> dict:
+        return _defaults["approximate_confidence_caps"]
+
+    @property
+    def approximate_min_confidence(self) -> float:
+        return _defaults["approximate_min_confidence"]
 
 
 settings = Settings()

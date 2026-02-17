@@ -17,7 +17,6 @@ import httpx
 from app.config import settings
 
 _NUTS3_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{1,3}$")
-_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +35,6 @@ _data_loaded_at: str = ""
 
 # Extra source tracking
 _extra_source_count: int = 0
-
-# Maps text confidence labels to per-level numerical values
-CONFIDENCE_MAP = {
-    "high":   {"nuts3": 0.90, "nuts2": 0.95, "nuts1": 0.98},
-    "medium": {"nuts3": 0.70, "nuts2": 0.80, "nuts1": 0.90},
-    "low":    {"nuts3": 0.40, "nuts2": 0.55, "nuts1": 0.70},
-}
-
 
 def normalize_postal_code(code: str) -> str:
     """Normalize a postal code by removing spaces, dashes, and uppercasing.
@@ -312,7 +303,7 @@ def _download_and_parse_zip(
     if cached.exists():
         # Check cache TTL — re-download if older than 30 days
         age = time.time() - cached.stat().st_mtime
-        if age > _CACHE_TTL_SECONDS:
+        if age > settings.db_cache_ttl_days * 86400:
             logger.info("Cache expired for %s (%.0f days old), re-downloading", cached.name, age / 86400)
             cached.unlink()
         else:
@@ -441,7 +432,7 @@ def _load_estimates_from_csv(csv_path: Path) -> bool:
                 n1 = row["ESTIMATED_NUTS1"].strip()
                 label = row["CONFIDENCE"].strip().lower()
 
-                conf = CONFIDENCE_MAP.get(label)
+                conf = settings.confidence_map.get(label)
                 if conf is None:
                     skipped += 1
                     continue
@@ -525,12 +516,13 @@ def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
     nuts1_winner, nuts1_count = nuts1_counts.most_common(1)[0]
 
     # Confidence = agreement_ratio * prefix_ratio, capped per level
-    c3 = round(min((nuts3_count / total) * prefix_ratio, 0.80), 2)
-    c2 = round(min((nuts2_count / total) * prefix_ratio, 0.85), 2)
-    c1 = round(min((nuts1_count / total) * prefix_ratio, 0.90), 2)
+    caps = settings.approximate_confidence_caps
+    c3 = round(min((nuts3_count / total) * prefix_ratio, caps["nuts3"]), 2)
+    c2 = round(min((nuts2_count / total) * prefix_ratio, caps["nuts2"]), 2)
+    c1 = round(min((nuts1_count / total) * prefix_ratio, caps["nuts1"]), 2)
 
     # Skip if NUTS1 confidence is too low to be useful
-    if c1 < 0.1:
+    if c1 < settings.approximate_min_confidence:
         return None
 
     return {
