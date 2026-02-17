@@ -251,7 +251,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PC2NUTS_TERCET_BASE_URL` | NUTS-2024 endpoint | GISCO TERCET base URL (NUTS version is derived from this URL) |
+| `PC2NUTS_TERCET_BASE_URL` | `https://gisco-services.ec.europa.eu/tercet/NUTS-2024/` (NUTS-2024 at present) | GISCO TERCET base URL. The NUTS version is derived from this URL. |
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Max age of the SQLite cache before rebuild |
 
