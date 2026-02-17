@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     )
     data_dir: str = "./data"
     db_cache_ttl_days: int = 30
+    estimates_csv: str = "./tests/tercet_missing_codes.csv"
 
     # Countries with TERCET flat files available
     countries: list[str] = [
