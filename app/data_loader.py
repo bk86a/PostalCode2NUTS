@@ -7,6 +7,7 @@ import re
 import sqlite3
 import time
 import zipfile
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +23,19 @@ logger = logging.getLogger(__name__)
 # postal_code -> NUTS3 code, keyed by (country_code, normalized_postal_code)
 _lookup: dict[tuple[str, str], str] = {}
 
+# Pre-computed estimates keyed by (country_code, postal_code)
+_estimates: dict[tuple[str, str], dict] = {}
+
+# Prefix index: country_code -> prefix -> list of nuts3 codes
+_prefix_index: dict[str, dict[str, list[str]]] = {}
+
+# Maps text confidence labels to per-level numerical values
+CONFIDENCE_MAP = {
+    "high":   {"nuts3": 0.90, "nuts2": 0.95, "nuts1": 0.98},
+    "medium": {"nuts3": 0.70, "nuts2": 0.80, "nuts1": 0.90},
+    "low":    {"nuts3": 0.40, "nuts2": 0.55, "nuts1": 0.70},
+}
+
 
 def normalize_postal_code(code: str) -> str:
     """Normalize a postal code by removing spaces, dashes, and uppercasing.
@@ -34,6 +48,10 @@ def normalize_postal_code(code: str) -> str:
 
 def get_lookup_table() -> dict[tuple[str, str], str]:
     return _lookup
+
+
+def get_estimates_table() -> dict[tuple[str, str], dict]:
+    return _estimates
 
 
 def get_loaded_countries() -> set[str]:
@@ -252,6 +270,118 @@ def _db_is_valid(db: Path) -> bool:
         return False
 
 
+def _load_estimates_from_db(db: Path) -> bool:
+    """Load pre-computed estimates from the DB. Graceful if table is missing."""
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            # Check if estimates table exists
+            cur = con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'"
+            )
+            if cur.fetchone() is None:
+                return False
+            rows = con.execute(
+                "SELECT country_code, postal_code, nuts3, nuts2, nuts1, "
+                "nuts3_confidence, nuts2_confidence, nuts1_confidence FROM estimates"
+            ).fetchall()
+        finally:
+            con.close()
+        if not rows:
+            return False
+        for cc, pc, n3, n2, n1, c3, c2, c1 in rows:
+            _estimates[(cc, pc)] = {
+                "nuts3": n3, "nuts2": n2, "nuts1": n1,
+                "nuts3_confidence": c3, "nuts2_confidence": c2, "nuts1_confidence": c1,
+            }
+        logger.info("Loaded %d estimates from SQLite cache %s", len(rows), db.name)
+        return True
+    except Exception as exc:
+        logger.warning("Failed to load estimates from DB: %s", exc)
+        return False
+
+
+def _revalidate_estimates() -> int:
+    """Remove estimates that now have exact matches. Returns count removed."""
+    to_remove = [key for key in _estimates if key in _lookup]
+    for key in to_remove:
+        del _estimates[key]
+    if to_remove:
+        logger.info("Removed %d estimates that now have exact TERCET matches", len(to_remove))
+    return len(to_remove)
+
+
+def _build_prefix_index() -> None:
+    """Build a prefix index over all TERCET codes for runtime estimation."""
+    _prefix_index.clear()
+    for (cc, pc), nuts3 in _lookup.items():
+        if cc not in _prefix_index:
+            _prefix_index[cc] = {}
+        idx = _prefix_index[cc]
+        # Index all prefixes from length 1 to len(pc)-1
+        for length in range(1, len(pc)):
+            prefix = pc[:length]
+            if prefix not in idx:
+                idx[prefix] = []
+            idx[prefix].append(nuts3)
+    total_prefixes = sum(len(v) for v in _prefix_index.values())
+    logger.info("Built prefix index: %d prefixes across %d countries", total_prefixes, len(_prefix_index))
+
+
+def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
+    """Runtime estimation via longest prefix match + majority vote.
+
+    Returns a result dict with match_type='approximate' or None.
+    """
+    idx = _prefix_index.get(cc)
+    if not idx:
+        return None
+
+    # Find the longest matching prefix
+    best_prefix = None
+    for length in range(len(postal_code), 0, -1):
+        prefix = postal_code[:length]
+        if prefix in idx:
+            best_prefix = prefix
+            break
+
+    if best_prefix is None:
+        return None
+
+    neighbors = idx[best_prefix]
+    prefix_ratio = len(best_prefix) / len(postal_code)
+
+    # Majority vote at each NUTS level
+    nuts3_counts = Counter(neighbors)
+    nuts2_counts = Counter(n[:4] for n in neighbors)
+    nuts1_counts = Counter(n[:3] for n in neighbors)
+
+    total = len(neighbors)
+
+    nuts3_winner, nuts3_count = nuts3_counts.most_common(1)[0]
+    nuts2_winner, nuts2_count = nuts2_counts.most_common(1)[0]
+    nuts1_winner, nuts1_count = nuts1_counts.most_common(1)[0]
+
+    # Confidence = agreement_ratio * prefix_ratio, capped per level
+    c3 = round(min((nuts3_count / total) * prefix_ratio, 0.80), 2)
+    c2 = round(min((nuts2_count / total) * prefix_ratio, 0.85), 2)
+    c1 = round(min((nuts1_count / total) * prefix_ratio, 0.90), 2)
+
+    # Skip if NUTS1 confidence is too low to be useful
+    if c1 < 0.1:
+        return None
+
+    return {
+        "match_type": "approximate",
+        "nuts1": nuts1_winner,
+        "nuts1_confidence": c1,
+        "nuts2": nuts2_winner,
+        "nuts2_confidence": c2,
+        "nuts3": nuts3_winner,
+        "nuts3_confidence": c3,
+    }
+
+
 def _load_from_db(db: Path) -> bool:
     """Load the lookup table from SQLite cache. Returns True on success."""
     try:
@@ -275,7 +405,7 @@ def _load_from_db(db: Path) -> bool:
 
 
 def _save_to_db(db: Path) -> None:
-    """Persist the lookup table to SQLite cache with atomic rename."""
+    """Persist the lookup table and estimates to SQLite cache with atomic rename."""
     tmp = db.with_suffix(".db.tmp")
     try:
         tmp.unlink(missing_ok=True)
@@ -291,9 +421,32 @@ def _save_to_db(db: Path) -> None:
                 "nuts3 TEXT NOT NULL, "
                 "PRIMARY KEY (country_code, postal_code))"
             )
+            con.execute(
+                "CREATE TABLE estimates ("
+                "country_code TEXT NOT NULL, "
+                "postal_code TEXT NOT NULL, "
+                "nuts3 TEXT NOT NULL, "
+                "nuts2 TEXT NOT NULL, "
+                "nuts1 TEXT NOT NULL, "
+                "nuts3_confidence REAL NOT NULL, "
+                "nuts2_confidence REAL NOT NULL, "
+                "nuts1_confidence REAL NOT NULL, "
+                "PRIMARY KEY (country_code, postal_code))"
+            )
             con.executemany(
                 "INSERT INTO lookup (country_code, postal_code, nuts3) VALUES (?, ?, ?)",
                 [(cc, pc, nuts3) for (cc, pc), nuts3 in _lookup.items()],
+            )
+            con.executemany(
+                "INSERT INTO estimates "
+                "(country_code, postal_code, nuts3, nuts2, nuts1, "
+                "nuts3_confidence, nuts2_confidence, nuts1_confidence) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (cc, pc, est["nuts3"], est["nuts2"], est["nuts1"],
+                     est["nuts3_confidence"], est["nuts2_confidence"], est["nuts1_confidence"])
+                    for (cc, pc), est in _estimates.items()
+                ],
             )
             con.executemany(
                 "INSERT INTO metadata (key, value) VALUES (?, ?)",
@@ -301,13 +454,17 @@ def _save_to_db(db: Path) -> None:
                     ("nuts_version", settings.nuts_version),
                     ("created_at", datetime.now(timezone.utc).isoformat()),
                     ("entry_count", str(len(_lookup))),
+                    ("estimate_count", str(len(_estimates))),
                 ],
             )
             con.commit()
         finally:
             con.close()
         tmp.replace(db)
-        logger.info("Saved %d entries to SQLite cache %s", len(_lookup), db.name)
+        logger.info(
+            "Saved %d entries + %d estimates to SQLite cache %s",
+            len(_lookup), len(_estimates), db.name,
+        )
     except Exception as exc:
         logger.warning("Failed to save DB cache: %s", exc)
         tmp.unlink(missing_ok=True)
@@ -316,6 +473,7 @@ def _save_to_db(db: Path) -> None:
 def load_data() -> None:
     """Download all TERCET flat files and build the in-memory lookup table."""
     _lookup.clear()
+    _estimates.clear()
 
     # Ensure data directory exists
     data_dir = Path(settings.data_dir)
@@ -324,6 +482,9 @@ def load_data() -> None:
     # Fast path: load from SQLite cache if valid
     db = _db_path()
     if _db_is_valid(db) and _load_from_db(db):
+        _load_estimates_from_db(db)
+        _revalidate_estimates()
+        _build_prefix_index()
         return
 
     _lookup.clear()
@@ -373,14 +534,25 @@ def load_data() -> None:
         len(loaded_countries),
     )
 
+    # Load estimates from existing DB (import_estimates writes directly to the DB)
+    _load_estimates_from_db(db)
+    _revalidate_estimates()
+
     if _lookup:
         _save_to_db(db)
+
+    _build_prefix_index()
 
 
 def lookup(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
-    Returns a dict with nuts1, nuts2, nuts3 or None if not found.
+    Three-tier fall-through:
+    1. Exact TERCET match → confidence 1.0
+    2. Pre-computed estimate → stored confidence per level
+    3. Runtime prefix-based estimation → calculated confidence
+
+    Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
     from app.postal_patterns import extract_postal_code
 
@@ -389,21 +561,34 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     if cc == "GR":
         cc = "EL"
 
-    key = (cc, extract_postal_code(cc, postal_code))
+    extracted = extract_postal_code(cc, postal_code)
+    key = (cc, extracted)
+
+    # Tier 1: Exact TERCET match
     nuts3 = _lookup.get(key)
-    if nuts3 is None:
-        return None
+    if nuts3 is not None:
+        return {
+            "match_type": "exact",
+            "nuts1": nuts3[:3],
+            "nuts1_confidence": 1.0,
+            "nuts2": nuts3[:4],
+            "nuts2_confidence": 1.0,
+            "nuts3": nuts3,
+            "nuts3_confidence": 1.0,
+        }
 
-    # NUTS3 code structure: CC + 1 digit (NUTS1) + 1-2 digits (NUTS2) + 1 digit (NUTS3)
-    # e.g. PL213 -> NUTS1=PL2, NUTS2=PL21, NUTS3=PL213
-    # Length varies: country prefix (2 chars) + 1 char = NUTS1,
-    #               country prefix (2 chars) + 2 chars = NUTS2,
-    #               country prefix (2 chars) + 3 chars = NUTS3
-    nuts1 = nuts3[:3]  # e.g. "PL2"
-    nuts2 = nuts3[:4]  # e.g. "PL21"
+    # Tier 2: Pre-computed estimate
+    est = _estimates.get(key)
+    if est is not None:
+        return {
+            "match_type": "estimated",
+            "nuts1": est["nuts1"],
+            "nuts1_confidence": est["nuts1_confidence"],
+            "nuts2": est["nuts2"],
+            "nuts2_confidence": est["nuts2_confidence"],
+            "nuts3": est["nuts3"],
+            "nuts3_confidence": est["nuts3_confidence"],
+        }
 
-    return {
-        "nuts1": nuts1,
-        "nuts2": nuts2,
-        "nuts3": nuts3,
-    }
+    # Tier 3: Runtime prefix-based estimation
+    return _estimate_by_prefix(cc, extracted)

@@ -2,7 +2,7 @@
 
 FastAPI microservice that maps European postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
 
-Returns NUTS levels 1, 2, and 3 for any postal code across 34 European countries and territories.
+Returns NUTS levels 1, 2, and 3 for any postal code across 34 European countries and territories, with confidence scores indicating how the result was determined.
 
 ## Coverage
 
@@ -53,7 +53,7 @@ Look up NUTS codes for a postal code in a given country.
 | `country` | string (2 letters) | yes | ISO 3166-1 alpha-2 country code |
 | `postal_code` | string | yes | Postal code (with or without country prefix) |
 
-**Example:**
+**Example — exact match:**
 
 ```
 GET /lookup?country=AT&postal_code=A-1010
@@ -63,11 +63,44 @@ GET /lookup?country=AT&postal_code=A-1010
 {
   "postal_code": "A-1010",
   "country_code": "AT",
+  "match_type": "exact",
   "nuts1": "AT1",
+  "nuts1_confidence": 1.0,
   "nuts2": "AT13",
-  "nuts3": "AT130"
+  "nuts2_confidence": 1.0,
+  "nuts3": "AT130",
+  "nuts3_confidence": 1.0
 }
 ```
+
+**Example — estimated match:**
+
+```
+GET /lookup?country=AT&postal_code=1012
+```
+
+```json
+{
+  "postal_code": "1012",
+  "country_code": "AT",
+  "match_type": "estimated",
+  "nuts1": "AT1",
+  "nuts1_confidence": 0.98,
+  "nuts2": "AT13",
+  "nuts2_confidence": 0.95,
+  "nuts3": "AT130",
+  "nuts3_confidence": 0.9
+}
+```
+
+Every response includes:
+
+| Field | Description |
+|-------|-------------|
+| `match_type` | How the result was determined: `exact`, `estimated`, or `approximate` |
+| `nuts{1,2,3}_confidence` | Confidence score (0.0–1.0) for each NUTS level |
+
+See [Three-tier lookup](#three-tier-lookup) below for details on match types and confidence values.
 
 The service accepts postal codes with or without country prefixes. For example, all of the following resolve to the same result for Austria: `1010`, `A-1010`, `AT-1010`, `A1010`.
 
@@ -113,6 +146,7 @@ Returns service status and data statistics.
 {
   "status": "ok",
   "total_postal_codes": 830032,
+  "total_estimates": 6477,
   "nuts_version": "2024"
 }
 ```
@@ -222,11 +256,89 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Max age of the SQLite cache before rebuild |
 
+## Three-tier lookup
+
+The service resolves postal codes using a three-tier fall-through strategy. Each tier adds coverage for codes not found by the tier above, and every result includes a `match_type` and per-level confidence scores so consumers can decide how much to trust the result.
+
+### Tier 1: Exact match (`match_type: "exact"`)
+
+Direct lookup in the TERCET correspondence table. The postal code exists verbatim in the official GISCO dataset.
+
+- Confidence: **1.0** at all NUTS levels.
+- This is the primary data source and covers the vast majority of valid European postal codes.
+
+### Tier 2: Pre-computed estimate (`match_type: "estimated"`)
+
+Lookup in a curated table of postal codes that are absent from TERCET but have been assigned estimated NUTS regions based on neighbouring codes and geographic analysis. These estimates are imported ahead of time via the `import_estimates` script (see below).
+
+Each estimate carries a confidence label (high / medium / low) that is mapped to numerical scores per NUTS level:
+
+| Label  | NUTS1 | NUTS2 | NUTS3 |
+|--------|-------|-------|-------|
+| high   | 0.98  | 0.95  | 0.90  |
+| medium | 0.90  | 0.80  | 0.70  |
+| low    | 0.70  | 0.55  | 0.40  |
+
+Confidence is higher at coarser NUTS levels because neighbouring codes are more likely to share the same NUTS1 region than the same NUTS3 region.
+
+### Tier 3: Runtime approximation (`match_type: "approximate"`)
+
+If neither an exact match nor a pre-computed estimate exists, the service performs a runtime estimation using prefix matching against all known TERCET codes for that country.
+
+**How it works:**
+
+1. Find the longest prefix of the query postal code that matches one or more known postal codes.
+2. Collect all NUTS3 codes for those matching neighbours.
+3. Majority-vote at each NUTS level (NUTS3, NUTS2, NUTS1) to pick the most common region.
+4. Compute confidence as:
+
+   ```
+   confidence = min(agreement_ratio * prefix_ratio, cap)
+   ```
+
+   - `agreement_ratio` = how many neighbours agree on the winning region / total neighbours
+   - `prefix_ratio` = matched prefix length / full postal code length
+   - Caps: 0.90 (NUTS1), 0.85 (NUTS2), 0.80 (NUTS3)
+
+5. If confidence at NUTS1 level is below 0.1, the result is discarded entirely (returns 404).
+
+### No match (404)
+
+If all three tiers fail, the service returns a 404 with a format hint for the expected postal code pattern.
+
 ## How it works
 
 On first startup the service downloads TERCET flat files (one ZIP per country), parses CSV/TSV contents, and builds an in-memory dict for O(1) lookups. Parsed data is then persisted to a SQLite cache so subsequent startups load in ~1 second instead of re-downloading and re-parsing.
 
 The SQLite cache is version-scoped (`postalcode2nuts_NUTS-{version}.db`), TTL-checked, and written atomically. If the TERCET server is unreachable, a valid cached DB ensures the service still starts with data.
+
+At startup the service also loads any pre-computed estimates from the DB, removes estimates that now have exact TERCET matches (revalidation), and builds a prefix index over all TERCET codes for runtime approximation.
+
+## Importing estimates
+
+The `scripts/import_estimates.py` script imports pre-computed NUTS estimates into the SQLite cache DB.
+
+**Input CSV format:**
+
+```
+COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE
+AT,1012,AT130,AT13,AT1,high
+AT,3082,AT123,AT12,AT1,low
+```
+
+The `CONFIDENCE` column accepts `high`, `medium`, or `low`. Rows with empty or unrecognized labels are skipped.
+
+**Usage:**
+
+```bash
+# Import using defaults (reads tests/tercet_missing_codes.csv, writes to the auto-detected DB)
+python -m scripts.import_estimates
+
+# Specify paths explicitly
+python -m scripts.import_estimates --csv /path/to/estimates.csv --db /path/to/cache.db
+```
+
+The script creates the `estimates` table if it doesn't exist, clears any previous estimates, and inserts the new data. It can be run before or after the first API startup — on the next startup the service will pick up the estimates automatically.
 
 ## Project structure
 
@@ -234,22 +346,12 @@ The SQLite cache is version-scoped (`postalcode2nuts_NUTS-{version}.db`), TTL-ch
 app/
 ├── main.py              # FastAPI app, endpoints (/lookup, /pattern, /health)
 ├── config.py            # Settings (env vars, country list, NUTS version)
-├── data_loader.py       # TERCET download, parsing, SQLite cache, lookup()
+├── data_loader.py       # TERCET download, parsing, SQLite cache, three-tier lookup
 ├── models.py            # Pydantic response models
 └── postal_patterns.py   # Per-country regex patterns + extract_postal_code()
-tests/
-├── AT01TestData.csv     # Austrian test postal codes (1628 rows)
-└── BETestData.csv       # Belgian test postal codes (1284 rows)
+scripts/
+└── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
 ```
-
-## Test data results
-
-Test data files contain real-world postal code inputs (including dirty data: city names, phone numbers, foreign codes, etc.).
-
-| Country | Test rows | Match rate | Notes |
-|---------|-----------|------------|-------|
-| AT | 1628 | 88.2% | 192 misses: dirty data, foreign codes, codes not in TERCET |
-| BE | 1284 | 84.5% | 199 misses: dirty data, foreign codes, codes not in TERCET |
 
 ## Data source
 
