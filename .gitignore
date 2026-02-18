@@ -8,4 +8,4 @@ build/
 .venv/
 venv/
 data/
-docs/
+docs/security_analysis.md
