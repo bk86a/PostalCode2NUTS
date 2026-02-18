@@ -19,5 +19,6 @@
   },
   "approximate_min_confidence": 0.1,
   "rate_limit": "60/minute",
-  "rate_limit_headers": true
+  "rate_limit_headers": true,
+  "cache_max_age": 3600
 }

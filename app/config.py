@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     extra_sources: str = ""
     rate_limit: str = _defaults.get("rate_limit", "60/minute")
     rate_limit_headers: bool = _defaults.get("rate_limit_headers", True)
+    cache_max_age: int = _defaults.get("cache_max_age", 3600)
     startup_timeout: int = 300
     docs_enabled: bool = True
     cors_origins: str = "*"

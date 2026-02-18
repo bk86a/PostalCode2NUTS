@@ -9,7 +9,7 @@ import time
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter
@@ -163,6 +163,7 @@ def _available_countries_str() -> str:
 @limiter.limit(settings.rate_limit)
 def lookup_postal_code(
     request: Request,
+    response: Response,
     postal_code: str = Query(
         ...,
         max_length=20,
@@ -202,6 +203,7 @@ def lookup_postal_code(
                 f"in country '{cc}'.{hint}"
             ),
         )
+    response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
     return NUTSResult(
         postal_code=postal_code,
         country_code=cc,
@@ -221,6 +223,7 @@ def lookup_postal_code(
 @limiter.limit(settings.rate_limit)
 def get_pattern(
     request: Request,
+    response: Response,
     country: str | None = Query(
         default=None,
         min_length=2,
@@ -230,6 +233,7 @@ def get_pattern(
         examples=["AT", "DE", "NL"],
     ),
 ):
+    response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
     if country is None:
         return sorted(POSTAL_PATTERNS.keys())
     cc = country.upper()
