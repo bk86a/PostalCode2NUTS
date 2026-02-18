@@ -78,9 +78,9 @@ An attacker with env var access (CI/CD, shared hosting, orchestration misconfigu
 
 `url.rsplit("/", 1)[-1]` extracts only the last path component. Path traversal via URL crafting is not possible. ZIP contents are read into memory, never extracted to disk. No zip-slip risk.
 
-### Disk full handling — LOW
+### ~~Disk full handling~~ — RESOLVED (v0.6.1)
 
-If the disk is full during `cached.write_bytes()` or SQLite operations, OSError propagates. For ZIPs, this fails silently per-country (other countries still load). For DB save, the `except Exception` handler cleans up the temp file. Adequate but not logged at ERROR level.
+**Fixed:** `cached.write_bytes()` is now wrapped in try/except with `logger.error`. DB save exception upgraded from `logger.warning` to `logger.error`.
 
 ---
 
@@ -126,25 +126,25 @@ The app serves plain HTTP. Must be behind a TLS-terminating reverse proxy (nginx
 
 **Fixed:** `requirements.lock` with exact pinned versions. Dockerfile uses `requirements.lock` for reproducible builds. `requirements.txt` retained with ranges for development.
 
-### No CI/CD pipeline visible — LOW
+### ~~No CI/CD pipeline visible~~ — RESOLVED (v0.6.1)
 
-No GitHub Actions, no automated tests, no linting, no security scanning in the repo.
+**Fixed:** GitHub Actions CI workflow added with 4 jobs: lint (ruff), import check, security (pip-audit + bandit), and Docker build verification.
 
 ---
 
 ## 9. Configuration Robustness
 
-### `nuts_version` "unknown" not handled — LOW
+### ~~`nuts_version` "unknown" not handled~~ — RESOLVED (v0.6.1)
 
-If `PC2NUTS_TERCET_BASE_URL` doesn't match `NUTS-\d{4}`, the version is "unknown". URL guessing generates invalid URLs (`NUTS-unknown`), discovery may still work, but the DB file is `postalcode2nuts_NUTS-unknown.db`. No validation or warning at startup.
+**Fixed:** Startup now logs a warning when the NUTS version cannot be derived from the base URL.
 
-### No validation on `db_cache_ttl_days` — LOW
+### ~~No validation on `db_cache_ttl_days`~~ — RESOLVED (v0.6.1)
 
-A value of 0 or negative causes the cache to always appear expired. No explicit bounds checking.
+**Fixed:** Startup now logs a warning when `db_cache_ttl_days` is less than 1.
 
-### JSON file corruption — LOW
+### ~~JSON file corruption~~ — RESOLVED (v0.6.1)
 
-If `settings.json` or `postal_patterns.json` are malformed, the app crashes at import time with a `json.JSONDecodeError`. This is fail-fast (good), but the error message won't be very user-friendly.
+**Fixed:** Both JSON files now produce a clear `Fatal: failed to load <path>: <reason>` message and `SystemExit` instead of a raw traceback.
 
 ---
 
@@ -158,9 +158,9 @@ Once loaded, data is static. To refresh, restart the service. This is intentiona
 
 If TERCET is unreachable on first startup and no SQLite cache exists, the app starts with zero data. The health endpoint reports `"no_data"` but the app is "up". All `/lookup` requests return 400. There's no automatic retry after startup.
 
-### Estimates not revalidated after extra sources — LOW
+### ~~Estimates not revalidated after extra sources~~ — RESOLVED (v0.6.1)
 
-`_revalidate_estimates()` removes estimates that overlap with exact matches. But if extra sources overwrite a TERCET entry with a different NUTS3 code, existing estimates for that postal code are not updated to reflect the new mapping.
+**Fixed:** `_revalidate_estimates()` now detects and warns when removed estimates had NUTS3 codes inconsistent with current exact data, flagging stale estimates for operator review.
 
 ---
 
@@ -183,7 +183,11 @@ If TERCET is unreachable on first startup and no SQLite cache exists, the app st
 | ~~**MEDIUM**~~ | ~~Mutable globals without locking~~ | 6 | **RESOLVED v0.6.0** |
 | **LOW** | Version exposed in OpenAPI spec | 4 | Open |
 | ~~**LOW**~~ | ~~No Docker HEALTHCHECK~~ | 7 | **RESOLVED v0.6.0** |
-| **LOW** | `nuts_version` "unknown" not validated | 9 | Open |
-| **LOW** | No CI/CD or security scanning | 8 | Open |
-| **LOW** | No access/audit logging | 4 | Open |
+| ~~**LOW**~~ | ~~`nuts_version` "unknown" not validated~~ | 9 | **RESOLVED v0.6.1** |
+| ~~**LOW**~~ | ~~No CI/CD or security scanning~~ | 8 | **RESOLVED v0.6.1** |
+| ~~**LOW**~~ | ~~No access/audit logging~~ | 4 | **RESOLVED v0.6.1** |
 | **LOW** | Multi-worker redundant downloads | 6 | Open |
+| ~~**LOW**~~ | ~~Disk full handling~~ | 5 | **RESOLVED v0.6.1** |
+| ~~**LOW**~~ | ~~No validation on `db_cache_ttl_days`~~ | 9 | **RESOLVED v0.6.1** |
+| ~~**LOW**~~ | ~~JSON file corruption~~ | 9 | **RESOLVED v0.6.1** |
+| ~~**LOW**~~ | ~~Estimates not revalidated after extra sources~~ | 10 | **RESOLVED v0.6.1** |

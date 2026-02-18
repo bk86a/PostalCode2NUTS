@@ -5,10 +5,13 @@ Data source: GISCO TERCET flat files
 """
 
 import logging
+import time
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -36,6 +39,39 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
+
+# Access logger — separate from app logger
+access_logger = logging.getLogger("app.access")
+access_logger.setLevel(logging.INFO)
+access_logger.propagate = False
+if settings.access_log_file:
+    _handler = RotatingFileHandler(
+        settings.access_log_file,
+        maxBytes=settings.access_log_max_mb * 1024 * 1024,
+        backupCount=settings.access_log_backup_count,
+    )
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    access_logger.addHandler(_handler)
+else:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    access_logger.addHandler(_handler)
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start = time.monotonic()
+        response = await call_next(request)
+        duration_ms = (time.monotonic() - start) * 1000
+        access_logger.info(
+            '%s %s %s %d %.1fms',
+            request.client.host if request.client else "-",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
 
 
 @asynccontextmanager
@@ -90,6 +126,9 @@ if settings.cors_origins:
             allow_methods=["GET"],
             allow_headers=["*"],
         )
+
+
+app.add_middleware(AccessLogMiddleware)
 
 
 def _available_countries_str() -> str:

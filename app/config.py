@@ -4,7 +4,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
-_defaults = json.loads((Path(__file__).parent / "settings.json").read_text())
+_settings_path = Path(__file__).parent / "settings.json"
+try:
+    _defaults = json.loads(_settings_path.read_text())
+except (json.JSONDecodeError, OSError) as _exc:
+    raise SystemExit(f"Fatal: failed to load {_settings_path}: {_exc}") from _exc
 
 
 class Settings(BaseSettings):
@@ -17,6 +21,9 @@ class Settings(BaseSettings):
     startup_timeout: int = 300
     docs_enabled: bool = True
     cors_origins: str = "*"
+    access_log_file: str = ""
+    access_log_max_mb: int = 10
+    access_log_backup_count: int = 5
 
     # Countries with TERCET flat files available
     countries: list[str] = _defaults["countries"]

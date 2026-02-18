@@ -334,7 +334,10 @@ def _download_and_parse_zip(
         if not zipfile.is_zipfile(io.BytesIO(content)):
             logger.warning("Downloaded file from %s is not a valid ZIP, skipping", url)
             return 0
-        cached.write_bytes(content)
+        try:
+            cached.write_bytes(content)
+        except OSError as exc:
+            logger.error("Failed to cache %s: %s", cached, exc)
 
     total = 0
     try:
@@ -471,12 +474,29 @@ def _load_estimates_from_csv(csv_path: Path) -> bool:
 
 
 def _revalidate_estimates() -> int:
-    """Remove estimates that now have exact matches. Returns count removed."""
-    to_remove = [key for key in _estimates if key in _lookup]
+    """Remove estimates that now have exact matches and warn about inconsistencies.
+
+    Returns count removed.
+    """
+    to_remove = []
+    inconsistent = 0
+    for key, est in _estimates.items():
+        exact = _lookup.get(key)
+        if exact is not None:
+            to_remove.append(key)
+            # Warn if the estimate pointed to a different NUTS3 than the exact match
+            if est["nuts3"] != exact:
+                inconsistent += 1
     for key in to_remove:
         del _estimates[key]
     if to_remove:
         logger.info("Removed %d estimates that now have exact TERCET matches", len(to_remove))
+    if inconsistent:
+        logger.warning(
+            "%d removed estimates had NUTS3 codes inconsistent with current exact data "
+            "(estimates CSV may need updating)",
+            inconsistent,
+        )
     return len(to_remove)
 
 
@@ -637,7 +657,7 @@ def _save_to_db(db: Path) -> None:
             len(_lookup), len(_estimates), db.name,
         )
     except Exception as exc:
-        logger.warning("Failed to save DB cache: %s", exc)
+        logger.error("Failed to save DB cache: %s", exc)
         tmp.unlink(missing_ok=True)
 
 
@@ -646,6 +666,18 @@ def load_data() -> None:
     global _data_stale, _data_loaded_at, _extra_source_count
 
     with _data_lock:
+        if settings.nuts_version == "unknown":
+            logger.warning(
+                "Could not derive NUTS version from base URL '%s'. "
+                "URL guessing and DB caching may not work correctly.",
+                settings.tercet_base_url,
+            )
+        if settings.db_cache_ttl_days < 1:
+            logger.warning(
+                "PC2NUTS_DB_CACHE_TTL_DAYS=%d is less than 1, cache will always be considered expired.",
+                settings.db_cache_ttl_days,
+            )
+
         _lookup.clear()
         _estimates.clear()
         _data_stale = False

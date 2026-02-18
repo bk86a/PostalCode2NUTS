@@ -271,6 +271,9 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_STARTUP_TIMEOUT` | `300` | Maximum seconds allowed for initial data loading. If exceeded, the service starts with whatever data was loaded and sets `data_stale: true`. |
 | `PC2NUTS_DOCS_ENABLED` | `true` | Set to `false` to disable Swagger UI (`/docs`) and ReDoc (`/redoc`) in production. |
 | `PC2NUTS_CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins. Set to a specific origin (e.g. `https://example.com`) to restrict cross-origin access. Empty string disables CORS middleware. |
+| `PC2NUTS_ACCESS_LOG_FILE` | *(empty — stdout)* | Path to access log file. When set, logs are written to this file with automatic rotation. When empty, access logs go to stderr. |
+| `PC2NUTS_ACCESS_LOG_MAX_MB` | `10` | Maximum size of each access log file in MB before rotation. |
+| `PC2NUTS_ACCESS_LOG_BACKUP_COUNT` | `5` | Number of rotated access log files to keep (e.g. 5 x 10 MB = 50 MB max disk usage). |
 
 ## Three-tier lookup
 
@@ -408,6 +411,7 @@ Changing the `PC2NUTS_EXTRA_SOURCES` list invalidates the SQLite cache automatic
 - **HTTPS:** The service serves plain HTTP. Place it behind a TLS-terminating reverse proxy (nginx, cloud load balancer) in production.
 - **Docker:** The container runs as a non-root user (`appuser`). The `/app/data` volume must be writable by this user. Pre-computed estimates are included in the image.
 - **Rate limiting:** Limits are per-client IP (`X-Forwarded-For` aware). Behind a reverse proxy, ensure the proxy sets this header correctly.
+- **Access logging:** Every request is logged with client IP, method, path, status code, and duration. Set `PC2NUTS_ACCESS_LOG_FILE` to write to a rotating file instead of stderr.
 
 ## Project structure
 
