@@ -17,5 +17,7 @@
     "nuts2": 0.85,
     "nuts1": 0.90
   },
-  "approximate_min_confidence": 0.1
+  "approximate_min_confidence": 0.1,
+  "rate_limit": "60/minute",
+  "rate_limit_headers": true
 }

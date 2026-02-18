@@ -108,9 +108,23 @@ app.state.limiter = limiter
 
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    headers = {}
+    if settings.rate_limit_headers:
+        window_seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400}
+        retry_after = "60"
+        for unit, secs in window_seconds.items():
+            if unit in settings.rate_limit:
+                retry_after = str(secs)
+                break
+        headers = {
+            "Retry-After": retry_after,
+            "X-RateLimit-Limit": settings.rate_limit,
+            "X-RateLimit-Remaining": "0",
+        }
     return JSONResponse(
         status_code=429,
         content={"detail": "Rate limit exceeded. Try again later."},
+        headers=headers,
     )
 
 

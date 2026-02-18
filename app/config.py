@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     db_cache_ttl_days: int = 30
     estimates_csv: str = "./tercet_missing_codes.csv"
     extra_sources: str = ""
-    rate_limit: str = "60/minute"
+    rate_limit: str = _defaults.get("rate_limit", "60/minute")
+    rate_limit_headers: bool = _defaults.get("rate_limit_headers", True)
     startup_timeout: int = 300
     docs_enabled: bool = True
     cors_origins: str = "*"
