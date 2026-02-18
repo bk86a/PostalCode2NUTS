@@ -40,7 +40,7 @@ docker run -p 8000:8000 postalcode2nuts
 | `GET /pattern` | Get the postal code regex pattern for a country |
 | `GET /health` | Health check with data statistics |
 
-Interactive API docs are available at `/docs` (Swagger UI) and `/redoc`.
+Interactive API docs are available at `/docs` (Swagger UI) and `/redoc`. To disable in production, set `PC2NUTS_DOCS_ENABLED=false`.
 
 ### `GET /lookup`
 
