@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     db_cache_ttl_days: int = 30
     estimates_csv: str = "./tests/tercet_missing_codes.csv"
     extra_sources: str = ""
+    rate_limit: str = "60/minute"
+    startup_timeout: int = 300
+    docs_enabled: bool = True
+    cors_origins: str = "*"
 
     # Countries with TERCET flat files available
     countries: list[str] = _defaults["countries"]
