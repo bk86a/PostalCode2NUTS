@@ -7,7 +7,12 @@ Data source: GISCO TERCET flat files
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.responses import JSONResponse
 
 from app import __version__
 from app.config import settings
@@ -29,6 +34,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -58,7 +65,31 @@ app = FastAPI(
     ),
     version=__version__,
     lifespan=lifespan,
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
 )
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later."},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+# CORS middleware
+if settings.cors_origins:
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["GET"],
+            allow_headers=["*"],
+        )
 
 
 def _available_countries_str() -> str:
@@ -72,12 +103,16 @@ def _available_countries_str() -> str:
     responses={
         400: {"model": ErrorResponse, "description": "Unsupported country"},
         404: {"model": ErrorResponse, "description": "Postal code not found"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
     summary="Look up NUTS codes for a postal code",
 )
+@limiter.limit(settings.rate_limit)
 def lookup_postal_code(
+    request: Request,
     postal_code: str = Query(
         ...,
+        max_length=20,
         description="Postal code to look up (e.g. '00-950', '1010', '10115')",
         examples=["00-950", "1010", "10115"],
     ),
@@ -126,10 +161,13 @@ def lookup_postal_code(
     response_model=PatternResponse | list[str],
     responses={
         404: {"model": ErrorResponse, "description": "No pattern for this country"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
     summary="Get postal code regex pattern for a country",
 )
+@limiter.limit(settings.rate_limit)
 def get_pattern(
+    request: Request,
     country: str | None = Query(
         default=None,
         min_length=2,

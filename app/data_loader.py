@@ -6,6 +6,7 @@ import io
 import logging
 import re
 import sqlite3
+import threading
 import time
 import zipfile
 from collections import Counter
@@ -17,6 +18,8 @@ import httpx
 from app.config import settings
 
 _NUTS3_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{1,3}$")
+
+_MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,9 @@ _data_loaded_at: str = ""
 
 # Extra source tracking
 _extra_source_count: int = 0
+
+# Protects against concurrent reload
+_data_lock = threading.Lock()
 
 def normalize_postal_code(code: str) -> str:
     """Normalize a postal code by removing spaces, dashes, and uppercasing.
@@ -91,7 +97,7 @@ def _extra_sources_hash() -> str:
     return hashlib.sha256(joined.encode()).hexdigest()[:16]
 
 
-def _load_extra_sources(client: httpx.Client, cache_dir: Path) -> int:
+def _load_extra_sources(client: httpx.Client, cache_dir: Path, *, deadline: float = 0) -> int:
     """Download and parse extra data source ZIPs. Returns total entries written."""
     global _extra_source_count
 
@@ -118,7 +124,7 @@ def _load_extra_sources(client: httpx.Client, cache_dir: Path) -> int:
                 "No country code in URL filename %s, will rely on CSV COUNTRY_CODE column", url
             )
 
-        count = _download_and_parse_zip(client, url, cc, cache_dir, overwrite=True)
+        count = _download_and_parse_zip(client, url, cc, cache_dir, overwrite=True, deadline=deadline)
         if count > 0:
             logger.info("Extra source %s: loaded %d entries (overwrite mode)", url, count)
         else:
@@ -292,9 +298,12 @@ def _download_zip(client: httpx.Client, url: str) -> bytes | None:
 
 def _download_and_parse_zip(
     client: httpx.Client, url: str, country_code: str, cache_dir: Path,
-    *, overwrite: bool = False,
+    *, overwrite: bool = False, deadline: float = 0,
 ) -> int:
     """Download a single ZIP, extract CSVs, parse them. Returns row count."""
+    if deadline and time.monotonic() > deadline:
+        logger.warning("Startup timeout reached, skipping download of %s", url)
+        return 0
     filename = url.rsplit("/", 1)[-1]
     cached = cache_dir / filename
 
@@ -332,6 +341,13 @@ def _download_and_parse_zip(
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             for name in zf.namelist():
                 if name.lower().endswith((".csv", ".tsv", ".txt")):
+                    file_size = zf.getinfo(name).file_size
+                    if file_size > _MAX_UNCOMPRESSED_SIZE:
+                        logger.warning(
+                            "Skipping %s in %s: uncompressed size %d bytes exceeds limit",
+                            name, url, file_size,
+                        )
+                        continue
                     raw = zf.read(name)
                     # Try common encodings; latin-1 always succeeds so no else needed
                     for enc in ("utf-8-sig", "utf-8", "latin-1"):
@@ -629,95 +645,114 @@ def load_data() -> None:
     """Download all TERCET flat files and build the in-memory lookup table."""
     global _data_stale, _data_loaded_at, _extra_source_count
 
-    _lookup.clear()
-    _estimates.clear()
-    _data_stale = False
-    _extra_source_count = len(settings.extra_source_urls)
+    with _data_lock:
+        _lookup.clear()
+        _estimates.clear()
+        _data_stale = False
+        _extra_source_count = len(settings.extra_source_urls)
 
-    # Ensure data directory exists
-    data_dir = Path(settings.data_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
+        start_time = time.monotonic()
+        deadline = start_time + settings.startup_timeout
 
-    estimates_csv = Path(settings.estimates_csv)
+        # Ensure data directory exists
+        data_dir = Path(settings.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Fast path: load from SQLite cache if valid
-    db = _db_path()
-    if _db_is_valid(db) and _load_from_db(db):
-        _data_loaded_at = _read_db_created_at(db)
-        if not _load_estimates_from_csv(estimates_csv):
-            _load_estimates_from_db(db)
-        _revalidate_estimates()
-        _build_prefix_index()
-        return
+        estimates_csv = Path(settings.estimates_csv)
 
-    _lookup.clear()
-    cache_dir = data_dir / f"NUTS-{settings.nuts_version}"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+        # Fast path: load from SQLite cache if valid
+        db = _db_path()
+        if _db_is_valid(db) and _load_from_db(db):
+            _data_loaded_at = _read_db_created_at(db)
+            if not _load_estimates_from_csv(estimates_csv):
+                _load_estimates_from_db(db)
+            _revalidate_estimates()
+            _build_prefix_index()
+            return
 
-    base_url = settings.tercet_base_url
-    countries = settings.countries
+        _lookup.clear()
+        cache_dir = data_dir / f"NUTS-{settings.nuts_version}"
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
-    with httpx.Client() as client:
-        # Strategy 1: discover files from directory listing
-        discovered = _discover_zip_urls(client, base_url)
-        loaded_countries: set[str] = set()
+        base_url = settings.tercet_base_url
+        countries = settings.countries
+        timed_out = False
 
-        if discovered:
-            logger.info(
-                "Discovered %d ZIP files from directory listing", len(discovered)
-            )
-            for url in discovered:
-                cc = _infer_country_from_url(url)
-                if not cc:
-                    continue
-                count = _download_and_parse_zip(client, url, cc, cache_dir)
-                if count > 0:
-                    loaded_countries.add(cc)
-                    logger.info("Loaded %d entries for %s", count, cc)
+        with httpx.Client() as client:
+            # Strategy 1: discover files from directory listing
+            discovered = _discover_zip_urls(client, base_url)
+            loaded_countries: set[str] = set()
 
-        # Strategy 2: for countries not yet loaded, try guessed URLs per-country
-        remaining = [c for c in countries if c not in loaded_countries]
-        if remaining:
-            logger.info(
-                "Trying guessed URLs for %d remaining countries", len(remaining)
-            )
-            for cc in remaining:
-                for url in _guess_zip_urls_for_country(base_url, cc):
-                    count = _download_and_parse_zip(client, url, cc, cache_dir)
+            if discovered:
+                logger.info(
+                    "Discovered %d ZIP files from directory listing", len(discovered)
+                )
+                for url in discovered:
+                    if time.monotonic() > deadline:
+                        logger.warning("Startup timeout reached during discovery downloads")
+                        timed_out = True
+                        break
+                    cc = _infer_country_from_url(url)
+                    if not cc:
+                        continue
+                    count = _download_and_parse_zip(client, url, cc, cache_dir, deadline=deadline)
                     if count > 0:
                         loaded_countries.add(cc)
                         logger.info("Loaded %d entries for %s", count, cc)
+
+            # Strategy 2: for countries not yet loaded, try guessed URLs per-country
+            remaining = [c for c in countries if c not in loaded_countries]
+            if remaining and not timed_out:
+                logger.info(
+                    "Trying guessed URLs for %d remaining countries", len(remaining)
+                )
+                for cc in remaining:
+                    if time.monotonic() > deadline:
+                        logger.warning("Startup timeout reached during country downloads")
+                        timed_out = True
                         break
+                    for url in _guess_zip_urls_for_country(base_url, cc):
+                        count = _download_and_parse_zip(client, url, cc, cache_dir, deadline=deadline)
+                        if count > 0:
+                            loaded_countries.add(cc)
+                            logger.info("Loaded %d entries for %s", count, cc)
+                            break
 
-        # Extra data sources (overwrite TERCET entries)
-        extra_count = _load_extra_sources(client, cache_dir)
-        if extra_count:
-            logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
+            # Extra data sources (overwrite TERCET entries)
+            if not timed_out:
+                extra_count = _load_extra_sources(client, cache_dir, deadline=deadline)
+                if extra_count:
+                    logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
 
-    logger.info(
-        "Data loading complete: %d postal codes across %d countries",
-        len(_lookup),
-        len(loaded_countries),
-    )
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            "Data loading complete: %d postal codes across %d countries (%.1fs)",
+            len(_lookup),
+            len(loaded_countries),
+            elapsed,
+        )
 
-    if _lookup:
-        # Fresh download succeeded
-        _data_loaded_at = datetime.now(timezone.utc).isoformat()
-        if not _load_estimates_from_csv(estimates_csv):
-            _load_estimates_from_db(db)
-        _revalidate_estimates()
-        _save_to_db(db)
-    elif db.is_file():
-        # Download failed but stale DB exists — fallback
-        _load_from_db(db)
-        _data_loaded_at = _read_db_created_at(db)
-        if not _load_estimates_from_csv(estimates_csv):
-            _load_estimates_from_db(db)
-        _revalidate_estimates()
-        _data_stale = True
-        logger.warning("TERCET refresh failed — serving stale cache")
+        if _lookup:
+            # Fresh download succeeded (possibly partial on timeout)
+            _data_loaded_at = datetime.now(timezone.utc).isoformat()
+            if not _load_estimates_from_csv(estimates_csv):
+                _load_estimates_from_db(db)
+            _revalidate_estimates()
+            _save_to_db(db)
+            if timed_out:
+                _data_stale = True
+                logger.warning("Startup timed out — partial data loaded")
+        elif db.is_file():
+            # Download failed but stale DB exists — fallback
+            _load_from_db(db)
+            _data_loaded_at = _read_db_created_at(db)
+            if not _load_estimates_from_csv(estimates_csv):
+                _load_estimates_from_db(db)
+            _revalidate_estimates()
+            _data_stale = True
+            logger.warning("TERCET refresh failed — serving stale cache")
 
-    _build_prefix_index()
+        _build_prefix_index()
 
 
 def lookup(country_code: str, postal_code: str) -> dict | None:
