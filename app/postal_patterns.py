@@ -18,9 +18,11 @@ from app.data_loader import normalize_postal_code
 
 # Each regex is used verbatim as provided. Patterns may have 0, 1, or 2 capture groups.
 # Regexes are applied after .strip().upper() and are case-insensitive.
-POSTAL_PATTERNS: dict[str, dict] = json.loads(
-    (Path(__file__).parent / "postal_patterns.json").read_text()
-)
+_patterns_path = Path(__file__).parent / "postal_patterns.json"
+try:
+    POSTAL_PATTERNS: dict[str, dict] = json.loads(_patterns_path.read_text())
+except (json.JSONDecodeError, OSError) as _exc:
+    raise SystemExit(f"Fatal: failed to load {_patterns_path}: {_exc}") from _exc
 
 # Pre-compile all patterns for performance
 _COMPILED: dict[str, re.Pattern] = {
