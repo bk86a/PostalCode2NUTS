@@ -417,15 +417,17 @@ Changing the `PC2NUTS_EXTRA_SOURCES` list invalidates the SQLite cache automatic
 
 ## Docker deployment
 
-### Build
+### Quick start (no clone needed)
+
+```bash
+docker build -t postalcode2nuts https://github.com/bk86a/PostalCode2NUTS.git
+docker run -p 8000:8000 -v postalcode2nuts-data:/app/data postalcode2nuts
+```
+
+### Build from local clone
 
 ```bash
 docker build -t postalcode2nuts .
-```
-
-### Basic run
-
-```bash
 docker run -p 8000:8000 postalcode2nuts
 ```
 
