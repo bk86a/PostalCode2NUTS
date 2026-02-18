@@ -1,8 +1,8 @@
 # PostalCode2NUTS
 
-FastAPI microservice that maps European postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
+FastAPI microservice that maps postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) for EU, EFTA, and EU candidate countries using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
 
-Returns NUTS levels 1, 2, and 3 for any postal code across 34 European countries and territories, with confidence scores indicating how the result was determined.
+Returns NUTS levels 1, 2, and 3 for any postal code across 34 countries, with confidence scores indicating how the result was determined.
 
 ## Coverage
 
