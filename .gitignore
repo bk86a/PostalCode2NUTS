@@ -10,6 +10,9 @@ venv/
 data/
 tests/*_TestData.csv
 tests/*_results.csv
+tests/Erasmus*.csv
+tests/erasmus_*.csv
+tests/proposed_patterns.json
 tests/country_analysis.md
 tests/email_draft.txt
 docs/
