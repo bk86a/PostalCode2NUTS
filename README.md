@@ -171,6 +171,7 @@ The API uses standard HTTP status codes with human-readable error messages:
 | **400** | Bad request | Country code is not supported (lists available countries) |
 | **404** | Not found | Postal code not found (shows expected format), or no pattern for country |
 | **422** | Validation error | Parameter format invalid (e.g. country code not 2 letters, contains digits) |
+| **429** | Too many requests | Rate limit exceeded (configurable via `PC2NUTS_RATE_LIMIT`) |
 
 **Examples:**
 
@@ -266,6 +267,10 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
 | `PC2NUTS_ESTIMATES_CSV` | `./tests/tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
+| `PC2NUTS_RATE_LIMIT` | `60/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. |
+| `PC2NUTS_STARTUP_TIMEOUT` | `300` | Maximum seconds allowed for initial data loading. If exceeded, the service starts with whatever data was loaded and sets `data_stale: true`. |
+| `PC2NUTS_DOCS_ENABLED` | `true` | Set to `false` to disable Swagger UI (`/docs`) and ReDoc (`/redoc`) in production. |
+| `PC2NUTS_CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins. Set to a specific origin (e.g. `https://example.com`) to restrict cross-origin access. Empty string disables CORS middleware. |
 
 ## Three-tier lookup
 
@@ -396,6 +401,13 @@ Sources are processed left-to-right in the order listed. All extra sources use l
 **Cache behavior:**
 
 Changing the `PC2NUTS_EXTRA_SOURCES` list invalidates the SQLite cache automatically on the next startup, triggering a full rebuild.
+
+## Deployment notes
+
+- **Data refresh:** The service loads data once at startup and serves it for the lifetime of the process. To refresh data, restart the service. The SQLite cache ensures fast restarts; a full re-download only happens when the cache expires (default: 30 days) or is missing.
+- **HTTPS:** The service serves plain HTTP. Place it behind a TLS-terminating reverse proxy (nginx, cloud load balancer) in production.
+- **Docker:** The container runs as a non-root user (`appuser`). The `/app/data` volume must be writable by this user. Pre-computed estimates are included in the image.
+- **Rate limiting:** Limits are per-client IP (`X-Forwarded-For` aware). Behind a reverse proxy, ensure the proxy sets this header correctly.
 
 ## Project structure
 

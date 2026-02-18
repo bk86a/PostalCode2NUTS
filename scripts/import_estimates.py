@@ -22,7 +22,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.data_loader import CONFIDENCE_MAP, normalize_postal_code
+from app.config import settings
+from app.data_loader import normalize_postal_code
 
 DEFAULT_CSV = PROJECT_ROOT / "tests" / "tercet_missing_codes.csv"
 
@@ -50,7 +51,7 @@ def import_estimates(csv_path: Path, db_path: Path) -> int:
             n1 = row["ESTIMATED_NUTS1"].strip()
             label = row["CONFIDENCE"].strip().lower()
 
-            conf = CONFIDENCE_MAP.get(label)
+            conf = settings.confidence_map.get(label)
             if conf is None:
                 skipped += 1
                 continue
