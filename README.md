@@ -32,6 +32,8 @@ docker build -t postalcode2nuts .
 docker run -p 8000:8000 postalcode2nuts
 ```
 
+See [Docker deployment](#docker-deployment) below for persistent volumes and production configuration.
+
 ## Endpoints
 
 | Endpoint  | Description |
@@ -412,6 +414,77 @@ Changing the `PC2NUTS_EXTRA_SOURCES` list invalidates the SQLite cache automatic
 - **Docker:** The container runs as a non-root user (`appuser`). The `/app/data` volume must be writable by this user. Pre-computed estimates are included in the image.
 - **Rate limiting:** Limits are per-client IP (`X-Forwarded-For` aware). Behind a reverse proxy, ensure the proxy sets this header correctly.
 - **Access logging:** Every request is logged with client IP, method, path, status code, and duration. Set `PC2NUTS_ACCESS_LOG_FILE` to write to a rotating file instead of stderr.
+
+## Docker deployment
+
+### Build
+
+```bash
+docker build -t postalcode2nuts .
+```
+
+### Basic run
+
+```bash
+docker run -p 8000:8000 postalcode2nuts
+```
+
+On first start the service downloads TERCET data for all 34 countries (~2-5 minutes depending on network). After that it caches everything in a SQLite database for instant restarts.
+
+### Persistent data volume
+
+Without a volume, the cache is lost when the container stops and TERCET data must be re-downloaded on every restart. Add a named volume to keep the cache:
+
+```bash
+docker run -p 8000:8000 -v postalcode2nuts-data:/app/data postalcode2nuts
+```
+
+### Production example
+
+```bash
+docker run -d --name postalcode2nuts \
+  -p 8000:8000 \
+  -v postalcode2nuts-data:/app/data \
+  -e PC2NUTS_DOCS_ENABLED=false \
+  -e PC2NUTS_CORS_ORIGINS=https://mysite.com \
+  -e PC2NUTS_RATE_LIMIT=100/minute \
+  -e PC2NUTS_ACCESS_LOG_FILE=/app/data/access.log \
+  postalcode2nuts
+```
+
+This disables Swagger UI, restricts CORS to a single origin, increases the rate limit, and writes access logs to a rotating file inside the persistent volume.
+
+### Docker Compose
+
+```yaml
+services:
+  postalcode2nuts:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - postalcode2nuts-data:/app/data
+    environment:
+      - PC2NUTS_DOCS_ENABLED=false
+      - PC2NUTS_CORS_ORIGINS=https://mysite.com
+      - PC2NUTS_ACCESS_LOG_FILE=/app/data/access.log
+    restart: unless-stopped
+
+volumes:
+  postalcode2nuts-data:
+```
+
+### What's in the image
+
+| Item | Details |
+|------|---------|
+| Base image | `python:3.12-slim` |
+| User | `appuser` (non-root) |
+| Dependencies | Pinned via `requirements.lock` |
+| Estimates CSV | Included (`tests/tercet_missing_codes.csv`) |
+| Health check | Built-in (`/health`, 30s interval, 120s start period) |
+| Port | 8000 |
+| Volume | `/app/data` (SQLite cache + downloaded ZIPs) |
 
 ## Project structure
 
