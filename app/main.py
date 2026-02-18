@@ -258,7 +258,8 @@ def get_pattern(
     response_model=HealthResponse,
     summary="Health check and data statistics",
 )
-def health():
+def health(response: Response):
+    response.headers["Cache-Control"] = "no-cache, no-store"
     table = get_lookup_table()
     estimates = get_estimates_table()
     stale = get_data_stale()
