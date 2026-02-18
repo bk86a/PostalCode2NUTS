@@ -501,7 +501,6 @@ app/
 └── postal_patterns.json # Per-country regex patterns and examples
 scripts/
 └── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
-reports/                 # Test analysis summaries (per-country match rates)
 tercet_missing_codes.csv # Pre-computed NUTS estimates for codes missing from TERCET
 ```
 
