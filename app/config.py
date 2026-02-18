@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     tercet_base_url: str = _defaults["tercet_base_url"]
     data_dir: str = "./data"
     db_cache_ttl_days: int = 30
-    estimates_csv: str = "./tests/tercet_missing_codes.csv"
+    estimates_csv: str = "./tercet_missing_codes.csv"
     extra_sources: str = ""
     rate_limit: str = "60/minute"
     startup_timeout: int = 300

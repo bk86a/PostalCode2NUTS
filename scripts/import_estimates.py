@@ -25,7 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from app.config import settings
 from app.data_loader import normalize_postal_code
 
-DEFAULT_CSV = PROJECT_ROOT / "tests" / "tercet_missing_codes.csv"
+DEFAULT_CSV = PROJECT_ROOT / "tercet_missing_codes.csv"
 
 
 def _default_db_path() -> Path:

@@ -267,7 +267,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_TERCET_BASE_URL` | *(from `settings.json`, currently NUTS-2024)* | GISCO TERCET base URL. The NUTS version is derived from this URL. |
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
-| `PC2NUTS_ESTIMATES_CSV` | `./tests/tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
+| `PC2NUTS_ESTIMATES_CSV` | `./tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
 | `PC2NUTS_RATE_LIMIT` | `60/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. |
 | `PC2NUTS_STARTUP_TIMEOUT` | `300` | Maximum seconds allowed for initial data loading. If exceeded, the service starts with whatever data was loaded and sets `data_stale: true`. |
@@ -339,7 +339,7 @@ At startup the service also loads any pre-computed estimates from the DB, remove
 
 ## Estimates
 
-Pre-computed NUTS estimates cover postal codes that are absent from TERCET. The service loads them automatically at startup from the CSV file configured via `PC2NUTS_ESTIMATES_CSV` (default: `./tests/tercet_missing_codes.csv`). No manual import step is needed — just update the CSV and restart.
+Pre-computed NUTS estimates cover postal codes that are absent from TERCET. The service loads them automatically at startup from the CSV file configured via `PC2NUTS_ESTIMATES_CSV` (default: `./tercet_missing_codes.csv`). No manual import step is needed — just update the CSV and restart.
 
 **CSV format:**
 
@@ -483,7 +483,7 @@ volumes:
 | Base image | `python:3.12-slim` |
 | User | `appuser` (non-root) |
 | Dependencies | Pinned via `requirements.lock` |
-| Estimates CSV | Included (`tests/tercet_missing_codes.csv`) |
+| Estimates CSV | Included (`tercet_missing_codes.csv`) |
 | Health check | Built-in (`/health`, 30s interval, 120s start period) |
 | Port | 8000 |
 | Volume | `/app/data` (SQLite cache + downloaded ZIPs) |
@@ -501,6 +501,8 @@ app/
 └── postal_patterns.json # Per-country regex patterns and examples
 scripts/
 └── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
+reports/                 # Test analysis summaries (per-country match rates)
+tercet_missing_codes.csv # Pre-computed NUTS estimates for codes missing from TERCET
 ```
 
 Postal patterns and confidence settings are stored in JSON files (`postal_patterns.json`, `settings.json`) for easy editing without touching Python code. The `countries` list can still be overridden via the `PC2NUTS_COUNTRIES` environment variable.
@@ -548,7 +550,7 @@ Add the country to the appropriate group (EU, EFTA, or candidate) and add a row 
 
 ### Optional
 
-- `tests/tercet_missing_codes.csv` — add estimates for postal codes missing from TERCET
+- `tercet_missing_codes.csv` — add estimates for postal codes missing from TERCET
 - Delete the SQLite cache (`data/*.db`) to force a full rebuild on next restart
 
 No Python code changes are required.

@@ -10,7 +10,7 @@ RUN useradd -r -s /bin/false appuser \
     && chown appuser:appuser /app/data
 
 COPY app/ ./app/
-COPY tests/tercet_missing_codes.csv ./tests/tercet_missing_codes.csv
+COPY tercet_missing_codes.csv ./tercet_missing_codes.csv
 
 VOLUME ["/app/data"]
 
