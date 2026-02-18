@@ -8,3 +8,8 @@ build/
 .venv/
 venv/
 data/
+tests/*_TestData.csv
+tests/*_results.csv
+tests/country_analysis.md
+tests/email_draft.txt
+docs/
