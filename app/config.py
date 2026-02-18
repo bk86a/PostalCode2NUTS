@@ -8,9 +8,7 @@ _defaults = json.loads((Path(__file__).parent / "settings.json").read_text())
 
 
 class Settings(BaseSettings):
-    tercet_base_url: str = (
-        "https://gisco-services.ec.europa.eu/tercet/NUTS-2024/"
-    )
+    tercet_base_url: str = _defaults["tercet_base_url"]
     data_dir: str = "./data"
     db_cache_ttl_days: int = 30
     estimates_csv: str = "./tests/tercet_missing_codes.csv"

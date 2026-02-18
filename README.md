@@ -262,7 +262,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PC2NUTS_TERCET_BASE_URL` | `https://gisco-services.ec.europa.eu/tercet/NUTS-2024/` (NUTS-2024 at present) | GISCO TERCET base URL. The NUTS version is derived from this URL. |
+| `PC2NUTS_TERCET_BASE_URL` | *(from `settings.json`, currently NUTS-2024)* | GISCO TERCET base URL. The NUTS version is derived from this URL. |
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
 | `PC2NUTS_ESTIMATES_CSV` | `./tests/tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
