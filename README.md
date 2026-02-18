@@ -505,6 +505,54 @@ scripts/
 
 Postal patterns and confidence settings are stored in JSON files (`postal_patterns.json`, `settings.json`) for easy editing without touching Python code. The `countries` list can still be overridden via the `PC2NUTS_COUNTRIES` environment variable.
 
+## Adding a new country
+
+If GISCO publishes TERCET data for a new country, the service discovers and loads it automatically on restart — no code changes needed. Lookups work immediately via the fallback normalizer.
+
+For full support (prefix stripping, format hints, URL guessing fallback), edit three JSON files:
+
+### 1. `app/settings.json` — add country code
+
+```json
+"countries": ["AT", "BE", ..., "XX"]
+```
+
+This enables URL guessing (Strategy 2) if the TERCET directory listing is unavailable.
+
+### 2. `app/postal_patterns.json` — add regex pattern
+
+```json
+"XX": {
+    "regex": "^(?:XX-?)?(\\d{5})$",
+    "example": "12345, XX-12345"
+}
+```
+
+The regex should handle optional country prefixes and capture the postal code digits. See existing patterns for reference. Patterns may have 0, 1, or 2 capture groups.
+
+Optional `tercet_map` field for countries where the TERCET key differs from the extracted code:
+
+```json
+"XX": {
+    "regex": "^(?:XX-?)?(\\d{4})$",
+    "example": "1234, XX-1234",
+    "tercet_map": "prepend:XX"
+}
+```
+
+Supported `tercet_map` actions: `truncate:N`, `prepend:XX`, `keep_alpha`.
+
+### 3. `README.md` — update coverage section
+
+Add the country to the appropriate group (EU, EFTA, or candidate) and add a row to the supported patterns table.
+
+### Optional
+
+- `tests/tercet_missing_codes.csv` — add estimates for postal codes missing from TERCET
+- Delete the SQLite cache (`data/*.db`) to force a full rebuild on next restart
+
+No Python code changes are required.
+
 ## Data source
 
 [GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
