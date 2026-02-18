@@ -508,3 +508,7 @@ Postal patterns and confidence settings are stored in JSON files (`postal_patter
 ## Data source
 
 [GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+
+## Licence
+
+Licensed under the [European Union Public Licence (EUPL) v. 1.2](LICENCE).
