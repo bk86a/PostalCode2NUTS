@@ -32,6 +32,9 @@ _estimates: dict[tuple[str, str], dict] = {}
 # Prefix index: country_code -> prefix -> list of nuts3 codes
 _prefix_index: dict[str, dict[str, list[str]]] = {}
 
+# Countries with a single NUTS3 region: country_code -> nuts3 code
+_single_nuts3: dict[str, str] = {}
+
 # Staleness tracking
 _data_stale: bool = False
 _data_loaded_at: str = ""
@@ -516,6 +519,17 @@ def _build_prefix_index() -> None:
     total_prefixes = sum(len(v) for v in _prefix_index.values())
     logger.info("Built prefix index: %d prefixes across %d countries", total_prefixes, len(_prefix_index))
 
+    # Detect countries with a single NUTS3 region (e.g. LI → LI000)
+    _single_nuts3.clear()
+    country_nuts3: dict[str, set[str]] = {}
+    for (cc, _pc), nuts3 in _lookup.items():
+        country_nuts3.setdefault(cc, set()).add(nuts3)
+    for cc, nuts3_set in country_nuts3.items():
+        if len(nuts3_set) == 1:
+            _single_nuts3[cc] = next(iter(nuts3_set))
+    if _single_nuts3:
+        logger.info("Single-NUTS3 countries: %s", ", ".join(sorted(_single_nuts3)))
+
 
 def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
     """Runtime estimation via longest prefix match + majority vote.
@@ -790,10 +804,11 @@ def load_data() -> None:
 def lookup(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
-    Three-tier fall-through:
+    Four-tier fall-through:
     1. Exact TERCET match → confidence 1.0
     2. Pre-computed estimate → stored confidence per level
     3. Runtime prefix-based estimation → calculated confidence
+    4. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
 
     Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
@@ -834,4 +849,21 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
         }
 
     # Tier 3: Runtime prefix-based estimation
-    return _estimate_by_prefix(cc, extracted)
+    approx = _estimate_by_prefix(cc, extracted)
+    if approx is not None:
+        return approx
+
+    # Tier 4: Single-NUTS3 country fallback (e.g. LI → LI000)
+    nuts3 = _single_nuts3.get(cc)
+    if nuts3 is not None:
+        return {
+            "match_type": "estimated",
+            "nuts1": nuts3[:3],
+            "nuts1_confidence": 1.0,
+            "nuts2": nuts3[:4],
+            "nuts2_confidence": 1.0,
+            "nuts3": nuts3,
+            "nuts3_confidence": 1.0,
+        }
+
+    return None
