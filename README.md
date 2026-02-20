@@ -67,10 +67,13 @@ GET /lookup?country=AT&postal_code=A-1010
   "country_code": "AT",
   "match_type": "exact",
   "nuts1": "AT1",
+  "nuts1_name": "Ostösterreich",
   "nuts1_confidence": 1.0,
   "nuts2": "AT13",
+  "nuts2_name": "Wien",
   "nuts2_confidence": 1.0,
   "nuts3": "AT130",
+  "nuts3_name": "Wien",
   "nuts3_confidence": 1.0
 }
 ```
@@ -87,10 +90,13 @@ GET /lookup?country=AT&postal_code=1012
   "country_code": "AT",
   "match_type": "estimated",
   "nuts1": "AT1",
+  "nuts1_name": "Ostösterreich",
   "nuts1_confidence": 0.98,
   "nuts2": "AT13",
+  "nuts2_name": "Wien",
   "nuts2_confidence": 0.95,
   "nuts3": "AT130",
+  "nuts3_name": "Wien",
   "nuts3_confidence": 0.9
 }
 ```
@@ -100,6 +106,7 @@ Every response includes:
 | Field | Description |
 |-------|-------------|
 | `match_type` | How the result was determined: `exact`, `estimated`, or `approximate` |
+| `nuts{1,2,3}_name` | Human-readable region name (Latin script), or `null` if unavailable |
 | `nuts{1,2,3}_confidence` | Confidence score (0.0–1.0) for each NUTS level |
 
 See [Three-tier lookup](#three-tier-lookup) below for details on match types and confidence values.
@@ -149,6 +156,7 @@ Returns service status and data statistics.
   "status": "ok",
   "total_postal_codes": 830032,
   "total_estimates": 6477,
+  "total_nuts_names": 2190,
   "nuts_version": "2024",
   "extra_sources": 0,
   "data_stale": false,
@@ -159,6 +167,7 @@ Returns service status and data statistics.
 | Field | Description |
 |-------|-------------|
 | `status` | `ok` if data is loaded, `no_data` otherwise |
+| `total_nuts_names` | Number of NUTS region names loaded (0 if names CSV unavailable) |
 | `extra_sources` | Number of extra ZIP source URLs configured (0 when not using extra sources) |
 | `data_stale` | `true` if serving expired cache after a failed TERCET refresh |
 | `last_updated` | ISO 8601 timestamp of when TERCET data was last successfully loaded |

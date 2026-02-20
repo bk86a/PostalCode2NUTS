@@ -26,6 +26,7 @@ from app.data_loader import (
     get_extra_source_count,
     get_loaded_countries,
     get_lookup_table,
+    get_nuts_names,
     load_data,
     lookup,
 )
@@ -80,10 +81,12 @@ async def lifespan(app: FastAPI):
     load_data()
     table = get_lookup_table()
     estimates = get_estimates_table()
+    names = get_nuts_names()
     logger.info(
-        "Ready — %d postal codes loaded, %d estimates available.",
+        "Ready — %d postal codes loaded, %d estimates available, %d NUTS names.",
         len(table),
         len(estimates),
+        len(names),
     )
     extra = get_extra_source_count()
     if extra:
@@ -267,6 +270,7 @@ def health(response: Response):
         status="ok" if len(table) > 0 else "no_data",
         total_postal_codes=len(table),
         total_estimates=len(estimates),
+        total_nuts_names=len(get_nuts_names()),
         nuts_version=settings.nuts_version,
         extra_sources=get_extra_source_count(),
         data_stale=stale,

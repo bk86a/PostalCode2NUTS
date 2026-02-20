@@ -35,6 +35,9 @@ _prefix_index: dict[str, dict[str, list[str]]] = {}
 # Countries with a single NUTS3 region: country_code -> nuts3 code
 _single_nuts3: dict[str, str] = {}
 
+# NUTS region names: nuts_id -> name_latn
+_nuts_names: dict[str, str] = {}
+
 # Staleness tracking
 _data_stale: bool = False
 _data_loaded_at: str = ""
@@ -77,6 +80,10 @@ def get_data_loaded_at() -> str:
 
 def get_extra_source_count() -> int:
     return _extra_source_count
+
+
+def get_nuts_names() -> dict[str, str]:
+    return _nuts_names
 
 
 def _infer_country_from_url(url: str) -> str:
@@ -503,6 +510,88 @@ def _revalidate_estimates() -> int:
     return len(to_remove)
 
 
+def _download_nuts_names(client: httpx.Client) -> int:
+    """Download NUTS region names CSV from GISCO and populate _nuts_names.
+
+    Returns the number of names loaded, or 0 on failure.
+    """
+    url = (
+        f"https://gisco-services.ec.europa.eu/distribution/v2/nuts/csv/"
+        f"NUTS_AT_{settings.nuts_version}.csv"
+    )
+    try:
+        resp = client.get(url, timeout=30, follow_redirects=True)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("Failed to download NUTS names from %s: %s", url, exc)
+        return 0
+
+    text = resp.text
+    reader = csv.DictReader(io.StringIO(text))
+    fieldnames = [f.strip().upper() for f in (reader.fieldnames or [])]
+    orig_fields = list(reader.fieldnames or [])
+
+    # Find NUTS_ID and NAME_LATN columns
+    nuts_id_col = None
+    name_col = None
+    for candidate in ("NUTS_ID", "NUTS_CODE", "CODE"):
+        if candidate in fieldnames:
+            nuts_id_col = orig_fields[fieldnames.index(candidate)]
+            break
+    for candidate in ("NAME_LATN", "NUTS_NAME", "NAME"):
+        if candidate in fieldnames:
+            name_col = orig_fields[fieldnames.index(candidate)]
+            break
+
+    if nuts_id_col is None or name_col is None:
+        logger.warning("NUTS names CSV missing expected columns. Headers: %s", fieldnames)
+        return 0
+
+    count = 0
+    for row in reader:
+        nuts_id = row.get(nuts_id_col, "").strip()
+        name = row.get(name_col, "").strip()
+        if nuts_id and name:
+            _nuts_names[nuts_id] = name
+            count += 1
+
+    logger.info("Loaded %d NUTS region names from %s", count, url)
+    return count
+
+
+def _load_nuts_names_from_db(db: Path) -> bool:
+    """Load NUTS region names from SQLite cache. Graceful if table is missing."""
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            cur = con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='nuts_names'"
+            )
+            if cur.fetchone() is None:
+                return False
+            rows = con.execute("SELECT nuts_id, name_latn FROM nuts_names").fetchall()
+        finally:
+            con.close()
+        if not rows:
+            return False
+        for nuts_id, name in rows:
+            _nuts_names[nuts_id] = name
+        logger.info("Loaded %d NUTS region names from SQLite cache %s", len(rows), db.name)
+        return True
+    except Exception as exc:
+        logger.warning("Failed to load NUTS names from DB: %s", exc)
+        return False
+
+
+def _resolve_names(nuts1: str, nuts2: str, nuts3: str) -> dict:
+    """Return a dict with nuts1_name, nuts2_name, nuts3_name from _nuts_names."""
+    return {
+        "nuts1_name": _nuts_names.get(nuts1),
+        "nuts2_name": _nuts_names.get(nuts2),
+        "nuts3_name": _nuts_names.get(nuts3),
+    }
+
+
 def _build_prefix_index() -> None:
     """Build a prefix index over all TERCET codes for runtime estimation."""
     _prefix_index.clear()
@@ -652,6 +741,15 @@ def _save_to_db(db: Path) -> None:
                     for (cc, pc), est in _estimates.items()
                 ],
             )
+            con.execute(
+                "CREATE TABLE nuts_names ("
+                "nuts_id TEXT PRIMARY KEY, "
+                "name_latn TEXT NOT NULL)"
+            )
+            con.executemany(
+                "INSERT INTO nuts_names (nuts_id, name_latn) VALUES (?, ?)",
+                list(_nuts_names.items()),
+            )
             con.executemany(
                 "INSERT INTO metadata (key, value) VALUES (?, ?)",
                 [
@@ -659,6 +757,7 @@ def _save_to_db(db: Path) -> None:
                     ("created_at", datetime.now(timezone.utc).isoformat()),
                     ("entry_count", str(len(_lookup))),
                     ("estimate_count", str(len(_estimates))),
+                    ("nuts_names_count", str(len(_nuts_names))),
                     ("extra_sources_hash", _extra_sources_hash()),
                 ],
             )
@@ -667,8 +766,8 @@ def _save_to_db(db: Path) -> None:
             con.close()
         tmp.replace(db)
         logger.info(
-            "Saved %d entries + %d estimates to SQLite cache %s",
-            len(_lookup), len(_estimates), db.name,
+            "Saved %d entries + %d estimates + %d names to SQLite cache %s",
+            len(_lookup), len(_estimates), len(_nuts_names), db.name,
         )
     except Exception as exc:
         logger.error("Failed to save DB cache: %s", exc)
@@ -694,6 +793,7 @@ def load_data() -> None:
 
         _lookup.clear()
         _estimates.clear()
+        _nuts_names.clear()
         _data_stale = False
         _extra_source_count = len(settings.extra_source_urls)
 
@@ -713,6 +813,7 @@ def load_data() -> None:
             if not _load_estimates_from_csv(estimates_csv):
                 _load_estimates_from_db(db)
             _revalidate_estimates()
+            _load_nuts_names_from_db(db)
             _build_prefix_index()
             return
 
@@ -770,6 +871,10 @@ def load_data() -> None:
                 if extra_count:
                     logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
 
+            # NUTS region names
+            if not timed_out:
+                _download_nuts_names(client)
+
         elapsed = time.monotonic() - start_time
         logger.info(
             "Data loading complete: %d postal codes across %d countries (%.1fs)",
@@ -795,6 +900,7 @@ def load_data() -> None:
             if not _load_estimates_from_csv(estimates_csv):
                 _load_estimates_from_db(db)
             _revalidate_estimates()
+            _load_nuts_names_from_db(db)
             _data_stale = True
             logger.warning("TERCET refresh failed — serving stale cache")
 
@@ -833,6 +939,7 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
             "nuts2_confidence": 1.0,
             "nuts3": nuts3,
             "nuts3_confidence": 1.0,
+            **_resolve_names(nuts3[:3], nuts3[:4], nuts3),
         }
 
     # Tier 2: Pre-computed estimate
@@ -846,11 +953,13 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
             "nuts2_confidence": est["nuts2_confidence"],
             "nuts3": est["nuts3"],
             "nuts3_confidence": est["nuts3_confidence"],
+            **_resolve_names(est["nuts1"], est["nuts2"], est["nuts3"]),
         }
 
     # Tier 3: Runtime prefix-based estimation
     approx = _estimate_by_prefix(cc, extracted)
     if approx is not None:
+        approx.update(_resolve_names(approx["nuts1"], approx["nuts2"], approx["nuts3"]))
         return approx
 
     # Tier 4: Single-NUTS3 country fallback (e.g. LI → LI000)
@@ -864,6 +973,7 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
             "nuts2_confidence": 1.0,
             "nuts3": nuts3,
             "nuts3_confidence": 1.0,
+            **_resolve_names(nuts3[:3], nuts3[:4], nuts3),
         }
 
     return None
