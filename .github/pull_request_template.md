@@ -10,6 +10,7 @@
 
 - [ ] Bug fix
 - [ ] New feature
+- [ ] New country data
 - [ ] Documentation
 - [ ] Refactoring
 - [ ] Other (describe below)
