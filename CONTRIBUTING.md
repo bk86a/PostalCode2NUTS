@@ -41,6 +41,10 @@ See the [README](README.md) for instructions on installing dependencies, running
 3. All CI checks (lint, import-check, security audit, Docker build) must pass before your PR will be reviewed.
 4. Keep PRs focused — one issue per PR where possible.
 
+## Licence
+
+By submitting a pull request, you agree that your contribution will be licensed under the [European Union Public Licence (EUPL) v. 1.2](LICENCE).
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.

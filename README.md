@@ -569,6 +569,10 @@ No Python code changes are required.
 
 The [EU Open Data Portal dataset](https://data.europa.eu/data/datasets/postcodes-and-nuts-nomenclature-of-territorial-units-for-statistics) was also considered as a data source. However, its refresh cycle lags behind the GISCO TERCET flat files, so direct sourcing from GISCO was chosen for more up-to-date coverage.
 
+## Contributing
+
+Contributions are welcome! Please read the [contributing guidelines](CONTRIBUTING.md) before getting started. For security vulnerabilities, see the [security policy](SECURITY.md).
+
 ## Licence
 
 Licensed under the [European Union Public Licence (EUPL) v. 1.2](LICENCE).
