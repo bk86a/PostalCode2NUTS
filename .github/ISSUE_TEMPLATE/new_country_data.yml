@@ -1,0 +1,52 @@
+name: New Country Data
+description: Request or contribute postal code data for a country
+labels: ["data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to request support for a new country or report issues with existing country data.
+        **Note:** Changes to `postal_patterns.json` require maintainer approval.
+  - type: input
+    id: country
+    attributes:
+      label: Country
+      description: Country name and ISO 3166-1 alpha-2 code.
+      placeholder: e.g. Croatia (HR)
+    validations:
+      required: true
+  - type: dropdown
+    id: type
+    attributes:
+      label: Request Type
+      options:
+        - New country support
+        - Fix existing data
+        - Improve regex pattern
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the issue or what data you'd like to add/change.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example Postal Codes
+      description: Provide example postal codes that should be matched or are currently failing.
+      placeholder: |
+        10000
+        21000
+        51000
+    validations:
+      required: false
+  - type: textarea
+    id: sources
+    attributes:
+      label: Data Sources
+      description: Links to official postal code references or documentation.
+    validations:
+      required: false
