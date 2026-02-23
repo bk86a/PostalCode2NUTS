@@ -116,8 +116,8 @@
     "expected_digits": 4
   },
   "MT": {
-    "regex": "^([A-Z]{2,3}\\s\\d{2,4})$",
-    "example": "VLT 1010, FNT 1010, MSK 1234",
+    "regex": "^([A-Z]{2,3}[\\s\\-]?\\d{2,4})$",
+    "example": "VLT 1010, MST1000, FNT-1010",
     "tercet_map": "keep_alpha"
   },
   "NL": {
