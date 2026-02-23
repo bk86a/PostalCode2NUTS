@@ -266,11 +266,11 @@ Comparison of PostalCode2NUTS regex patterns against five authoritative referenc
 | Attribute | PostalCode2NUTS | Wikipedia | GeoNames | OpenStreetMap | Google i18n |
 |-----------|----------------|-----------|----------|---------------|-------------|
 | **Core format** | AAA NNNN (3 letters + 4 digits) | AAA NNNN | @@@ #### | AAA NNNN | AAA NN--NNNN |
-| **Regex** | `^([A-Z]{2,3}\s\d{2,4})$` | -- | `^[A-Z]{3}\s?\d{4}$` | -- | `[A-Z]{3} ?\d{2,4}` |
+| **Regex** | `^([A-Z]{2,3}[\s\-]?\d{2,4})$` | -- | `^[A-Z]{3}\s?\d{4}$` | -- | `[A-Z]{3} ?\d{2,4}` |
 | **Prefixes accepted** | None (code is alphanumeric) | -- | None | Stored as full code | None |
-| **Notes** | `tercet_map: keep_alpha`. Accepts 2-3 letters, 2-4 digits. | Called Kodiici Postali. Since 2007. | GeoNames requires exactly 3 letters and 4 digits | 3 letters = locality abbreviation (VLT=Valletta, MSK=Msida, etc.) | **Google accepts 2-4 digits** like us. Examples: NXR 01, ZTN 05, GPO 01, BZN 1130, SPB 6031, VCT 1753 |
-| **Differences** | Our pattern requires exactly 2-3 letters; Google requires exactly 3. Google accepts 2-4 digits like us. GeoNames requires strict 3+4. |
-| **Verdict** | **Google confirms variable digit count** (2-4 digits), validating our flexible approach. The examples show both 2-digit (NXR 01) and 4-digit (VCT 1753) formats in active use. |
+| **Notes** | `tercet_map: keep_alpha`. Accepts 2-3 letters, optional separator (space/dash/none), 2-4 digits. | Called Kodiici Postali. Since 2007. | GeoNames requires exactly 3 letters and 4 digits | 3 letters = locality abbreviation (VLT=Valletta, MSK=Msida, etc.) | **Google accepts 2-4 digits** like us. Examples: NXR 01, ZTN 05, GPO 01, BZN 1130, SPB 6031, VCT 1753 |
+| **Differences** | Our pattern accepts 2-3 letters; Google requires exactly 3. Both accept 2-4 digits. GeoNames requires strict 3+4. All sources make the space optional; we also accept dash or no separator. |
+| **Verdict** | **Google confirms variable digit count** (2-4 digits) and optional space, validating our flexible approach. The examples show both 2-digit (NXR 01) and 4-digit (VCT 1753) formats in active use. Real-world data includes codes without any separator (e.g. `MST1000`). |
 
 ### NL -- Netherlands
 
@@ -386,7 +386,7 @@ Comparison of PostalCode2NUTS regex patterns against five authoritative referenc
 | **All 34** | Accepts country-code prefixes with flexible separators (space, dash, en-dash, em-dash, period) | Real-world data includes prefixed codes (A-1010, D 10115, LT - 44327). OSM confirms codes are stored without prefix, but input data often includes them. |
 | **EL** | Accepts both NN NNN and NNN NN space positions | Wikipedia says NNN NN, but real data has both. GeoNames doesn't accept space at all. Google accepts NNN NN with optional space. |
 | **LU** | Accepts LU- prefix in addition to L- | GeoNames only accepts L-. Wikipedia, Google, and OSM document L- as the standard prefix. |
-| **MT** | Accepts 2-3 letters and 2-4 digits | Wikipedia and GeoNames document AAA NNNN. Google confirms 2-4 digit variability. |
+| **MT** | Accepts 2-3 letters, optional separator (space/dash/none), and 2-4 digits | Wikipedia and GeoNames document AAA NNNN. Google confirms 2-4 digit variability and optional space. |
 | **PL** | Dash is optional | All four external sources show NN-NNN with mandatory dash. Data often submitted without dash. |
 | **PT** | Dash is optional | All four external sources show NNNN-NNN with mandatory dash. Data often submitted without dash. |
 | **SE** | Space is optional | Wikipedia and GeoNames show NNN NN. Google also makes space optional, confirming our approach. |
@@ -492,7 +492,7 @@ Postal code country prefixes originate from the CEPT recommendation (1960s) to u
 3. **Google i18n validates several of our design choices:**
    - **EL (Greece):** Google's `\d{3} ?\d{2}` confirms space-optional format, proving GeoNames' no-space regex is a bug.
    - **SE (Sweden):** Google's space-optional pattern matches ours; GeoNames' mandatory space is too strict.
-   - **MT (Malta):** Google accepts 2-4 digits, confirming our variable-length approach.
+   - **MT (Malta):** Google accepts 2-4 digits with optional space, confirming our variable-length and optional-separator approach.
    - **FI, HR, LI, LT, LU, SE, SI:** Google's `postprefix` metadata confirms official postal prefixes we already handle.
 
 4. **GeoNames has several bugs** in its published regex patterns (Greece space handling, Ireland missing anchor, Poland/Sweden mandatory separators) that would reject valid real-world input. Wikipedia, Google, and OSM documentation confirms our patterns are correct where they differ from GeoNames.
