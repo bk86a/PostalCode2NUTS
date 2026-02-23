@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.0] - 2026-02-23
+
+### Fixed
+
+- **MT regex** (#14): separator between alpha prefix and digits is now optional (`MST1000` accepted alongside `MST 1000` and `MST-1000`). Previously, codes without a space failed regex extraction and fell to approximate matching with lower confidence.
+
+### Added
+
+- **Country-level majority-vote fallback**: new Tier 4 in the lookup chain for countries where all postal codes map to the same NUTS1/NUTS2 but NUTS3 has a dominant winner. Returns `match_type: "approximate"` with NUTS1/NUTS2 confidence 1.0 and NUTS3 confidence based on agreement ratio (capped at 0.80). Naturally captures MT (MT0/MT00/MT001 at ~77%). Digit-only MT codes like `1043` that previously returned 404 now get a valid approximate result.
+
 ## [0.11.0] - 2026-02-23
 
 ### Added
