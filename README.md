@@ -109,7 +109,7 @@ Every response includes:
 | `nuts{1,2,3}_name` | Human-readable region name (Latin script), or `null` if unavailable |
 | `nuts{1,2,3}_confidence` | Confidence score (0.0–1.0) for each NUTS level |
 
-See [Three-tier lookup](#three-tier-lookup) below for details on match types and confidence values.
+See [Five-tier lookup](#five-tier-lookup) below for details on match types and confidence values.
 
 The service accepts postal codes with or without country prefixes. For example, all of the following resolve to the same result for Austria: `1010`, `A-1010`, `AT-1010`, `A1010`.
 
@@ -281,7 +281,7 @@ User input: "Traiskirchen"
 | LU | 4 digits | L- | `1009`, `L-1009` |
 | LV | 4 digits; TERCET key prefixed with "LV" | LV-, LV | `1010`, `LV-1010`, `LV 1010` |
 | MK | 4 digits | MK- | `1000`, `MK-1000` |
-| MT | 2–3 letters + space + 2–4 digits; lookup uses letter prefix only | — | `VLT 1010`, `FNT 1010`, `MSK 1234` |
+| MT | 2–3 letters + optional separator + 2–4 digits; lookup uses letter prefix only | — | `VLT 1010`, `MST1000`, `FNT-1010` |
 | NL | 4 digits + optional space + 2 letters | NL- | `1012 AB`, `NL-1012AB` |
 | NO | 4 digits | N- | `0150`, `N-0150` |
 | PL | 2 digits + optional dash + 3 digits | PL- | `00-950`, `00950`, `PL-00-950` |
@@ -312,9 +312,9 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ACCESS_LOG_MAX_MB` | `10` | Maximum size of each access log file in MB before rotation. |
 | `PC2NUTS_ACCESS_LOG_BACKUP_COUNT` | `5` | Number of rotated access log files to keep (e.g. 5 x 10 MB = 50 MB max disk usage). |
 
-## Three-tier lookup
+## Five-tier lookup
 
-The service resolves postal codes using a three-tier fall-through strategy. Each tier adds coverage for codes not found by the tier above, and every result includes a `match_type` and per-level confidence scores so consumers can decide how much to trust the result.
+The service resolves postal codes using a five-tier fall-through strategy. Each tier adds coverage for codes not found by the tier above, and every result includes a `match_type` and per-level confidence scores so consumers can decide how much to trust the result.
 
 ### Tier 1: Exact match (`match_type: "exact"`)
 
@@ -356,11 +356,25 @@ If neither an exact match nor a pre-computed estimate exists, the service perfor
    - `prefix_ratio` = matched prefix length / full postal code length
    - Caps: 0.90 (NUTS1), 0.85 (NUTS2), 0.80 (NUTS3)
 
-5. If confidence at NUTS1 level is below 0.1, the result is discarded entirely (returns 404).
+5. If confidence at NUTS1 level is below 0.1, the result is discarded entirely and falls through to the next tier.
+
+### Tier 4: Country-level majority vote (`match_type: "approximate"`)
+
+For countries where all postal codes map to the same NUTS1 and NUTS2 region but NUTS3 has a dominant winner, the service returns an approximate result using the country-wide distribution. This catches codes that fail prefix matching (e.g. digit-only MT codes like `1043` where TERCET keys are alphabetic).
+
+- NUTS1/NUTS2 confidence: **1.0** (unanimous across all postal codes).
+- NUTS3 confidence: agreement ratio capped at **0.80**.
+- Currently applies to MT (MT0/MT00/MT001 at ~77% of postal codes).
+
+### Tier 5: Single-NUTS3 country (`match_type: "estimated"`)
+
+For countries that have only a single NUTS3 region (e.g. LI, CY, LU), any postal code in that country is mapped to the sole NUTS3 code.
+
+- Confidence: **1.0** at all NUTS levels.
 
 ### No match (404)
 
-If all three tiers fail, the service returns a 404 with a format hint for the expected postal code pattern.
+If all five tiers fail, the service returns a 404 with a format hint for the expected postal code pattern.
 
 ## How it works
 
@@ -530,7 +544,7 @@ app/
 ├── main.py              # FastAPI app, endpoints (/lookup, /pattern, /health)
 ├── config.py            # Settings (env vars, country list, NUTS version derived from URL)
 ├── settings.json        # Countries, confidence map, approximate thresholds
-├── data_loader.py       # TERCET download, parsing, SQLite cache, three-tier lookup
+├── data_loader.py       # TERCET download, parsing, SQLite cache, five-tier lookup
 ├── models.py            # Pydantic response models
 ├── postal_patterns.py   # Pattern loading, preprocessing + extract_postal_code()
 └── postal_patterns.json # Per-country regex patterns, examples, expected_digits
