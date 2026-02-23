@@ -14,9 +14,10 @@ Each country entry may contain:
                      Omitted for countries with non-numeric codes (IE, MT, NL).
 
 Before regex matching, raw input is preprocessed to fix common data artifacts:
-  1. Strip trailing ".0" (Excel float coercion)
-  2. Remove dot thousand-separators ("13.600" → "13600")
+  1. Remove dot thousand-separators ("13.600" → "13600")
+  2. Strip trailing ".0" (Excel float coercion)
   3. Restore leading zeros using expected_digits (digit-only, exactly 1 short)
+Thousands removal runs before .0 stripping so that "13.000" → "13000" (not "13").
 """
 
 import json
@@ -50,11 +51,12 @@ def _preprocess(raw: str, entry: dict | None) -> str:
     exports, or database dumps.
     """
     code = raw
-    # 1. Strip Excel float suffix: "28040.0" → "28040"
-    code = re.sub(r"\.0+$", "", code)
-    # 2. Remove dot thousand-separators: "13.600" → "13600"
+    # 1. Remove dot thousand-separators: "13.600" → "13600"
+    #    Must run before .0 stripping so "13.000" → "13000" (not "13").
     if _THOUSANDS_RE.match(code):
         code = code.replace(".", "")
+    # 2. Strip Excel float suffix: "28040.0" → "28040"
+    code = re.sub(r"\.0+$", "", code)
     # 3. Country-aware leading-zero padding (digit-only, exactly 1 short)
     if entry:
         expected = entry.get("expected_digits")
