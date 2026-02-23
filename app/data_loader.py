@@ -35,6 +35,10 @@ _prefix_index: dict[str, dict[str, list[str]]] = {}
 # Countries with a single NUTS3 region: country_code -> nuts3 code
 _single_nuts3: dict[str, str] = {}
 
+# Country-level majority-vote fallback for countries where NUTS1/NUTS2
+# are unanimous but NUTS3 has a dominant winner (e.g. MT → MT0/MT00/MT001)
+_country_fallback: dict[str, dict] = {}
+
 # NUTS region names: nuts_id -> name_latn
 _nuts_names: dict[str, str] = {}
 
@@ -619,6 +623,41 @@ def _build_prefix_index() -> None:
     if _single_nuts3:
         logger.info("Single-NUTS3 countries: %s", ", ".join(sorted(_single_nuts3)))
 
+    # Country-level majority-vote fallback for countries NOT in _single_nuts3
+    # where NUTS1 and NUTS2 are unanimous but NUTS3 has a dominant winner
+    _country_fallback.clear()
+    caps = settings.approximate_confidence_caps
+    for cc, nuts3_set in country_nuts3.items():
+        if cc in _single_nuts3:
+            continue
+        nuts1_set = {n[:3] for n in nuts3_set}
+        nuts2_set = {n[:4] for n in nuts3_set}
+        if len(nuts1_set) != 1 or len(nuts2_set) != 1:
+            continue
+        # Count postal codes per NUTS3 to find dominant region
+        nuts3_counts: Counter[str] = Counter()
+        for (c, _), n3 in _lookup.items():
+            if c == cc:
+                nuts3_counts[n3] += 1
+        total = sum(nuts3_counts.values())
+        if total == 0:
+            continue
+        winner, winner_count = nuts3_counts.most_common(1)[0]
+        ratio = winner_count / total
+        _country_fallback[cc] = {
+            "nuts1": next(iter(nuts1_set)),
+            "nuts1_confidence": 1.0,
+            "nuts2": next(iter(nuts2_set)),
+            "nuts2_confidence": 1.0,
+            "nuts3": winner,
+            "nuts3_confidence": round(min(ratio, caps["nuts3"]), 2),
+        }
+    if _country_fallback:
+        logger.info(
+            "Country-level fallback: %s",
+            ", ".join(f"{cc}→{v['nuts3']}" for cc, v in sorted(_country_fallback.items())),
+        )
+
 
 def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
     """Runtime estimation via longest prefix match + majority vote.
@@ -910,11 +949,12 @@ def load_data() -> None:
 def lookup(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
-    Four-tier fall-through:
+    Five-tier fall-through:
     1. Exact TERCET match → confidence 1.0
     2. Pre-computed estimate → stored confidence per level
     3. Runtime prefix-based estimation → calculated confidence
-    4. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
+    4. Country-level majority vote → unanimous NUTS1/2, dominant NUTS3 (e.g. MT)
+    5. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
 
     Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
@@ -962,7 +1002,21 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
         approx.update(_resolve_names(approx["nuts1"], approx["nuts2"], approx["nuts3"]))
         return approx
 
-    # Tier 4: Single-NUTS3 country fallback (e.g. LI → LI000)
+    # Tier 4: Country-level majority vote (unanimous NUTS1/2, dominant NUTS3)
+    fallback = _country_fallback.get(cc)
+    if fallback is not None:
+        return {
+            "match_type": "approximate",
+            "nuts1": fallback["nuts1"],
+            "nuts1_confidence": fallback["nuts1_confidence"],
+            "nuts2": fallback["nuts2"],
+            "nuts2_confidence": fallback["nuts2_confidence"],
+            "nuts3": fallback["nuts3"],
+            "nuts3_confidence": fallback["nuts3_confidence"],
+            **_resolve_names(fallback["nuts1"], fallback["nuts2"], fallback["nuts3"]),
+        }
+
+    # Tier 5: Single-NUTS3 country fallback (e.g. LI → LI000)
     nuts3 = _single_nuts3.get(cc)
     if nuts3 is not None:
         return {
