@@ -2,3 +2,8 @@ __pycache__
 *.pyc
 .git
 .env
+tests/
+Makefile
+.pre-commit-config.yaml
+requirements-dev.txt
+docs/

@@ -36,8 +36,7 @@ except (json.JSONDecodeError, OSError) as _exc:
 
 # Pre-compile all patterns for performance
 _COMPILED: dict[str, re.Pattern] = {
-    cc: re.compile(pat["regex"], re.IGNORECASE)
-    for cc, pat in POSTAL_PATTERNS.items()
+    cc: re.compile(pat["regex"], re.IGNORECASE) for cc, pat in POSTAL_PATTERNS.items()
 }
 
 
@@ -69,7 +68,7 @@ def _apply_tercet_map(code: str, rule: str) -> str:
     """Apply a tercet_map transform rule to an extracted postal code."""
     action, _, arg = rule.partition(":")
     if action == "truncate":
-        return code[:int(arg)]
+        return code[: int(arg)]
     if action == "prepend":
         return arg + code
     if action == "keep_alpha":
