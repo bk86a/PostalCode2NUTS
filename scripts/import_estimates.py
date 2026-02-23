@@ -30,6 +30,7 @@ DEFAULT_CSV = PROJECT_ROOT / "tercet_missing_codes.csv"
 
 def _default_db_path() -> Path:
     from app.config import settings
+
     return Path(settings.data_dir) / f"postalcode2nuts_NUTS-{settings.nuts_version}.db"
 
 
@@ -56,10 +57,18 @@ def import_estimates(csv_path: Path, db_path: Path) -> int:
                 skipped += 1
                 continue
 
-            rows.append((
-                cc, pc, n3, n2, n1,
-                conf["nuts3"], conf["nuts2"], conf["nuts1"],
-            ))
+            rows.append(
+                (
+                    cc,
+                    pc,
+                    n3,
+                    n2,
+                    n1,
+                    conf["nuts3"],
+                    conf["nuts2"],
+                    conf["nuts1"],
+                )
+            )
 
     if not rows:
         print("ERROR: No valid rows found in CSV.", file=sys.stderr)
@@ -99,7 +108,7 @@ def import_estimates(csv_path: Path, db_path: Path) -> int:
                 ("estimate_count", str(len(rows))),
             )
         except sqlite3.OperationalError:
-            pass  # metadata table may not exist yet (pre-first data load)
+            print("Note: metadata table does not exist yet (pre-first data load), skipping count update.")
         con.commit()
     finally:
         con.close()
@@ -111,15 +120,17 @@ def import_estimates(csv_path: Path, db_path: Path) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Import pre-computed NUTS estimates into the SQLite DB."
-    )
+    parser = argparse.ArgumentParser(description="Import pre-computed NUTS estimates into the SQLite DB.")
     parser.add_argument(
-        "--csv", type=Path, default=DEFAULT_CSV,
+        "--csv",
+        type=Path,
+        default=DEFAULT_CSV,
         help=f"Path to CSV file (default: {DEFAULT_CSV})",
     )
     parser.add_argument(
-        "--db", type=Path, default=None,
+        "--db",
+        type=Path,
+        default=None,
         help="Path to SQLite DB (default: auto-detected from settings)",
     )
     args = parser.parse_args()

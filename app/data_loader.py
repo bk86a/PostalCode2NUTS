@@ -10,6 +10,7 @@ import threading
 import time
 import zipfile
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,6 +53,7 @@ _extra_source_count: int = 0
 # Protects against concurrent reload
 _data_lock = threading.Lock()
 
+
 def normalize_postal_code(code: str) -> str:
     """Normalize a postal code by removing spaces, dashes, and uppercasing.
 
@@ -59,6 +61,12 @@ def normalize_postal_code(code: str) -> str:
     Stripping all non-alphanumeric characters ensures consistent matching.
     """
     return re.sub(r"[^A-Za-z0-9]", "", code.strip()).upper()
+
+
+def normalize_country(country_code: str) -> str:
+    """Normalize a country code: uppercase + map GR→EL (ISO vs GISCO convention)."""
+    cc = country_code.strip().upper()
+    return "EL" if cc == "GR" else cc
 
 
 def get_lookup_table() -> dict[tuple[str, str], str]:
@@ -134,9 +142,7 @@ def _load_extra_sources(client: httpx.Client, cache_dir: Path, *, deadline: floa
 
         cc = _infer_country_from_url(url)
         if not cc:
-            logger.info(
-                "No country code in URL filename %s, will rely on CSV COUNTRY_CODE column", url
-            )
+            logger.info("No country code in URL filename %s, will rely on CSV COUNTRY_CODE column", url)
 
         count = _download_and_parse_zip(client, url, cc, cache_dir, overwrite=True, deadline=deadline)
         if count > 0:
@@ -148,18 +154,26 @@ def _load_extra_sources(client: httpx.Client, cache_dir: Path, *, deadline: floa
     return total
 
 
+@contextmanager
+def _db_connection(path: Path, *, readonly: bool = True):
+    """Open a SQLite connection and ensure it is closed on exit."""
+    if readonly:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    else:
+        con = sqlite3.connect(str(path))
+    try:
+        yield con
+    finally:
+        con.close()
+
+
 def _read_db_created_at(db: Path) -> str:
     """Read the created_at timestamp from the DB metadata table."""
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try:
-            row = con.execute(
-                "SELECT value FROM metadata WHERE key = 'created_at'"
-            ).fetchone()
-        finally:
-            con.close()
+        with _db_connection(db) as con:
+            row = con.execute("SELECT value FROM metadata WHERE key = 'created_at'").fetchone()
         return row[0] if row else ""
-    except Exception:
+    except sqlite3.Error:
         return ""
 
 
@@ -176,7 +190,7 @@ def _discover_zip_urls(client: httpx.Client, base_url: str) -> list[str]:
                 urls.append(href)
             else:
                 urls.append(base_url.rstrip("/") + "/" + href.lstrip("/"))
-    except Exception:
+    except (httpx.RequestError, httpx.HTTPStatusError):
         logger.debug("Could not fetch directory listing from %s", base_url)
     return urls
 
@@ -198,9 +212,7 @@ def _sniff_dialect(text: str) -> csv.Dialect | None:
         return None
 
 
-def _parse_csv_content(
-    text: str, country_code: str, *, overwrite: bool = False
-) -> int:
+def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False) -> int:
     """Parse CSV/TSV content and populate the lookup table. Returns row count."""
     count = 0
     skipped = 0
@@ -231,8 +243,7 @@ def _parse_csv_content(
 
     if pc_col is None or nuts3_col is None:
         logger.warning(
-            "Could not identify columns in file for %s. "
-            "Headers found: %s (need postal code + NUTS3 column)",
+            "Could not identify columns in file for %s. Headers found: %s (need postal code + NUTS3 column)",
             country_code,
             fieldnames,
         )
@@ -281,9 +292,7 @@ def _parse_csv_content(
                 count += 1
 
     if skipped:
-        logger.warning(
-            "Skipped %d rows with invalid NUTS3 codes for %s", skipped, country_code
-        )
+        logger.warning("Skipped %d rows with invalid NUTS3 codes for %s", skipped, country_code)
     return count
 
 
@@ -311,8 +320,13 @@ def _download_zip(client: httpx.Client, url: str) -> bytes | None:
 
 
 def _download_and_parse_zip(
-    client: httpx.Client, url: str, country_code: str, cache_dir: Path,
-    *, overwrite: bool = False, deadline: float = 0,
+    client: httpx.Client,
+    url: str,
+    country_code: str,
+    cache_dir: Path,
+    *,
+    overwrite: bool = False,
+    deadline: float = 0,
 ) -> int:
     """Download a single ZIP, extract CSVs, parse them. Returns row count."""
     if deadline and time.monotonic() > deadline:
@@ -362,7 +376,9 @@ def _download_and_parse_zip(
                     if file_size > _MAX_UNCOMPRESSED_SIZE:
                         logger.warning(
                             "Skipping %s in %s: uncompressed size %d bytes exceeds limit",
-                            name, url, file_size,
+                            name,
+                            url,
+                            file_size,
                         )
                         continue
                     raw = zf.read(name)
@@ -389,12 +405,9 @@ def _db_is_valid(db: Path) -> bool:
     if not db.is_file():
         return False
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try:
+        with _db_connection(db) as con:
             cur = con.execute("SELECT key, value FROM metadata")
             meta = dict(cur.fetchall())
-        finally:
-            con.close()
         if meta.get("nuts_version") != settings.nuts_version:
             logger.info("DB cache version mismatch, will rebuild")
             return False
@@ -412,7 +425,7 @@ def _db_is_valid(db: Path) -> bool:
             logger.info("Extra sources configuration changed, will rebuild")
             return False
         return True
-    except Exception as exc:
+    except (sqlite3.Error, KeyError, ValueError) as exc:
         logger.info("DB cache unusable (%s), will rebuild", exc)
         return False
 
@@ -420,30 +433,29 @@ def _db_is_valid(db: Path) -> bool:
 def _load_estimates_from_db(db: Path) -> bool:
     """Load pre-computed estimates from the DB. Graceful if table is missing."""
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try:
+        with _db_connection(db) as con:
             # Check if estimates table exists
-            cur = con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'"
-            )
+            cur = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
             if cur.fetchone() is None:
                 return False
             rows = con.execute(
                 "SELECT country_code, postal_code, nuts3, nuts2, nuts1, "
                 "nuts3_confidence, nuts2_confidence, nuts1_confidence FROM estimates"
             ).fetchall()
-        finally:
-            con.close()
         if not rows:
             return False
         for cc, pc, n3, n2, n1, c3, c2, c1 in rows:
             _estimates[(cc, pc)] = {
-                "nuts3": n3, "nuts2": n2, "nuts1": n1,
-                "nuts3_confidence": c3, "nuts2_confidence": c2, "nuts1_confidence": c1,
+                "nuts3": n3,
+                "nuts2": n2,
+                "nuts1": n1,
+                "nuts3_confidence": c3,
+                "nuts2_confidence": c2,
+                "nuts1_confidence": c1,
             }
         logger.info("Loaded %d estimates from SQLite cache %s", len(rows), db.name)
         return True
-    except Exception as exc:
+    except sqlite3.Error as exc:
         logger.warning("Failed to load estimates from DB: %s", exc)
         return False
 
@@ -471,7 +483,9 @@ def _load_estimates_from_csv(csv_path: Path) -> bool:
                     continue
 
                 _estimates[(cc, pc)] = {
-                    "nuts3": n3, "nuts2": n2, "nuts1": n1,
+                    "nuts3": n3,
+                    "nuts2": n2,
+                    "nuts1": n1,
                     "nuts3_confidence": conf["nuts3"],
                     "nuts2_confidence": conf["nuts2"],
                     "nuts1_confidence": conf["nuts1"],
@@ -482,7 +496,7 @@ def _load_estimates_from_csv(csv_path: Path) -> bool:
         if count:
             logger.info("Loaded %d estimates from %s", count, csv_path)
         return count > 0
-    except Exception as exc:
+    except (OSError, KeyError, ValueError) as exc:
         logger.warning("Failed to load estimates from CSV: %s", exc)
         return False
 
@@ -519,14 +533,11 @@ def _download_nuts_names(client: httpx.Client) -> int:
 
     Returns the number of names loaded, or 0 on failure.
     """
-    url = (
-        f"https://gisco-services.ec.europa.eu/distribution/v2/nuts/csv/"
-        f"NUTS_AT_{settings.nuts_version}.csv"
-    )
+    url = f"https://gisco-services.ec.europa.eu/distribution/v2/nuts/csv/NUTS_AT_{settings.nuts_version}.csv"
     try:
         resp = client.get(url, timeout=30, follow_redirects=True)
         resp.raise_for_status()
-    except Exception as exc:
+    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
         logger.warning("Failed to download NUTS names from %s: %s", url, exc)
         return 0
 
@@ -566,23 +577,18 @@ def _download_nuts_names(client: httpx.Client) -> int:
 def _load_nuts_names_from_db(db: Path) -> bool:
     """Load NUTS region names from SQLite cache. Graceful if table is missing."""
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try:
-            cur = con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='nuts_names'"
-            )
+        with _db_connection(db) as con:
+            cur = con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='nuts_names'")
             if cur.fetchone() is None:
                 return False
             rows = con.execute("SELECT nuts_id, name_latn FROM nuts_names").fetchall()
-        finally:
-            con.close()
         if not rows:
             return False
         for nuts_id, name in rows:
             _nuts_names[nuts_id] = name
         logger.info("Loaded %d NUTS region names from SQLite cache %s", len(rows), db.name)
         return True
-    except Exception as exc:
+    except sqlite3.Error as exc:
         logger.warning("Failed to load NUTS names from DB: %s", exc)
         return False
 
@@ -703,34 +709,29 @@ def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
     if c1 < settings.approximate_min_confidence:
         return None
 
-    return {
-        "match_type": "approximate",
-        "nuts1": nuts1_winner,
-        "nuts1_confidence": c1,
-        "nuts2": nuts2_winner,
-        "nuts2_confidence": c2,
-        "nuts3": nuts3_winner,
-        "nuts3_confidence": c3,
-    }
+    return _build_result(
+        "approximate",
+        nuts3_winner,
+        nuts1=nuts1_winner,
+        nuts2=nuts2_winner,
+        nuts1_confidence=c1,
+        nuts2_confidence=c2,
+        nuts3_confidence=c3,
+    )
 
 
 def _load_from_db(db: Path) -> bool:
     """Load the lookup table from SQLite cache. Returns True on success."""
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try:
-            rows = con.execute(
-                "SELECT country_code, postal_code, nuts3 FROM lookup"
-            ).fetchall()
-        finally:
-            con.close()
+        with _db_connection(db) as con:
+            rows = con.execute("SELECT country_code, postal_code, nuts3 FROM lookup").fetchall()
         if not rows:
             return False
         for cc, pc, nuts3 in rows:
             _lookup[(cc, pc)] = nuts3
         logger.info("Loaded %d entries from SQLite cache %s", len(rows), db.name)
         return True
-    except Exception as exc:
+    except sqlite3.Error as exc:
         logger.warning("Failed to load from DB cache: %s", exc)
         _lookup.clear()
         return False
@@ -741,11 +742,8 @@ def _save_to_db(db: Path) -> None:
     tmp = db.with_suffix(".db.tmp")
     try:
         tmp.unlink(missing_ok=True)
-        con = sqlite3.connect(str(tmp))
-        try:
-            con.execute(
-                "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-            )
+        with _db_connection(tmp, readonly=False) as con:
+            con.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             con.execute(
                 "CREATE TABLE lookup ("
                 "country_code TEXT NOT NULL, "
@@ -775,16 +773,20 @@ def _save_to_db(db: Path) -> None:
                 "nuts3_confidence, nuts2_confidence, nuts1_confidence) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [
-                    (cc, pc, est["nuts3"], est["nuts2"], est["nuts1"],
-                     est["nuts3_confidence"], est["nuts2_confidence"], est["nuts1_confidence"])
+                    (
+                        cc,
+                        pc,
+                        est["nuts3"],
+                        est["nuts2"],
+                        est["nuts1"],
+                        est["nuts3_confidence"],
+                        est["nuts2_confidence"],
+                        est["nuts1_confidence"],
+                    )
                     for (cc, pc), est in _estimates.items()
                 ],
             )
-            con.execute(
-                "CREATE TABLE nuts_names ("
-                "nuts_id TEXT PRIMARY KEY, "
-                "name_latn TEXT NOT NULL)"
-            )
+            con.execute("CREATE TABLE nuts_names (nuts_id TEXT PRIMARY KEY, name_latn TEXT NOT NULL)")
             con.executemany(
                 "INSERT INTO nuts_names (nuts_id, name_latn) VALUES (?, ?)",
                 list(_nuts_names.items()),
@@ -801,14 +803,15 @@ def _save_to_db(db: Path) -> None:
                 ],
             )
             con.commit()
-        finally:
-            con.close()
         tmp.replace(db)
         logger.info(
             "Saved %d entries + %d estimates + %d names to SQLite cache %s",
-            len(_lookup), len(_estimates), len(_nuts_names), db.name,
+            len(_lookup),
+            len(_estimates),
+            len(_nuts_names),
+            db.name,
         )
-    except Exception as exc:
+    except (sqlite3.Error, OSError) as exc:
         logger.error("Failed to save DB cache: %s", exc)
         tmp.unlink(missing_ok=True)
 
@@ -870,9 +873,7 @@ def load_data() -> None:
             loaded_countries: set[str] = set()
 
             if discovered:
-                logger.info(
-                    "Discovered %d ZIP files from directory listing", len(discovered)
-                )
+                logger.info("Discovered %d ZIP files from directory listing", len(discovered))
                 for url in discovered:
                     if time.monotonic() > deadline:
                         logger.warning("Startup timeout reached during discovery downloads")
@@ -889,9 +890,7 @@ def load_data() -> None:
             # Strategy 2: for countries not yet loaded, try guessed URLs per-country
             remaining = [c for c in countries if c not in loaded_countries]
             if remaining and not timed_out:
-                logger.info(
-                    "Trying guessed URLs for %d remaining countries", len(remaining)
-                )
+                logger.info("Trying guessed URLs for %d remaining countries", len(remaining))
                 for cc in remaining:
                     if time.monotonic() > deadline:
                         logger.warning("Startup timeout reached during country downloads")
@@ -946,6 +945,26 @@ def load_data() -> None:
         _build_prefix_index()
 
 
+def _build_result(match_type: str, nuts3: str, nuts1: str = "", nuts2: str = "", **confidence) -> dict:
+    """Construct a lookup result dict with names resolved.
+
+    If nuts1/nuts2 are not provided, they are derived from nuts3.
+    Confidence keys: nuts1_confidence, nuts2_confidence, nuts3_confidence.
+    """
+    n1 = nuts1 or nuts3[:3]
+    n2 = nuts2 or nuts3[:4]
+    return {
+        "match_type": match_type,
+        "nuts1": n1,
+        "nuts1_confidence": confidence.get("nuts1_confidence", 1.0),
+        "nuts2": n2,
+        "nuts2_confidence": confidence.get("nuts2_confidence", 1.0),
+        "nuts3": nuts3,
+        "nuts3_confidence": confidence.get("nuts3_confidence", 1.0),
+        **_resolve_names(n1, n2, nuts3),
+    }
+
+
 def lookup(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
@@ -960,10 +979,7 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     """
     from app.postal_patterns import extract_postal_code
 
-    # Handle Greece: ISO is GR but GISCO uses EL
-    cc = country_code.upper()
-    if cc == "GR":
-        cc = "EL"
+    cc = normalize_country(country_code)
 
     extracted = extract_postal_code(cc, postal_code)
     key = (cc, extracted)
@@ -971,63 +987,42 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     # Tier 1: Exact TERCET match
     nuts3 = _lookup.get(key)
     if nuts3 is not None:
-        return {
-            "match_type": "exact",
-            "nuts1": nuts3[:3],
-            "nuts1_confidence": 1.0,
-            "nuts2": nuts3[:4],
-            "nuts2_confidence": 1.0,
-            "nuts3": nuts3,
-            "nuts3_confidence": 1.0,
-            **_resolve_names(nuts3[:3], nuts3[:4], nuts3),
-        }
+        return _build_result("exact", nuts3)
 
     # Tier 2: Pre-computed estimate
     est = _estimates.get(key)
     if est is not None:
-        return {
-            "match_type": "estimated",
-            "nuts1": est["nuts1"],
-            "nuts1_confidence": est["nuts1_confidence"],
-            "nuts2": est["nuts2"],
-            "nuts2_confidence": est["nuts2_confidence"],
-            "nuts3": est["nuts3"],
-            "nuts3_confidence": est["nuts3_confidence"],
-            **_resolve_names(est["nuts1"], est["nuts2"], est["nuts3"]),
-        }
+        return _build_result(
+            "estimated",
+            est["nuts3"],
+            nuts1=est["nuts1"],
+            nuts2=est["nuts2"],
+            nuts1_confidence=est["nuts1_confidence"],
+            nuts2_confidence=est["nuts2_confidence"],
+            nuts3_confidence=est["nuts3_confidence"],
+        )
 
     # Tier 3: Runtime prefix-based estimation
     approx = _estimate_by_prefix(cc, extracted)
     if approx is not None:
-        approx.update(_resolve_names(approx["nuts1"], approx["nuts2"], approx["nuts3"]))
         return approx
 
     # Tier 4: Country-level majority vote (unanimous NUTS1/2, dominant NUTS3)
     fallback = _country_fallback.get(cc)
     if fallback is not None:
-        return {
-            "match_type": "approximate",
-            "nuts1": fallback["nuts1"],
-            "nuts1_confidence": fallback["nuts1_confidence"],
-            "nuts2": fallback["nuts2"],
-            "nuts2_confidence": fallback["nuts2_confidence"],
-            "nuts3": fallback["nuts3"],
-            "nuts3_confidence": fallback["nuts3_confidence"],
-            **_resolve_names(fallback["nuts1"], fallback["nuts2"], fallback["nuts3"]),
-        }
+        return _build_result(
+            "approximate",
+            fallback["nuts3"],
+            nuts1=fallback["nuts1"],
+            nuts2=fallback["nuts2"],
+            nuts1_confidence=fallback["nuts1_confidence"],
+            nuts2_confidence=fallback["nuts2_confidence"],
+            nuts3_confidence=fallback["nuts3_confidence"],
+        )
 
     # Tier 5: Single-NUTS3 country fallback (e.g. LI → LI000)
     nuts3 = _single_nuts3.get(cc)
     if nuts3 is not None:
-        return {
-            "match_type": "estimated",
-            "nuts1": nuts3[:3],
-            "nuts1_confidence": 1.0,
-            "nuts2": nuts3[:4],
-            "nuts2_confidence": 1.0,
-            "nuts3": nuts3,
-            "nuts3_confidence": 1.0,
-            **_resolve_names(nuts3[:3], nuts3[:4], nuts3),
-        }
+        return _build_result("estimated", nuts3)
 
     return None
