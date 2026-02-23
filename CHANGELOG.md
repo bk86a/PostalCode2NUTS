@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.0] - 2026-02-23
+
+### Added
+
+- **FR CEDEX estimates** (#8): ~511 French CEDEX postal codes (enterprise/university mail routing) added to `tercet_missing_codes.csv` with high-confidence département→NUTS3 mappings.
+- **FR DOM-TOM estimates** (#9): 15 French overseas territory postal codes (Guadeloupe, Martinique, Guyane, La Réunion, Mayotte) added with high-confidence mappings. French Polynesia (987xx) and New Caledonia (988xx) excluded — these are OCTs with no valid NUTS mapping.
+- **NL missing code estimates** (#13): 8 Dutch postal codes for major cities (Amsterdam, The Hague, Utrecht, Maastricht, Arnhem, Apeldoorn, Zwolle) added with high-confidence mappings. Willemstad (3059) excluded — belongs to Curaçao, not the Netherlands.
+
 ## [0.10.1] - 2026-02-23
 
 ### Fixed
