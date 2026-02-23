@@ -496,7 +496,7 @@ def _load_estimates_from_csv(csv_path: Path) -> bool:
         if count:
             logger.info("Loaded %d estimates from %s", count, csv_path)
         return count > 0
-    except (OSError, KeyError, ValueError) as exc:
+    except (OSError, KeyError, ValueError, csv.Error) as exc:
         logger.warning("Failed to load estimates from CSV: %s", exc)
         return False
 
