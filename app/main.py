@@ -29,6 +29,7 @@ from app.data_loader import (
     get_nuts_names,
     load_data,
     lookup,
+    normalize_country,
 )
 from app.models import ErrorResponse, HealthResponse, NUTSResult, PatternResponse
 from app.postal_patterns import POSTAL_PATTERNS
@@ -60,12 +61,12 @@ else:
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next) -> Response:
         start = time.monotonic()
         response = await call_next(request)
         duration_ms = (time.monotonic() - start) * 1000
         access_logger.info(
-            '%s %s %s %d %.1fms',
+            "%s %s %s %d %.1fms",
             request.client.host if request.client else "-",
             request.method,
             request.url.path,
@@ -110,7 +111,7 @@ app = FastAPI(
 app.state.limiter = limiter
 
 
-def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     headers = {}
     if settings.rate_limit_headers:
         window_seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400}
@@ -182,17 +183,12 @@ def lookup_postal_code(
         examples=["PL", "AT", "DE"],
     ),
 ):
-    cc = country.upper()
-    if cc == "GR":
-        cc = "EL"
+    cc = normalize_country(country)
 
     if cc not in get_loaded_countries():
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Country '{cc}' is not supported. "
-                f"Available countries: {_available_countries_str()}"
-            ),
+            detail=(f"Country '{cc}' is not supported. Available countries: {_available_countries_str()}"),
         )
 
     result = lookup(country, postal_code)
@@ -201,10 +197,7 @@ def lookup_postal_code(
         hint = f" Expected format: {pattern['example']}" if pattern else ""
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"No NUTS mapping found for postal code '{postal_code}' "
-                f"in country '{cc}'.{hint}"
-            ),
+            detail=(f"No NUTS mapping found for postal code '{postal_code}' in country '{cc}'.{hint}"),
         )
     response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
     return NUTSResult(

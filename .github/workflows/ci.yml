@@ -20,6 +20,7 @@ jobs:
           python-version: "3.12"
       - run: pip install ruff
       - run: ruff check app/ scripts/
+      - run: ruff format --check app/ scripts/
 
   import-check:
     runs-on: ubuntu-latest
@@ -44,6 +45,16 @@ jobs:
       - name: Static security analysis
         run: pip install bandit && bandit -r app/ -c pyproject.toml
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest tests/ -v
+
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -58,7 +69,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, import-check, security, docker]
+    needs: [lint, import-check, test, security, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
