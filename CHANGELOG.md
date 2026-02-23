@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.1] - 2026-02-23
+
+### Fixed
+
+- **Preprocessing order**: dot thousand-separator removal now runs before `.0` stripping, so locale-formatted codes like `13.000` correctly become `13000` instead of `13`.
+- **IE regex** (#10): space between Eircode routing key and identifier is now optional (`D02X285` accepted alongside `D02 X285`).
+- **PT regex** (#12): space is now accepted as a separator between digit groups (`1000 001` alongside `1000-001` and `1000001`).
+
+### Notes
+
+- **#11 (NO lowercase prefix)**: already handled — all regexes are compiled with `re.IGNORECASE` and input is uppercased before matching. Closed as resolved.
+
 ## [0.10.0] - 2026-02-23
 
 ### Added

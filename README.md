@@ -216,8 +216,8 @@ Before regex matching, raw input is preprocessed to recover postal codes mangled
 
 | Step | Problem | Example | Result |
 |------|---------|---------|--------|
-| Strip `.0` suffix | Excel stores numbers as floats | `28040.0` | `28040` |
 | Remove dot thousands | Dot-as-thousand-separator formatting | `13.600` | `13600` |
+| Strip `.0` suffix | Excel stores numbers as floats | `28040.0` | `28040` |
 | Restore leading zeros | Excel strips leading zeros from numbers | `8461` (ES) | `08461` |
 
 Leading-zero restoration uses the `expected_digits` metadata in `postal_patterns.json` and only triggers when the input is all-digit and exactly one digit short. Countries with non-numeric postal codes (IE, MT, NL) are excluded.
@@ -273,7 +273,7 @@ User input: "Traiskirchen"
 | FR | 5 digits | F- | `75001`, `F-75001` |
 | HR | 5 digits | HR- | `10000`, `HR-10000` |
 | HU | 4 digits | H- | `1011`, `H-1011` |
-| IE | Eircode: letter + 2 digits (or 6W) + space + 4 alphanumerics; lookup uses routing key (first 3 chars) | — | `D02 X285`, `A65 F4E2` |
+| IE | Eircode: letter + 2 digits (or 6W) + optional space + 4 alphanumerics; lookup uses routing key (first 3 chars) | — | `D02 X285`, `D02X285`, `A65 F4E2` |
 | IS | 3 digits | IS- | `101`, `IS-101` |
 | IT | 5 digits | I-, IT- | `00118`, `I-00118`, `IT-00118` |
 | LI | 4 digits | FL- | `9490`, `FL-9490` |
@@ -285,7 +285,7 @@ User input: "Traiskirchen"
 | NL | 4 digits + optional space + 2 letters | NL- | `1012 AB`, `NL-1012AB` |
 | NO | 4 digits | N- | `0150`, `N-0150` |
 | PL | 2 digits + optional dash + 3 digits | PL- | `00-950`, `00950`, `PL-00-950` |
-| PT | 4 digits + optional dash + 3 digits | — | `1000-001`, `1000001` |
+| PT | 4 digits + optional dash or space + 3 digits | — | `1000-001`, `1000 001`, `1000001` |
 | RO | 6 digits | RO- | `010001`, `RO-010001` |
 | RS | 5 digits | — | `11000` |
 | SE | 3 digits + optional space + 2 digits | S-, SE- | `10005`, `100 05`, `S-10005`, `SE-10005` |
