@@ -1,13 +1,22 @@
 """Per-country postal code input patterns for prefix stripping and validation.
 
 Each country entry may contain:
-  - regex:      Input validation/extraction pattern (capture groups → postal code)
-  - example:    Human-readable format examples
-  - tercet_map: Optional transform to align extracted code with TERCET lookup key.
-                Supported actions:
-                  truncate:N  — keep only the first N characters
-                  prepend:XX  — prepend string XX to the extracted code
-                  keep_alpha  — keep only leading alphabetic characters
+  - regex:           Input validation/extraction pattern (capture groups → postal code)
+  - example:         Human-readable format examples
+  - tercet_map:      Optional transform to align extracted code with TERCET lookup key.
+                     Supported actions:
+                       truncate:N  — keep only the first N characters
+                       prepend:XX  — prepend string XX to the extracted code
+                       keep_alpha  — keep only leading alphabetic characters
+  - expected_digits: Expected number of digits for all-numeric postal codes.
+                     Used by _preprocess() to restore leading zeros lost in Excel/CSV
+                     exports (e.g. "8461" → "08461" for ES with expected_digits=5).
+                     Omitted for countries with non-numeric codes (IE, MT, NL).
+
+Before regex matching, raw input is preprocessed to fix common data artifacts:
+  1. Strip trailing ".0" (Excel float coercion)
+  2. Remove dot thousand-separators ("13.600" → "13600")
+  3. Restore leading zeros using expected_digits (digit-only, exactly 1 short)
 """
 
 import json
@@ -31,6 +40,29 @@ _COMPILED: dict[str, re.Pattern] = {
 }
 
 
+_THOUSANDS_RE = re.compile(r"^\d{1,3}(\.\d{3})+$")
+
+
+def _preprocess(raw: str, entry: dict | None) -> str:
+    """Clean common data artifacts from raw postal code input.
+
+    Applied before regex matching to recover codes mangled by Excel, CSV
+    exports, or database dumps.
+    """
+    code = raw
+    # 1. Strip Excel float suffix: "28040.0" → "28040"
+    code = re.sub(r"\.0+$", "", code)
+    # 2. Remove dot thousand-separators: "13.600" → "13600"
+    if _THOUSANDS_RE.match(code):
+        code = code.replace(".", "")
+    # 3. Country-aware leading-zero padding (digit-only, exactly 1 short)
+    if entry:
+        expected = entry.get("expected_digits")
+        if expected and code.isdigit() and len(code) == expected - 1:
+            code = code.zfill(expected)
+    return code
+
+
 def _apply_tercet_map(code: str, rule: str) -> str:
     """Apply a tercet_map transform rule to an extracted postal code."""
     action, _, arg = rule.partition(":")
@@ -47,16 +79,18 @@ def _apply_tercet_map(code: str, rule: str) -> str:
 def extract_postal_code(country_code: str, raw_input: str) -> str:
     """Extract and normalize postal code using country-specific pattern.
 
-    1. Look up compiled regex for the country
-    2. Apply it to raw_input.strip().upper()
-    3. If match: concatenate all capture groups (or full match if none) and normalize
-    4. Apply tercet_map transform if defined (aligns code with TERCET lookup key)
-    5. If no match or no pattern: fall back to normalize_postal_code(raw_input)
+    1. Look up compiled regex and pattern entry for the country
+    2. Preprocess raw input (strip Excel artifacts, restore leading zeros)
+    3. Apply regex to cleaned.upper()
+    4. If match: concatenate all capture groups (or full match if none) and normalize
+    5. Apply tercet_map transform if defined (aligns code with TERCET lookup key)
+    6. If no match or no pattern: fall back to normalize_postal_code(cleaned)
     """
     entry = POSTAL_PATTERNS.get(country_code)
     pattern = _COMPILED.get(country_code)
+    cleaned = _preprocess(raw_input.strip(), entry)
     if pattern is not None:
-        m = pattern.match(raw_input.strip().upper())
+        m = pattern.match(cleaned.upper())
         if m:
             groups = m.groups()
             if groups:
@@ -67,4 +101,4 @@ def extract_postal_code(country_code: str, raw_input: str) -> str:
             if tercet_map:
                 code = _apply_tercet_map(code, tercet_map)
             return code
-    return normalize_postal_code(raw_input)
+    return normalize_postal_code(cleaned)

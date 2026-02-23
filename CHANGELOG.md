@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.0] - 2026-02-23
+
+### Added
+
+- **Input preprocessing** for postal codes mangled by Excel, CSV exports, or database dumps. Three country-agnostic steps are applied before regex matching:
+  1. **Strip trailing `.0`** — Excel float coercion (`28040.0` → `28040`)
+  2. **Remove dot thousand-separators** — (`13.600` → `13600`)
+  3. **Restore leading zeros** — using per-country `expected_digits` metadata (`8461` → `08461` for ES)
+- `expected_digits` field in `postal_patterns.json` for 30 countries with fixed-length all-numeric postal codes. Countries with non-numeric formats (IE, MT, NL) are excluded.
+
+### Notes
+
+- **Backward compatible**: preprocessing is transparent — correctly formatted postal codes are passed through unchanged. No regex patterns were modified.
+- **Closes #16** (generic preprocessing for Excel artifacts and postal code mangling). Also subsumes #15 (ES-specific fixes).
+
 ## [0.9.0] - 2026-02-20
 
 ### Added
