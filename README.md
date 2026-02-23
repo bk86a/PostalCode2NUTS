@@ -548,12 +548,34 @@ app/
 ├── models.py            # Pydantic response models
 ├── postal_patterns.py   # Pattern loading, preprocessing + extract_postal_code()
 └── postal_patterns.json # Per-country regex patterns, examples, expected_digits
+tests/
+├── conftest.py          # Shared fixtures with mock TERCET data
+├── test_postal_patterns.py
+├── test_data_loader.py
+└── test_api.py
 scripts/
 └── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
 tercet_missing_codes.csv # Pre-computed NUTS estimates for codes missing from TERCET
+Makefile                 # Standard targets: lint, format, test, run, docker-build
 ```
 
 Postal patterns and confidence settings are stored in JSON files (`postal_patterns.json`, `settings.json`) for easy editing without touching Python code. The `countries` list can still be overridden via the `PC2NUTS_COUNTRIES` environment variable.
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt   # runtime + dev/test dependencies
+make test                             # run pytest suite
+make lint                             # ruff check
+make format                           # ruff format (auto-fix)
+```
+
+Pre-commit hooks are available via [pre-commit](https://pre-commit.com/):
+
+```bash
+pip install pre-commit
+pre-commit install
+```
 
 ## Adding a new country
 
