@@ -205,24 +205,50 @@ Invalid parameter format (422):
 
 The service uses per-country regex patterns (`app/postal_patterns.py`) to handle real-world postal code input variations:
 
+- **Input preprocessing** — fixes common data artifacts before regex matching (see below)
 - **Country prefix stripping** — `A-1010`, `D-10115`, `B-1000` are stripped to their numeric postal codes before lookup
 - **Internal formatting** — dashes in Polish codes (`00-950`), spaces in Dutch codes (`1012 AB`), etc. are normalized
 - **Fallback** — if the input doesn't match the country pattern, generic normalization is applied (strip all non-alphanumeric, uppercase)
 
+### Input preprocessing
+
+Before regex matching, raw input is preprocessed to recover postal codes mangled by Excel, CSV exports, or database dumps:
+
+| Step | Problem | Example | Result |
+|------|---------|---------|--------|
+| Strip `.0` suffix | Excel stores numbers as floats | `28040.0` | `28040` |
+| Remove dot thousands | Dot-as-thousand-separator formatting | `13.600` | `13600` |
+| Restore leading zeros | Excel strips leading zeros from numbers | `8461` (ES) | `08461` |
+
+Leading-zero restoration uses the `expected_digits` metadata in `postal_patterns.json` and only triggers when the input is all-digit and exactly one digit short. Countries with non-numeric postal codes (IE, MT, NL) are excluded.
+
 ### Pattern extraction flow
 
 ```
+User input: "28040.0" (country: ES)
+  → preprocess: strip .0 → "28040"
+  → regex match for ES: captures "28040"
+  → lookup ("ES", "28040") in TERCET → NUTS result
+
+User input: "8461" (country: ES)
+  → preprocess: pad to expected_digits=5 → "08461"
+  → regex match for ES: captures "08461"
+  → lookup ("ES", "08461") in TERCET → NUTS result
+
 User input: "A-5600"
+  → preprocess: no changes (not numeric-only)
   → regex match for AT: captures "5600"
   → normalize: "5600"
   → lookup ("AT", "5600") in TERCET → NUTS result
 
 User input: "00-950"
+  → preprocess: no changes (contains dash)
   → regex match for PL: captures "00" + "950" (2 groups)
   → concatenate + normalize: "00950"
   → lookup ("PL", "00950") in TERCET → NUTS result
 
 User input: "Traiskirchen"
+  → preprocess: no changes (not numeric)
   → regex for AT: no match
   → fallback normalize: "TRAISKIRCHEN"
   → lookup ("AT", "TRAISKIRCHEN") → 404
@@ -506,8 +532,8 @@ app/
 ├── settings.json        # Countries, confidence map, approximate thresholds
 ├── data_loader.py       # TERCET download, parsing, SQLite cache, three-tier lookup
 ├── models.py            # Pydantic response models
-├── postal_patterns.py   # Pattern loading + extract_postal_code()
-└── postal_patterns.json # Per-country regex patterns and examples
+├── postal_patterns.py   # Pattern loading, preprocessing + extract_postal_code()
+└── postal_patterns.json # Per-country regex patterns, examples, expected_digits
 scripts/
 └── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
 tercet_missing_codes.csv # Pre-computed NUTS estimates for codes missing from TERCET
@@ -539,6 +565,16 @@ This enables URL guessing (Strategy 2) if the TERCET directory listing is unavai
 ```
 
 The regex should handle optional country prefixes and capture the postal code digits. See existing patterns for reference. Patterns may have 0, 1, or 2 capture groups.
+
+Optional `expected_digits` field for countries with fixed-length all-numeric postal codes (enables leading-zero restoration during preprocessing):
+
+```json
+"XX": {
+    "regex": "^(?:XX-?)?(\\d{5})$",
+    "example": "12345, XX-12345",
+    "expected_digits": 5
+}
+```
 
 Optional `tercet_map` field for countries where the TERCET key differs from the extracted code:
 
