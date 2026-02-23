@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.13.0] - 2026-02-23
+
+### Added
+
+- **Automated test suite** (#25): 69 pytest tests covering `postal_patterns.py` (preprocessing, tercet_map, extraction), `data_loader.py` (normalize functions, all 5 lookup tiers), and FastAPI endpoints (`/lookup`, `/pattern`, `/health`). CI now runs tests before publish.
+- **Makefile** (#24): standard targets for `lint`, `format`, `test`, `run`, `docker-build`, `docker-run`.
+- **Pre-commit hooks** (#24): ruff lint + format via `.pre-commit-config.yaml`.
+- **`requirements-dev.txt`** (#22): dev/test dependencies (ruff, bandit, pip-audit, pytest).
+- **`ruff format` CI check** (#24): enforces consistent code formatting in CI.
+
+### Changed
+
+- **Centralized duplicated logic** (#22): `normalize_country()` replaces duplicate GR→EL blocks, `_db_connection()` context manager replaces 6 manual SQLite connect/close patterns, `_build_result()` helper replaces repetitive result dict construction across all lookup tiers.
+- **Narrowed exception handling** (#23): 9 bare `except Exception` blocks in `data_loader.py` replaced with specific types (`sqlite3.Error`, `httpx.RequestError`, `OSError`, etc.). Silent catch in `import_estimates.py` now logs a message.
+- **Return type hints** added to `dispatch()` and `_rate_limit_handler()` in `main.py`.
+
 ## [0.12.0] - 2026-02-23
 
 ### Fixed
