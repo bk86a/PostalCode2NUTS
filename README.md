@@ -17,6 +17,9 @@ Iceland (IS), Liechtenstein (LI), Norway (NO), Switzerland (CH)
 **EU candidate countries** (3):
 North Macedonia (MK), Serbia (RS), Türkiye (TR)
 
+## Testing
+
+The service has been tested against **134 million real-world postal codes** from 34 countries, sourced from 8 publicly available European datasets: GeoNames, GLEIF, TED, SIRENE, OffeneRegister, FTS, OpenAddresses, and Erasmus+ ECHE. All are open data published under permissive licenses (CC BY 4.0, CC0, or Licence Ouverte v2.0).
 
 ## Quick start
 
