@@ -2,5 +2,5 @@
 ruff>=0.7,<1
 bandit>=1.7,<2
 pip-audit>=2,<3
-pytest>=8,<9
+pytest>=8,<10
 openpyxl>=3,<4
