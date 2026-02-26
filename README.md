@@ -393,7 +393,61 @@ At startup the service also loads any pre-computed estimates from the DB, remove
 
 ## Estimates
 
-Pre-computed NUTS estimates cover postal codes that are absent from TERCET. The service loads them automatically at startup from the CSV file configured via `PC2NUTS_ESTIMATES_CSV` (default: `./tercet_missing_codes.csv`). No manual import step is needed — just update the CSV and restart.
+### Why estimates are needed
+
+The GISCO TERCET correspondence tables are the authoritative source for postal-code-to-NUTS mappings, but they do not cover every postal code in active use. Gaps arise from newly issued codes, country-specific sub-ranges (e.g. French CEDEX codes), codes used only by specific postal operators, or simple omissions. The estimates table fills these gaps with pre-computed NUTS assignments so that real-world postal codes return a result instead of a 404.
+
+### How missing codes were identified
+
+Missing codes were identified by testing the service against **134 million real-world postal codes** drawn from 8 publicly available European datasets (GeoNames, OpenAddresses, GLEIF, SIRENE, TED, OffeneRegister, FTS, and Erasmus+ ECHE). Any code that passed the country's regex validation but had no TERCET match was flagged as a candidate for estimation.
+
+### How estimates are computed
+
+Each missing code is assigned a NUTS region by analysing its **neighbouring codes** — TERCET entries that share the same leading digits (or letters):
+
+1. **Prefix grouping** — The missing code's leading characters are matched against all known postal codes for that country. For example, if `1012` is missing in Austria, all TERCET codes starting with `101x`, `10xx`, and `1xxx` are collected as neighbours.
+
+2. **NUTS region agreement** — The NUTS3 assignments of those neighbours are compared. If all neighbours with the longest common prefix map to the same NUTS3 region (e.g. all Austrian `10xx` codes → AT130 Wien), the missing code is assigned that region.
+
+3. **Geographic cross-check** — Where prefix analysis is ambiguous (e.g. codes near a NUTS boundary), assignments are verified against postal geography references (national postal operator data, OpenStreetMap boundaries, or Eurostat regional maps).
+
+### Confidence labels
+
+Each estimate is assigned a confidence label based on how strongly the neighbouring codes agree:
+
+| Label    | Meaning | Typical case |
+|----------|---------|--------------|
+| **high** | All neighbours with the longest common prefix agree on the same NUTS3 region | Code well inside a single NUTS3 area (e.g. Austrian `1012` → AT130, since all `10xx` codes are in Wien) |
+| **medium** | Most neighbours agree, but there is some divergence at NUTS3 level | Code near a NUTS3 boundary where the prefix spans two adjacent regions |
+| **low** | Neighbours disagree significantly; assignment is plausible but uncertain | Code in a border area or where the postal numbering scheme does not align well with NUTS geography |
+
+These labels map to numerical confidence scores per NUTS level. Coarser levels receive higher scores because neighbouring codes are more likely to share the same NUTS1 region than the same NUTS3 region:
+
+| Label  | NUTS1 | NUTS2 | NUTS3 |
+|--------|-------|-------|-------|
+| high   | 0.98  | 0.95  | 0.90  |
+| medium | 0.90  | 0.80  | 0.70  |
+| low    | 0.70  | 0.55  | 0.40  |
+
+### Current coverage
+
+The estimates file contains **7,019 entries** across 32 countries, with the following confidence distribution:
+
+| Confidence | Count | Share |
+|------------|-------|-------|
+| high       | 5,257 | 74.9% |
+| medium     | 1,371 | 19.5% |
+| low        |   391 |  5.6% |
+
+Countries with the most estimates: TR (1,778), LT (1,171), FR (526), DE (500), EL (383), CZ (359), RO (355).
+
+### Revalidation
+
+When new TERCET data is published and loaded, the service automatically removes any estimate whose postal code now has an exact TERCET match. This ensures estimates never shadow official data.
+
+### Configuration
+
+The service loads estimates automatically at startup from the CSV file configured via `PC2NUTS_ESTIMATES_CSV` (default: `./tercet_missing_codes.csv`). No manual import step is needed — just update the CSV and restart.
 
 **CSV format:**
 
