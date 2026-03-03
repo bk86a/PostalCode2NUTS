@@ -97,6 +97,12 @@ class TestHealthEndpoint:
         assert "total_estimates" in data
         assert data["total_estimates"] >= 0
 
+    def test_includes_patterns_version(self, client):
+        resp = client.get("/health")
+        data = resp.json()
+        assert "patterns_version" in data
+        assert data["patterns_version"] == "1.0"
+
     def test_includes_nuts_names(self, client):
         resp = client.get("/health")
         data = resp.json()
