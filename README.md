@@ -164,6 +164,7 @@ Returns service status and data statistics.
   "total_nuts_names": 2190,
   "nuts_version": "2024",
   "extra_sources": 0,
+  "patterns_version": "1.0",
   "data_stale": false,
   "last_updated": "2025-01-15T12:00:00+00:00"
 }
@@ -174,6 +175,7 @@ Returns service status and data statistics.
 | `status` | `ok` if data is loaded, `no_data` otherwise |
 | `total_nuts_names` | Number of NUTS region names loaded (0 if names CSV unavailable) |
 | `extra_sources` | Number of extra ZIP source URLs configured (0 when not using extra sources) |
+| `patterns_version` | Version of the `postal_patterns.json` file |
 | `data_stale` | `true` if serving expired cache after a failed TERCET refresh |
 | `last_updated` | ISO 8601 timestamp of when TERCET data was last successfully loaded |
 
