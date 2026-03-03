@@ -37,6 +37,7 @@ class HealthResponse(BaseModel):
     nuts_version: str
     total_nuts_names: int = Field(default=0, description="Number of NUTS region names loaded")
     extra_sources: int = Field(default=0, description="Number of extra ZIP source URLs configured")
+    patterns_version: str = Field(description="Version of the postal_patterns.json file")
     data_stale: bool = Field(description="True if serving expired cache after a failed TERCET refresh")
     last_updated: str = Field(
         description="ISO 8601 timestamp of when TERCET data was last successfully loaded"
