@@ -32,7 +32,7 @@ from app.data_loader import (
     normalize_country,
 )
 from app.models import ErrorResponse, HealthResponse, NUTSResult, PatternResponse
-from app.postal_patterns import POSTAL_PATTERNS
+from app.postal_patterns import PATTERNS_META, POSTAL_PATTERNS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -266,6 +266,7 @@ def health(response: Response):
         total_nuts_names=len(get_nuts_names()),
         nuts_version=settings.nuts_version,
         extra_sources=get_extra_source_count(),
+        patterns_version=PATTERNS_META.get("version", "unknown"),
         data_stale=stale,
         last_updated=get_data_loaded_at(),
     )
