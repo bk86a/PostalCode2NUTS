@@ -89,6 +89,7 @@ startup
 - NSPL failure must not block TERCET data from serving (and vice versa). Both already use the stale-cache fallback; NSPL hooks into the same mechanism.
 - NSPL cache lives in the same SQLite DB as TERCET, tagged with its own source identifier so a TERCET-only deployment (NSPL URL unset) still works.
 - The `code_system` of each lookup row is recorded at load time, not derived at query time.
+- **`UK` is NOT added to `settings.countries`.** That list drives GISCO discovery and Strategy-2 URL guessing in the TERCET loader (`data_loader._guess_zip_urls_for_country`). Adding UK there would cause every cold start to attempt non-existent `pc{YYYY}_UK_NUTS-*.zip` URLs against GISCO, wasting startup latency and timeout budget. UK loading is gated on `settings.nspl_url` instead.
 
 ---
 
@@ -100,7 +101,7 @@ startup
 | **Conditional GET** | Extend the existing TERCET downloader to send `If-Modified-Since` / `If-None-Match` based on cached `Last-Modified` / `ETag`. On `304 Not Modified`, skip re-parse. Applied to both TERCET and NSPL — free win for both. |
 | **`doterm` filter** | `_parse_csv_content` gains a `skip_terminated: bool = False` flag. When true, rows where the `DOTERM` column is non-blank are skipped. NSPL loader sets it to true. |
 | **Column aliases** | Extend the existing alias lists in `_parse_csv_content`: postal code adds `"PCDS"`; NUTS3 candidates add `"ITL"`, `"ITL3"`, `"ITL3CD"`. No separate parser path. |
-| **ITL names** | Three ONS "Names and Codes" CSVs (one per ITL level, ~232 rows total). URLs in `settings.json` next to `nspl_url`. Loaded into the existing `nuts_names` table. The current `_NUTS3_RE` pattern (`^[A-Z]{2}[A-Z0-9]{1,3}$`) already accepts `TLxNN`. |
+| **ITL names** | Three ONS "Names and Codes" CSVs (one per ITL level, ~232 rows total). URLs supplied via `PC2NUTS_ITL_NAMES_URLS` (comma-separated) — exposed as a plain string field on `Settings` plus a `itl_names_url_list` property that splits it, mirroring the existing `extra_sources` / `extra_source_urls` pattern. Loaded into the existing `nuts_names` table. The current `_NUTS3_RE` pattern (`^[A-Z]{2}[A-Z0-9]{1,3}$`) already accepts `TLxNN`. |
 | **TTL** | Shared `PC2NUTS_DB_CACHE_TTL_DAYS`. Conditional GET keeps the wasted-refresh cost near zero. Per-source TTL deferred unless conditional GET is unsupported by ONS. |
 
 ---
@@ -144,9 +145,9 @@ code_system: Literal["NUTS", "ITL"]
 
 | File | Change |
 |------|--------|
-| `app/settings.json` | Add `"UK"` to `countries`. New keys: `nspl_url` (string), `itl_names_urls` (list of 3 strings). |
+| `app/settings.json` | Add `nspl_url: ""` (default empty). **Do NOT add `"UK"` to `countries`** — that list is GISCO-only; adding UK there would trigger wasted GISCO URL guesses on every cold load. |
 | `app/postal_patterns.json` | Add UK entry with the issue's proposed regex + new `tercet_map: "outward_only"`. Bump `_meta.version` from `1.0` → `1.1`. |
-| `app/config.py` | New env vars: `PC2NUTS_NSPL_URL`, `PC2NUTS_ITL_NAMES_URLS` (comma-separated). |
+| `app/config.py` | New string fields `nspl_url: str = ""` and `itl_names_urls: str = ""` (env vars `PC2NUTS_NSPL_URL`, `PC2NUTS_ITL_NAMES_URLS`). New property `itl_names_url_list` that splits the comma-separated string — mirrors the existing `extra_sources` / `extra_source_urls` pattern. No `Field(alias=...)` indirection. |
 | `app/data_loader.py` | Column alias extension, `doterm` filter flag, NSPL loader, outward-code index builder, ITL names loader, conditional-GET in HTTP layer, `code_system` attribution per source. |
 | `app/main.py` | `GB → UK` alias in `/lookup`; new field in response model. |
 | `app/models.py` | Add `code_system` field with description. |
@@ -211,3 +212,10 @@ In `README.md`:
 | Q7 | `patterns_version` bump | `1.0 → 1.1` | Additive change (new country, no existing pattern altered). |
 | Q8 | Country auto-discovery | Separate code path for NSPL | GISCO directory listing won't include UK; failure must not block TERCET startup. |
 | Q9 | Estimates revalidation cost | Measure during implementation; per-country scoping if >5s | Low likelihood of regression; defer optimisation until measured. |
+
+### Post-spec corrections (Codex review on PR #52, 2026-04-29)
+
+| # | Concern | Fix |
+|---|---------|-----|
+| C1 | `Field(alias="ITL_NAMES_URLS")` interacts unreliably with `pydantic-settings` `env_prefix` — the operator-facing `PC2NUTS_ITL_NAMES_URLS` env var would not consistently populate the field. | Use the existing `extra_sources` precedent: a plain `str` field plus a separately-named property that parses the comma-separated value. No alias; env var name follows from the field name + prefix. |
+| C2 | Adding `"UK"` to `settings.countries` makes the GISCO loader's Strategy-2 URL-guessing iterate over UK on every cold load, attempting non-existent `pc{YYYY}_UK_NUTS-*.zip` URLs. | UK is loaded by the dedicated NSPL path; do not add it to `settings.countries`. The new architecture invariant in §3 makes this explicit. |

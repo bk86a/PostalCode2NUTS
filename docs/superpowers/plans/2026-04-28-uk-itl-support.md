@@ -22,7 +22,7 @@
 | `app/postal_patterns.json` | Add UK entry; bump `_meta.version` to `1.1` | 2 |
 | `app/postal_patterns.py` | Implement `outward_only` action + `extract_outward` helper | 3 |
 | `app/data_loader.py` | NSPL column aliases, `doterm` filter, conditional GET, NSPL loader, `_outward_lookup` index, `GB→UK` alias, `code_system` tagging, Tier 3.5, ITL names loader, isolation | 4–14 |
-| `app/settings.json` | Add `UK` to countries; new `nspl_url` and `itl_names_urls` | 6 |
+| `app/settings.json` | Add `nspl_url` only — **do NOT add UK to `countries`** (Codex review on PR #52: would trigger wasted GISCO URL guesses) | 6 |
 | `app/config.py` | Surface NSPL config as `Settings` attributes | 6 |
 | `app/main.py` | Forward `code_system` from lookup result; documentation cleanup | 12 |
 | `tests/conftest.py` | Add UK mock data + outward-code fixture | 1, 9, 11 |
@@ -473,14 +473,16 @@ git commit -m "feat: add skip_terminated flag to filter NSPL doterm rows"
 
 ## Task 6: Add NSPL configuration
 
-**Goal:** Operator-controlled NSPL ZIP URL and ITL Names-and-Codes URLs. Default empty (NSPL loader is a no-op when unset).
+**Goal:** Operator-controlled NSPL ZIP URL and ITL Names-and-Codes URLs. Default empty (NSPL loader is a no-op when unset). Mirrors the existing `extra_sources` / `extra_source_urls` pattern in `Settings` — plain `str` field for the env var, separately-named `@property` to parse the comma-separated value. **No `Field(alias=...)` indirection** — that interacts unreliably with `env_prefix` in pydantic-settings.
+
+> **Important:** Do NOT add `"UK"` to `settings.json` `countries`. That list is consumed by the GISCO loader's Strategy-2 URL guessing (`data_loader._guess_zip_urls_for_country`); adding UK there would attempt non-existent `pc{YYYY}_UK_NUTS-*.zip` URLs against GISCO on every cold load. UK loading is gated on `settings.nspl_url` being non-empty.
 
 **Files:**
-- Modify: `app/settings.json`
+- Modify: `app/settings.json` (add `nspl_url` only; do NOT touch `countries`)
 - Modify: `app/config.py`
 - Modify: `tests/test_data_loader.py`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 Add to `tests/test_data_loader.py`:
 
@@ -491,67 +493,80 @@ def test_settings_expose_nspl_url_attribute():
     assert settings.nspl_url == ""
 
 
-def test_settings_expose_itl_names_urls_list():
+def test_settings_expose_itl_names_urls_string():
     from app.config import settings
-    assert settings.itl_names_urls == []
+    # Raw env-backed string, default empty
+    assert settings.itl_names_urls == ""
 
 
-def test_uk_in_settings_countries():
+def test_settings_itl_names_url_list_parses_csv():
+    from app.config import Settings
+    s = Settings(itl_names_urls="https://a/x.csv, https://b/y.csv ,")
+    assert s.itl_names_url_list == ["https://a/x.csv", "https://b/y.csv"]
+
+
+def test_settings_itl_names_url_list_empty_when_unset():
     from app.config import settings
-    assert "UK" in settings.countries
+    assert settings.itl_names_url_list == []
+
+
+def test_uk_NOT_in_settings_countries():
+    """Regression guard: UK must not appear in the GISCO country list."""
+    from app.config import settings
+    assert "UK" not in settings.countries
 ```
 
 - [ ] **Step 2: Run tests**
 
 ```bash
-pytest tests/test_data_loader.py -v -k "nspl_url or itl_names_urls or uk_in_settings"
+pytest tests/test_data_loader.py -v -k "nspl_url or itl_names or uk_not"
 ```
 
-Expected: AttributeError / `"UK" not in [...]`.
+Expected: AttributeError on `nspl_url` / `itl_names_urls` / `itl_names_url_list`. The `uk_NOT` test passes already (UK was never added).
 
 - [ ] **Step 3: Update settings.json**
 
-In `app/settings.json`:
+In `app/settings.json`, add `nspl_url` next to `tercet_base_url`. **Leave the `countries` list untouched.**
 
 ```json
 {
   "tercet_base_url": "https://gisco-services.ec.europa.eu/tercet/NUTS-2024/",
+  "nspl_url": "",
   "countries": [
     "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES",
     "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
     "NL", "PL", "PT", "RO", "SE", "SI", "SK",
     "CH", "IS", "LI", "NO",
-    "MK", "RS", "TR",
-    "UK"
+    "MK", "RS", "TR"
   ],
   ...
 }
 ```
 
+(Operators set `PC2NUTS_NSPL_URL` to override the empty default; `nspl_url` in `settings.json` exists only so the field has a discoverable default location.)
+
 - [ ] **Step 4: Update config.py**
 
-In `app/config.py`, inside class `Settings`:
+In `app/config.py`, inside class `Settings`, add the two fields plus the parsing property — mirror exactly the existing `extra_sources` / `extra_source_urls` pattern at lines 19 / 36-40:
 
 ```python
-    # NSPL (UK postcode → ITL3) — optional, no-op when unset
-    nspl_url: str = ""
-    itl_names_urls_raw: str = ""
+    # NSPL (UK postcode → ITL3) — optional, no-op when both unset
+    nspl_url: str = _defaults.get("nspl_url", "")
+    itl_names_urls: str = ""
 
     @property
-    def itl_names_urls(self) -> list[str]:
-        """Comma-separated PC2NUTS_ITL_NAMES_URLS env var → list of URLs."""
-        if not self.itl_names_urls_raw.strip():
+    def itl_names_url_list(self) -> list[str]:
+        """Parse PC2NUTS_ITL_NAMES_URLS comma-separated string into URL list."""
+        if not self.itl_names_urls.strip():
             return []
-        return [u.strip() for u in self.itl_names_urls_raw.split(",") if u.strip()]
+        return [u.strip() for u in self.itl_names_urls.split(",") if u.strip()]
 ```
 
-Note: pydantic-settings reads `nspl_url` from `PC2NUTS_NSPL_URL` and `itl_names_urls_raw` from `PC2NUTS_ITL_NAMES_URLS_RAW`. To allow the cleaner env var name `PC2NUTS_ITL_NAMES_URLS`, alias the field:
+`pydantic-settings` with the existing `env_prefix = "PC2NUTS_"` automatically reads:
+- `PC2NUTS_NSPL_URL` → `Settings.nspl_url`
+- `PC2NUTS_ITL_NAMES_URLS` → `Settings.itl_names_urls`
 
-```python
-    itl_names_urls_raw: str = Field(default="", alias="ITL_NAMES_URLS")
-```
-
-(Add `from pydantic import Field` import.) The `env_prefix = "PC2NUTS_"` already in `model_config` will yield the final var `PC2NUTS_ITL_NAMES_URLS`.
+No `Field(alias=...)`, no extra imports. The property name `itl_names_url_list` (singular `url_list`) is intentionally distinct from the field name to avoid attribute shadowing.
 
 - [ ] **Step 5: Run tests**
 
@@ -1362,8 +1377,8 @@ def _load_itl_names(client: httpx.Client, urls: list[str]) -> int:
 Hook it into `load_data` after `_load_nspl`:
 
 ```python
-            if not timed_out and settings.itl_names_urls:
-                _load_itl_names(client, settings.itl_names_urls)
+            if not timed_out and settings.itl_names_url_list:
+                _load_itl_names(client, settings.itl_names_url_list)
 ```
 
 - [ ] **Step 4: Run tests**
@@ -1559,7 +1574,7 @@ git commit -m "docs: document UK/ITL support, six-tier waterfall, OGL attributio
 | Spec section | Implemented by | Notes |
 |--------------|----------------|-------|
 | §3 Architecture (parallel data channel) | Task 8, Task 14 | NSPL loader called from `load_data`; failure isolated. |
-| §4 NSPL URL / config | Task 6 | `nspl_url`, `itl_names_urls`. |
+| §4 NSPL URL / config | Task 6 | `nspl_url`, `itl_names_urls` (string field) + `itl_names_url_list` (parsing property). Mirrors `extra_sources` precedent — no `Field(alias=...)`. |
 | §4 Conditional GET | Task 7 | Wrapper added; integration into TERCET cache flow can be a follow-up if needed (the wrapper is in place). |
 | §4 doterm filter | Task 5 | Flag in `_parse_csv_content`. |
 | §4 NSPL column aliases | Task 4 | `PCDS`, `ITL`, `ITL3`, `ITL3CD`. |
