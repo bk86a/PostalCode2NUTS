@@ -3,79 +3,131 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '**.csv'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '**.csv'
 
 permissions:
   contents: read
   packages: write
+  pull-requests: read
 
 jobs:
+  # Detect whether the change touches any code-relevant path.
+  # Docs-only changes (README, *.md, *.csv, docs/**) skip heavy work
+  # while every required check name still reports success — this avoids
+  # the paths-ignore + required-status-checks deadlock that previously
+  # blocked docs-only PRs.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'app/**'
+              - 'tests/**'
+              - 'scripts/**'
+              - 'requirements*.txt'
+              - 'requirements.lock'
+              - 'pyproject.toml'
+              - 'Dockerfile'
+              - 'Makefile'
+              - '.github/workflows/**'
+
   lint:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check app/ scripts/
-      - run: ruff format --check app/ scripts/
+      - if: needs.changes.outputs.code == 'true'
+        run: pip install ruff
+      - if: needs.changes.outputs.code == 'true'
+        run: ruff check app/ scripts/
+      - if: needs.changes.outputs.code == 'true'
+        run: ruff format --check app/ scripts/
+      - if: needs.changes.outputs.code != 'true'
+        run: echo "Docs-only change — skipping lint."
 
   import-check:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: python -c "from app.main import app; print('imports OK')"
+      - if: needs.changes.outputs.code == 'true'
+        run: pip install -r requirements.txt
+      - if: needs.changes.outputs.code == 'true'
+        run: python -c "from app.main import app; print('imports OK')"
+      - if: needs.changes.outputs.code != 'true'
+        run: echo "Docs-only change — skipping import-check."
 
   security:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - name: Dependency audit
+      - if: needs.changes.outputs.code == 'true'
+        run: pip install -r requirements.txt
+      - if: needs.changes.outputs.code == 'true'
+        name: Dependency audit
         run: pip install pip-audit && pip-audit -r requirements.lock
-      - name: Static security analysis
+      - if: needs.changes.outputs.code == 'true'
+        name: Static security analysis
         run: pip install bandit && bandit -r app/ -c pyproject.toml
+      - if: needs.changes.outputs.code != 'true'
+        run: echo "Docs-only change — skipping security."
 
   test:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install -r requirements-dev.txt
-      - run: pytest tests/ -v
+      - if: needs.changes.outputs.code == 'true'
+        run: pip install -r requirements-dev.txt
+      - if: needs.changes.outputs.code == 'true'
+        run: pytest tests/ -v
+      - if: needs.changes.outputs.code != 'true'
+        run: echo "Docs-only change — skipping tests."
 
   docker:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Build image
+      - if: needs.changes.outputs.code == 'true'
+        name: Build image
         run: docker build -t postalcode2nuts .
-      - name: Verify non-root user
+      - if: needs.changes.outputs.code == 'true'
+        name: Verify non-root user
         run: |
           user=$(docker run --rm postalcode2nuts whoami)
           echo "Container user: $user"
           [ "$user" = "appuser" ] || exit 1
+      - if: needs.changes.outputs.code != 'true'
+        run: echo "Docs-only change — skipping docker build."
 
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, import-check, test, security, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true'
+    needs: [changes, lint, import-check, test, security, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
