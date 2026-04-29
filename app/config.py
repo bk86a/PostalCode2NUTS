@@ -2,6 +2,7 @@ import json
 import re
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 _settings_path = Path(__file__).parent / "settings.json"
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     db_cache_ttl_days: int = 30
     estimates_csv: str = "./tercet_missing_codes.csv"
     extra_sources: str = ""
+    trusted_tokens_raw: str = Field(default="", validation_alias="PC2NUTS_TRUSTED_TOKENS")
     rate_limit: str = _defaults.get("rate_limit", "60/minute")
     rate_limit_headers: bool = _defaults.get("rate_limit_headers", True)
     cache_max_age: int = _defaults.get("cache_max_age", 3600)
@@ -38,6 +40,18 @@ class Settings(BaseSettings):
         if not self.extra_sources.strip():
             return []
         return [u.strip() for u in self.extra_sources.split(",") if u.strip()]
+
+    @property
+    def trusted_tokens(self) -> frozenset[str]:
+        """Parse PC2NUTS_TRUSTED_TOKENS comma-separated list into a frozenset.
+
+        Whitespace around tokens is stripped; empty entries are dropped.
+        Returns an empty frozenset when unset or empty (auth bypass disabled).
+        """
+        raw = self.trusted_tokens_raw
+        if not raw.strip():
+            return frozenset()
+        return frozenset(t.strip() for t in raw.split(",") if t.strip())
 
     @property
     def nuts_version(self) -> str:
