@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Auth-token bypass** (#60): trusted callers can bypass the per-IP rate limit by presenting `Authorization: Bearer <token>`. Tokens are managed via the new `PC2NUTS_TRUSTED_TOKENS` comma-separated env var. Invalid tokens return `401`; malformed `Authorization` headers return `400`. Audit lines log a non-reversible 8-char SHA-256 prefix only — token values never appear in logs. See README "Authentication & rate-limit bypass" for the operator runbook.
+
 ## [0.15.0] - 2026-04-29
 
 ### Added
