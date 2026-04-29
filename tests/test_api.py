@@ -235,3 +235,21 @@ class TestAuthBypass:
                     headers={"Authorization": "Basic abc"},
                 )
                 assert resp.status_code == 200
+
+    def test_audit_log_includes_token_id_for_trusted(self, trusted_client, caplog):
+        from app.auth import token_id
+
+        with caplog.at_level("INFO", logger="app.access"):
+            trusted_client.get(
+                "/lookup",
+                params={"postal_code": "10115", "country": "DE"},
+                headers={"Authorization": "Bearer test-token-aaa"},
+            )
+        log_text = " ".join(r.message for r in caplog.records if r.name == "app.access")
+        assert f"token_id={token_id('test-token-aaa')}" in log_text
+
+    def test_audit_log_omits_token_id_for_anonymous(self, trusted_client, caplog):
+        with caplog.at_level("INFO", logger="app.access"):
+            trusted_client.get("/lookup", params={"postal_code": "10115", "country": "DE"})
+        log_text = " ".join(r.message for r in caplog.records if r.name == "app.access")
+        assert "token_id=" not in log_text

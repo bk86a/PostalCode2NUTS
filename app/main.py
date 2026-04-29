@@ -43,10 +43,11 @@ logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
 
-# Access logger — separate from app logger
+# Access logger — separate from app logger.
+# Propagates to the root logger so pytest caplog can capture records.
+# When access_log_file is set, also writes to a dedicated rotating file.
 access_logger = logging.getLogger("app.access")
 access_logger.setLevel(logging.INFO)
-access_logger.propagate = False
 if settings.access_log_file:
     _handler = RotatingFileHandler(
         settings.access_log_file,
@@ -55,10 +56,7 @@ if settings.access_log_file:
     )
     _handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     access_logger.addHandler(_handler)
-else:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    access_logger.addHandler(_handler)
+    access_logger.propagate = False
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
@@ -66,13 +64,18 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start = time.monotonic()
         response = await call_next(request)
         duration_ms = (time.monotonic() - start) * 1000
+        token_suffix = ""
+        tid = getattr(request.state, "token_id", None)
+        if tid:
+            token_suffix = f" token_id={tid}"
         access_logger.info(
-            "%s %s %s %d %.1fms",
+            "%s %s %s %d %.1fms%s",
             request.client.host if request.client else "-",
             request.method,
             request.url.path,
             response.status_code,
             duration_ms,
+            token_suffix,
         )
         return response
 
@@ -147,8 +150,8 @@ if settings.cors_origins:
         )
 
 
-app.add_middleware(AccessLogMiddleware)
 app.add_middleware(AuthMiddleware)
+app.add_middleware(AccessLogMiddleware)
 
 
 def _available_countries_str() -> str:
