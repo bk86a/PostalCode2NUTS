@@ -108,7 +108,10 @@ async def lifespan(app: FastAPI):
         from app import auth as auth_mod
         from app.token_db import TokenDB
 
-        token_db = TokenDB(_config.settings.token_db_url)
+        token_db = TokenDB(
+            _config.settings.token_db_url,
+            auth_token=_config.settings.token_db_auth_token,
+        )
 
         async def _refresh_loop():
             interval = max(1, _config.settings.token_refresh_seconds)

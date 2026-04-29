@@ -46,7 +46,7 @@ def fake_db(monkeypatch):
     from scripts import tokens
 
     fake = FakeTokenDB()
-    monkeypatch.setattr(tokens, "_make_db", lambda url: fake)
+    monkeypatch.setattr(tokens, "_make_db", lambda url, auth_token="": fake)
     monkeypatch.setenv("PC2NUTS_TOKEN_DB_URL", "fake://")
     return fake
 
@@ -210,7 +210,7 @@ def test_db_url_arg_overrides_env(monkeypatch, capsys):
     monkeypatch.setattr(
         tokens,
         "_make_db",
-        lambda url: (captured_urls.append(url), FakeTokenDB(url))[1],
+        lambda url, auth_token="": (captured_urls.append(url), FakeTokenDB(url))[1],
     )
     rc = main(["--db-url", "https://override.example", "init"])
     assert rc == 0

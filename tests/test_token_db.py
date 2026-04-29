@@ -55,6 +55,24 @@ class TestTokenDBInit:
         db = TokenDB("https://db.example/v1/")
         assert db.url == "https://db.example/v1"
 
+    def test_init_rewrites_libsql_scheme(self):
+        from app.token_db import TokenDB
+
+        db = TokenDB("libsql://db.example/")
+        assert db.url == "https://db.example"
+
+    def test_init_stores_auth_token(self):
+        from app.token_db import TokenDB
+
+        db = TokenDB("https://db.example", auth_token="jwt-xyz")
+        assert db.auth_token == "jwt-xyz"
+
+    def test_init_default_auth_token_empty(self):
+        from app.token_db import TokenDB
+
+        db = TokenDB("https://db.example")
+        assert db.auth_token == ""
+
 
 class TestTokenDBExecute:
     def _mock_response(self, monkeypatch, *, json_body: dict, status_code: int = 200):
@@ -87,33 +105,90 @@ class TestTokenDBExecute:
         monkeypatch.setattr(httpx.Client, "post", _post)
         return captured
 
-    def test_execute_sends_post_with_sql_and_params(self, monkeypatch):
+    def _ok(self, rows: list[list[dict]] | None = None, cols: list[str] | None = None) -> dict:
+        """Build a Hrana v2 success-response envelope."""
+        return {
+            "results": [
+                {
+                    "type": "ok",
+                    "response": {
+                        "type": "execute",
+                        "result": {
+                            "cols": [{"name": c} for c in (cols or [])],
+                            "rows": rows or [],
+                        },
+                    },
+                }
+            ]
+        }
+
+    def test_execute_posts_to_v2_pipeline(self, monkeypatch):
         from app.token_db import TokenDB
 
-        captured = self._mock_response(monkeypatch, json_body={"rows": [], "rowsAffected": 0})
+        captured = self._mock_response(monkeypatch, json_body=self._ok())
+        db = TokenDB("https://db.example/v1")
+        db.execute("SELECT 1")
+        assert captured["url"] == "https://db.example/v1/v2/pipeline"
+
+    def test_execute_wraps_sql_and_params_in_hrana(self, monkeypatch):
+        from app.token_db import TokenDB
+
+        captured = self._mock_response(monkeypatch, json_body=self._ok())
         db = TokenDB("https://db.example/v1")
         db.execute("SELECT * FROM t WHERE id = ?", [42])
 
-        assert captured["json"] == {"sql": "SELECT * FROM t WHERE id = ?", "params": [42]}
+        assert captured["json"] == {
+            "requests": [
+                {
+                    "type": "execute",
+                    "stmt": {
+                        "sql": "SELECT * FROM t WHERE id = ?",
+                        "args": [{"type": "integer", "value": "42"}],
+                    },
+                }
+            ]
+        }
 
-    def test_execute_returns_rows(self, monkeypatch):
+    def test_execute_passes_auth_token_in_header(self, monkeypatch):
         from app.token_db import TokenDB
 
-        self._mock_response(
-            monkeypatch,
-            json_body={"rows": [{"id": 1, "label": "a"}], "rowsAffected": 0},
+        captured = self._mock_response(monkeypatch, json_body=self._ok())
+        db = TokenDB("https://db.example/v1", auth_token="jwt-xyz")
+        db.execute("SELECT 1")
+        assert captured["headers"].get("Authorization") == "Bearer jwt-xyz"
+
+    def test_execute_no_auth_header_when_token_empty(self, monkeypatch):
+        from app.token_db import TokenDB
+
+        captured = self._mock_response(monkeypatch, json_body=self._ok())
+        db = TokenDB("https://db.example/v1")
+        db.execute("SELECT 1")
+        assert "Authorization" not in (captured["headers"] or {})
+
+    def test_execute_unwraps_hrana_rows_to_dicts(self, monkeypatch):
+        from app.token_db import TokenDB
+
+        body = self._ok(
+            cols=["id", "label"],
+            rows=[
+                [{"type": "integer", "value": "1"}, {"type": "text", "value": "a"}],
+                [{"type": "integer", "value": "2"}, {"type": "null"}],
+            ],
         )
+        self._mock_response(monkeypatch, json_body=body)
         db = TokenDB("https://db.example/v1")
         rows = db.execute("SELECT id, label FROM t")
-        assert rows == [{"id": 1, "label": "a"}]
+        assert rows == [{"id": 1, "label": "a"}, {"id": 2, "label": None}]
 
-    def test_execute_no_params_sends_empty_list(self, monkeypatch):
+    def test_execute_no_params_omits_args(self, monkeypatch):
         from app.token_db import TokenDB
 
-        captured = self._mock_response(monkeypatch, json_body={"rows": [], "rowsAffected": 0})
+        captured = self._mock_response(monkeypatch, json_body=self._ok())
         db = TokenDB("https://db.example/v1")
         db.execute("CREATE TABLE x (id INTEGER)")
-        assert captured["json"]["params"] == []
+        # When no params, the stmt should not have an "args" key (or have an empty list).
+        stmt = captured["json"]["requests"][0]["stmt"]
+        assert stmt.get("args", []) == []
 
     def test_execute_http_error_raises_token_db_error(self, monkeypatch):
         from app.token_db import TokenDB, TokenDBError
@@ -122,6 +197,18 @@ class TestTokenDBExecute:
         db = TokenDB("https://db.example/v1")
         with pytest.raises(TokenDBError):
             db.execute("SELECT 1")
+
+    def test_execute_libsql_error_raises_token_db_error(self, monkeypatch):
+        from app.token_db import TokenDB, TokenDBError
+
+        body = {
+            "results": [{"type": "error", "error": {"message": "UNIQUE constraint failed", "code": "..."}}]
+        }
+        self._mock_response(monkeypatch, json_body=body)
+        db = TokenDB("https://db.example/v1")
+        with pytest.raises(TokenDBError) as exc_info:
+            db.execute("INSERT ...")
+        assert "UNIQUE" in str(exc_info.value)
 
 
 # ── TokenDB query methods ────────────────────────────────────────────────────

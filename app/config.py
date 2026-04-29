@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     extra_sources: str = ""
     trusted_tokens_raw: str = Field(default="", validation_alias="PC2NUTS_TRUSTED_TOKENS")
     token_db_url: str = ""
+    token_db_auth_token: str = ""
     token_refresh_seconds: int = Field(default=60, ge=1)
     rate_limit: str = _defaults.get("rate_limit", "60/minute")
     rate_limit_headers: bool = _defaults.get("rate_limit_headers", True)

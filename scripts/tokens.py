@@ -18,9 +18,9 @@ from typing import Sequence
 from app.token_db import TokenDB, TokenDBError
 
 
-def _make_db(url: str) -> TokenDB:
+def _make_db(url: str, auth_token: str = "") -> TokenDB:
     """Indirection seam for tests."""
-    return TokenDB(url)
+    return TokenDB(url, auth_token=auth_token)
 
 
 def _token_id(token: str) -> str:
@@ -33,6 +33,12 @@ def _resolve_db_url(args_url: str | None) -> str | None:
         return args_url
     env = os.environ.get("PC2NUTS_TOKEN_DB_URL", "").strip()
     return env or None
+
+
+def _resolve_auth_token(args_token: str | None) -> str:
+    if args_token:
+        return args_token
+    return os.environ.get("PC2NUTS_TOKEN_DB_AUTH_TOKEN", "").strip()
 
 
 def _cmd_init(db: TokenDB) -> int:
@@ -95,6 +101,10 @@ def _cmd_revoke(db: TokenDB, token_id_arg: int) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scripts.tokens", description=__doc__)
     parser.add_argument("--db-url", help="Override PC2NUTS_TOKEN_DB_URL")
+    parser.add_argument(
+        "--auth-token",
+        help="Override PC2NUTS_TOKEN_DB_AUTH_TOKEN (Bearer token for the DB).",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="Create the trusted_tokens table (idempotent)")
@@ -123,7 +133,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    db = _make_db(url)
+    auth_token = _resolve_auth_token(args.auth_token)
+    db = _make_db(url, auth_token=auth_token)
 
     if args.cmd == "init":
         return _cmd_init(db)
