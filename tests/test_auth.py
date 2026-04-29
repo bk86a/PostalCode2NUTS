@@ -1,6 +1,5 @@
 """Tests for app/auth.py and trusted_tokens config parsing."""
 
-import os
 from importlib import reload
 
 import pytest
