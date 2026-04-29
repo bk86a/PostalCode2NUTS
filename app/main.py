@@ -64,10 +64,10 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         start = time.monotonic()
         response = await call_next(request)
         duration_ms = (time.monotonic() - start) * 1000
-        token_suffix = ""
+        log_suffix = ""
         tid = getattr(request.state, "token_id", None)
         if tid:
-            token_suffix = f" token_id={tid}"
+            log_suffix = f" token_id={tid}"
         access_logger.info(
             "%s %s %s %d %.1fms%s",
             request.client.host if request.client else "-",
@@ -75,7 +75,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             request.url.path,
             response.status_code,
             duration_ms,
-            token_suffix,
+            log_suffix,
         )
         return response
 
