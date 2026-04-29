@@ -86,3 +86,82 @@ class TestTokenId:
         from app.auth import token_id
 
         assert token_id("hello") == "2cf24dba"
+
+
+# ── extract_bearer helper ────────────────────────────────────────────────────
+
+
+class TestExtractBearer:
+    def _request_with_header(self, value: str | None):
+        """Build a minimal Starlette Request with the given Authorization header."""
+        from starlette.requests import Request
+
+        headers = []
+        if value is not None:
+            headers.append((b"authorization", value.encode()))
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": headers,
+            "query_string": b"",
+        }
+        return Request(scope)
+
+    def test_no_header_returns_none(self):
+        from app.auth import extract_bearer
+
+        request = self._request_with_header(None)
+        assert extract_bearer(request) is None
+
+    def test_bearer_returns_token(self):
+        from app.auth import extract_bearer
+
+        request = self._request_with_header("Bearer my-token")
+        assert extract_bearer(request) == "my-token"
+
+    def test_lowercase_scheme_accepted(self):
+        from app.auth import extract_bearer
+
+        request = self._request_with_header("bearer my-token")
+        assert extract_bearer(request) == "my-token"
+
+    def test_basic_scheme_raises_400(self):
+        from fastapi import HTTPException
+
+        from app.auth import extract_bearer
+
+        request = self._request_with_header("Basic dXNlcjpwYXNz")
+        with pytest.raises(HTTPException) as exc_info:
+            extract_bearer(request)
+        assert exc_info.value.status_code == 400
+
+    def test_bearer_with_no_value_raises_400(self):
+        from fastapi import HTTPException
+
+        from app.auth import extract_bearer
+
+        request = self._request_with_header("Bearer ")
+        with pytest.raises(HTTPException) as exc_info:
+            extract_bearer(request)
+        assert exc_info.value.status_code == 400
+
+    def test_bearer_with_extra_words_raises_400(self):
+        from fastapi import HTTPException
+
+        from app.auth import extract_bearer
+
+        request = self._request_with_header("Bearer foo bar")
+        with pytest.raises(HTTPException) as exc_info:
+            extract_bearer(request)
+        assert exc_info.value.status_code == 400
+
+    def test_just_bearer_raises_400(self):
+        from fastapi import HTTPException
+
+        from app.auth import extract_bearer
+
+        request = self._request_with_header("Bearer")
+        with pytest.raises(HTTPException) as exc_info:
+            extract_bearer(request)
+        assert exc_info.value.status_code == 400
