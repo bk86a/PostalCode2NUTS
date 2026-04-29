@@ -104,28 +104,29 @@ def test_add_failure_exits_non_zero(fake_db, capsys):
 
 def test_list_default_active_only(fake_db, capsys):
     fake_db.rows = [
-        {"id": 1, "label": "a", "created_at": "2026-01-01", "revoked_at": None},
-        {"id": 2, "label": "b", "created_at": "2026-01-02", "revoked_at": "2026-01-03"},
+        {"id": 1, "label": "active-alpha-XXX", "created_at": "2026-01-01", "revoked_at": None},
+        {"id": 2, "label": "revoked-beta-YYY", "created_at": "2026-01-02", "revoked_at": "2026-01-03"},
     ]
     from scripts.tokens import main
 
     rc = main(["list"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "1" in out and "a" in out
-    assert "2" not in out  # revoked, hidden by default
+    assert "active-alpha-XXX" in out
+    assert "revoked-beta-YYY" not in out
 
 
 def test_list_all_includes_revoked(fake_db, capsys):
     fake_db.rows = [
-        {"id": 1, "label": "a", "created_at": "2026-01-01", "revoked_at": None},
-        {"id": 2, "label": "b", "created_at": "2026-01-02", "revoked_at": "2026-01-03"},
+        {"id": 1, "label": "active-alpha-XXX", "created_at": "2026-01-01", "revoked_at": None},
+        {"id": 2, "label": "revoked-beta-YYY", "created_at": "2026-01-02", "revoked_at": "2026-01-03"},
     ]
     from scripts.tokens import main
 
     main(["list", "--all"])
     out = capsys.readouterr().out
-    assert "1" in out and "2" in out
+    assert "active-alpha-XXX" in out
+    assert "revoked-beta-YYY" in out
     assert "revoked" in out.lower()
 
 

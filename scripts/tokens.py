@@ -58,14 +58,15 @@ def _cmd_list(db: TokenDB, show_all: bool) -> int:
     if not rows:
         print("(no tokens)")
         return 0
-    print(f"{'id':>4}  {'label':30}  status")
-    print("-" * 60)
+    print(f"{'id':>4}  {'label':30}  {'created_at':24}  status")
+    print("-" * 80)
     for r in rows:
         rid = r.get("id", "?")
         label = (r.get("label") or "")[:30]
+        created = r.get("created_at", "")
         revoked = r.get("revoked_at")
         status = f"revoked@{revoked}" if revoked else "active"
-        print(f"{rid:>4}  {label:30}  {status}")
+        print(f"{rid:>4}  {label:30}  {created:24}  {status}")
     return 0
 
 
