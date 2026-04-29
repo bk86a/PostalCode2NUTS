@@ -213,7 +213,7 @@ class TestIsTrusted:
 
 
 class TestAuthMiddleware:
-    def _build_app(self, *trusted: str):
+    def _build_app(self, monkeypatch, *trusted: str):
         """Build a minimal Starlette app with AuthMiddleware mounted."""
         from starlette.applications import Starlette
         from starlette.responses import JSONResponse
@@ -229,45 +229,55 @@ class TestAuthMiddleware:
                 }
             )
 
-        app = Starlette(routes=[Route("/x", endpoint)])
+        async def health_endpoint(request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[Route("/x", endpoint), Route("/health", health_endpoint)])
         app.add_middleware(auth.AuthMiddleware)
-        # Patch the trusted-token getter for the duration of this app
-        auth._get_trusted_tokens = lambda: frozenset(trusted)
+        monkeypatch.setattr(auth, "_get_trusted_tokens", lambda: frozenset(trusted))
         return app
 
-    def test_no_header_marks_untrusted(self):
+    def test_no_header_marks_untrusted(self, monkeypatch):
         from starlette.testclient import TestClient
 
-        app = self._build_app("good-token")
+        app = self._build_app(monkeypatch, "good-token")
         with TestClient(app) as client:
             resp = client.get("/x")
         assert resp.status_code == 200
         assert resp.json() == {"trusted": False, "token_id": None}
 
-    def test_valid_token_marks_trusted_with_token_id(self):
+    def test_valid_token_marks_trusted_with_token_id(self, monkeypatch):
         from starlette.testclient import TestClient
 
         from app.auth import token_id
 
-        app = self._build_app("good-token")
+        app = self._build_app(monkeypatch, "good-token")
         with TestClient(app) as client:
             resp = client.get("/x", headers={"Authorization": "Bearer good-token"})
         assert resp.status_code == 200
         assert resp.json() == {"trusted": True, "token_id": token_id("good-token")}
 
-    def test_invalid_token_returns_401(self):
+    def test_invalid_token_returns_401(self, monkeypatch):
         from starlette.testclient import TestClient
 
-        app = self._build_app("good-token")
+        app = self._build_app(monkeypatch, "good-token")
         with TestClient(app) as client:
             resp = client.get("/x", headers={"Authorization": "Bearer wrong-token"})
         assert resp.status_code == 401
         assert "invalid token" in resp.json()["detail"].lower()
 
-    def test_malformed_header_returns_400(self):
+    def test_malformed_header_returns_400(self, monkeypatch):
         from starlette.testclient import TestClient
 
-        app = self._build_app("good-token")
+        app = self._build_app(monkeypatch, "good-token")
         with TestClient(app) as client:
             resp = client.get("/x", headers={"Authorization": "Basic abc"})
         assert resp.status_code == 400
+
+    def test_health_path_exempt_even_with_invalid_token(self, monkeypatch):
+        from starlette.testclient import TestClient
+
+        app = self._build_app(monkeypatch, "good-token")
+        with TestClient(app) as client:
+            resp = client.get("/health", headers={"Authorization": "Bearer wrong-token"})
+        assert resp.status_code == 200
