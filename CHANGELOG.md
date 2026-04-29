@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.17.1] - 2026-04-29
+
+### Fixed
+
+- **TokenDB wire protocol** (#61): the v0.17.0 client assumed a generic `POST /query` body shape; the actual deployment target speaks libsql/Hrana v2 (`POST /v2/pipeline` with statements wrapped as `{requests: [{type: "execute", stmt: {sql, args}}]}` and rows returned as arrays of typed value objects). `TokenDB.execute` now speaks Hrana correctly, automatically rewrites `libsql://` URLs to `https://`, and accepts a Bearer auth token via the new `PC2NUTS_TOKEN_DB_AUTH_TOKEN` env var (and matching `--auth-token` CLI flag). Verified end-to-end against a real database instance.
+
 ## [0.17.0] - 2026-04-29
 
 ### Added
