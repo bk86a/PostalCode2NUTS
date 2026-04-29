@@ -51,9 +51,7 @@ def is_trusted(candidate: str) -> bool:
     return any(hmac.compare_digest(candidate, t) for t in _get_trusted_tokens())
 
 
-_request_var: contextvars.ContextVar[Request | None] = contextvars.ContextVar(
-    "pc2nuts_request", default=None
-)
+_request_var: contextvars.ContextVar[Request | None] = contextvars.ContextVar("pc2nuts_request", default=None)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -66,6 +64,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
     - /health is exempt entirely — header is ignored, request flows through.
       This protects monitoring tooling from false 401s if a service mesh adds
       an Authorization header globally.
+    - Bypass disabled (empty token set) → header ignored entirely, normal flow.
+      When PC2NUTS_TRUSTED_TOKENS is empty/unset the feature is off; any
+      Authorization header is ignored and requests fall through to the normal
+      per-IP rate limit unchanged (spec §3: behaviour identical to today).
 
     Also stores the Request in a ContextVar so the parameterless slowapi
     exempt_when callable can read it (slowapi calls exempt_when()).
@@ -79,6 +81,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.token_id = None
             return await call_next(request)
 
+        # Bypass disabled (no tokens configured) → ignore Authorization header
+        # entirely; behaviour identical to pre-feature (per-IP rate limit only).
+        if not _get_trusted_tokens():
+            request.state.trusted = False
+            request.state.token_id = None
+            return await call_next(request)
+
         try:
             token = extract_bearer(request)
         except HTTPException as exc:
@@ -86,9 +95,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         if token is not None:
             if not is_trusted(token):
-                return JSONResponse(
-                    {"detail": "invalid token"}, status_code=401
-                )
+                return JSONResponse({"detail": "invalid token"}, status_code=401)
             request.state.trusted = True
             request.state.token_id = token_id(token)
         else:

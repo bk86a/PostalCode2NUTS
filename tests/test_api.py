@@ -139,9 +139,7 @@ class TestHealthEndpoint:
 class TestAuthBypass:
     def test_no_header_normal_flow(self, trusted_client):
         """Without an Authorization header, behaviour is unchanged."""
-        resp = trusted_client.get(
-            "/lookup", params={"postal_code": "10115", "country": "DE"}
-        )
+        resp = trusted_client.get("/lookup", params={"postal_code": "10115", "country": "DE"})
         assert resp.status_code == 200
 
     def test_valid_token_returns_200(self, trusted_client):
@@ -176,13 +174,64 @@ class TestAuthBypass:
     def test_health_ignores_invalid_token(self, trusted_client):
         """/health is in AuthMiddleware.EXEMPT_PATHS — header is ignored entirely.
         Protects monitoring tools that may inject auth headers globally."""
-        resp = trusted_client.get(
-            "/health", headers={"Authorization": "Bearer wrong-token"}
-        )
+        resp = trusted_client.get("/health", headers={"Authorization": "Bearer wrong-token"})
         assert resp.status_code == 200
 
     def test_health_ignores_malformed_header(self, trusted_client):
+        resp = trusted_client.get("/health", headers={"Authorization": "Basic dXNlcjpwYXNz"})
+        assert resp.status_code == 200
+
+    def test_valid_token_bypasses_rate_limit(self, trusted_client):
+        """Default rate limit is 60/minute. With a valid bypass token, more
+        than 60 requests in tight succession all return 200. Without bypass,
+        request 61+ would 429."""
+        headers = {"Authorization": "Bearer test-token-aaa"}
+        for i in range(80):
+            resp = trusted_client.get(
+                "/lookup",
+                params={"postal_code": "10115", "country": "DE"},
+                headers=headers,
+            )
+            assert resp.status_code == 200, (
+                f"request {i + 1}: expected 200, got {resp.status_code} (body: {resp.text[:200]})"
+            )
+
+    def test_pattern_with_valid_token(self, trusted_client):
+        """/pattern also has exempt_when wired — sanity check both endpoints."""
         resp = trusted_client.get(
-            "/health", headers={"Authorization": "Basic dXNlcjpwYXNz"}
+            "/pattern",
+            params={"country": "DE"},
+            headers={"Authorization": "Bearer test-token-aaa"},
         )
         assert resp.status_code == 200
+
+    def test_empty_tokens_ignores_header(self, monkeypatch, mock_data):
+        """When PC2NUTS_TRUSTED_TOKENS is empty, headers are ignored entirely
+        (no 400, no 401) — feature is off, behaviour identical to pre-feature."""
+        from unittest.mock import patch
+
+        from app import auth, data_loader
+
+        # Override: no tokens configured (bypass disabled)
+        monkeypatch.setattr(auth, "_get_trusted_tokens", lambda: frozenset())
+
+        from fastapi.testclient import TestClient
+
+        with patch.object(data_loader, "load_data"):
+            from app.main import app
+
+            with TestClient(app) as client:
+                # Bearer header with anything → ignored
+                resp = client.get(
+                    "/lookup",
+                    params={"postal_code": "10115", "country": "DE"},
+                    headers={"Authorization": "Bearer some-random-token"},
+                )
+                assert resp.status_code == 200
+                # Even malformed Basic header → ignored (feature is off)
+                resp = client.get(
+                    "/lookup",
+                    params={"postal_code": "10115", "country": "DE"},
+                    headers={"Authorization": "Basic abc"},
+                )
+                assert resp.status_code == 200
