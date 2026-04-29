@@ -43,3 +43,68 @@ class TokenDB:
         except (httpx.HTTPError, ValueError) as exc:
             raise TokenDBError(f"DB request failed: {exc}") from exc
         return body.get("rows") or []
+
+    # ── Schema ──────────────────────────────────────────────────────────────
+
+    def init_schema(self) -> None:
+        """Idempotently create the trusted_tokens table and index."""
+        self.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trusted_tokens (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                value       TEXT NOT NULL UNIQUE,
+                label       TEXT,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                revoked_at  TEXT
+            )
+            """
+        )
+        self.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_trusted_tokens_active
+                ON trusted_tokens (value)
+                WHERE revoked_at IS NULL
+            """
+        )
+
+    # ── Mutations ───────────────────────────────────────────────────────────
+
+    def add(self, value: str, label: str) -> int:
+        """Insert a new trusted token. Returns the new row id.
+
+        Raises TokenDBError on uniqueness violation or transport failure.
+        """
+        rows = self.execute(
+            "INSERT INTO trusted_tokens (value, label) VALUES (?, ?) RETURNING id",
+            [value, label],
+        )
+        if not rows:
+            raise TokenDBError("INSERT did not return an id")
+        return int(rows[0]["id"])
+
+    def revoke(self, token_id: int) -> bool:
+        """Mark a token as revoked. Idempotent — returns False if already revoked."""
+        rows = self.execute(
+            "UPDATE trusted_tokens "
+            "SET revoked_at = datetime('now') "
+            "WHERE id = ? AND revoked_at IS NULL "
+            "RETURNING id",
+            [token_id],
+        )
+        return bool(rows)
+
+    # ── Queries ─────────────────────────────────────────────────────────────
+
+    def list_active(self) -> list[dict]:
+        """Return all rows where revoked_at IS NULL."""
+        return self.execute(
+            "SELECT id, value, label, created_at FROM trusted_tokens "
+            "WHERE revoked_at IS NULL"
+        )
+
+    def list_all(self) -> list[dict]:
+        """Return all rows, never including the raw value column."""
+        return self.execute(
+            "SELECT id, label, created_at, revoked_at FROM trusted_tokens "
+            "ORDER BY id"
+        )
