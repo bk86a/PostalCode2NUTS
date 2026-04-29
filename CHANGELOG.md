@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **DB-backed trusted tokens** (#61): trusted-token storage moved from `PC2NUTS_TRUSTED_TOKENS` env var to a managed SQLite-compatible HTTP database. New env vars: `PC2NUTS_TOKEN_DB_URL` (connection string), `PC2NUTS_TOKEN_REFRESH_SECONDS` (default `60`). Tokens are issued via `python -m scripts.tokens add --label "..."` and take effect within ~60 s — no container restart required. The env var continues to work as a union with the DB and serves as a disaster-recovery fallback when the DB is unreachable. New `/health` field `token_db_stale` flags refresh failures.
+- **`scripts/tokens.py` operator CLI** with subcommands `init`, `add`, `list`, `revoke`. `add --value <existing-token>` lets operators migrate v1 env-var tokens while preserving their audit `token_id`.
+
 ## [0.16.0] - 2026-04-29
 
 ### Added
