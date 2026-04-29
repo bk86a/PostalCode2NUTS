@@ -184,9 +184,7 @@ class TestIsTrusted:
 
     def _set_tokens(self, *tokens):
         # Patch auth's view of settings.trusted_tokens
-        self._monkeypatch.setattr(
-            self._auth, "_get_trusted_tokens", lambda: frozenset(tokens)
-        )
+        self._monkeypatch.setattr(self._auth, "_get_trusted_tokens", lambda: frozenset(tokens))
 
     def test_match_against_single_token(self):
         self._set_tokens("abc")

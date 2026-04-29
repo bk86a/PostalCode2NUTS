@@ -316,11 +316,83 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
 | `PC2NUTS_RATE_LIMIT` | `60/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. |
 | `PC2NUTS_STARTUP_TIMEOUT` | `300` | Maximum seconds allowed for initial data loading. If exceeded, the service starts with whatever data was loaded and sets `data_stale: true`. |
+| `PC2NUTS_TRUSTED_TOKENS` | `""` (empty — bypass disabled) | Comma-separated list of opaque tokens that bypass the per-IP rate limit when sent via `Authorization: Bearer <token>`. See [Authentication & rate-limit bypass](#authentication--rate-limit-bypass) for the operator runbook. |
 | `PC2NUTS_DOCS_ENABLED` | `true` | Set to `false` to disable Swagger UI (`/docs`) and ReDoc (`/redoc`) in production. |
 | `PC2NUTS_CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins. Set to a specific origin (e.g. `https://example.com`) to restrict cross-origin access. Empty string disables CORS middleware. |
 | `PC2NUTS_ACCESS_LOG_FILE` | *(empty — stdout)* | Path to access log file. When set, logs are written to this file with automatic rotation. When empty, access logs go to stderr. |
 | `PC2NUTS_ACCESS_LOG_MAX_MB` | `10` | Maximum size of each access log file in MB before rotation. |
 | `PC2NUTS_ACCESS_LOG_BACKUP_COUNT` | `5` | Number of rotated access log files to keep (e.g. 5 x 10 MB = 50 MB max disk usage). |
+
+## Authentication & rate-limit bypass
+
+The service applies a per-IP rate limit (`60/minute` by default) to `/lookup` and `/pattern`. Trusted callers — operator-issued, manually distributed — can bypass this limit by presenting an `Authorization: Bearer <token>` header. `/health` stays anonymous.
+
+### Configuration
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `PC2NUTS_TRUSTED_TOKENS` | `""` (unset) | Comma-separated list of valid bypass tokens. Empty → bypass disabled (current default). Whitespace and empty entries between commas are tolerated. |
+
+### Operator runbook — issue a token
+
+```bash
+# 1. Generate locally (48 hex chars / 192 bits)
+openssl rand -hex 24
+
+# 2. Add the printed token to PC2NUTS_TRUSTED_TOKENS in the production
+#    deployment's environment configuration. Multiple tokens are comma-separated.
+#    Example value with two active tokens:
+#       PC2NUTS_TRUSTED_TOKENS=9e7a3f...d2,4b1c8e...77
+
+# 3. Restart the service container to load the new env value.
+#    The SQLite postal-code cache survives the restart, so cold-start is ~30 s.
+
+# 4. Verify the new token bypasses the rate limit:
+curl -i -H "Authorization: Bearer <new_token>" \
+     "https://<service-host>/lookup?country=DE&postal_code=10115"
+# → 200, audit log shows token_id=<first 8 hex of sha256(token)>
+
+# 5. Hand the raw token to the consumer over a confidential channel
+#    (1Password, Signal, encrypted email — not Slack, not GitHub issues).
+```
+
+### Operator runbook — revoke a token
+
+```bash
+# 1. Remove the token entry from PC2NUTS_TRUSTED_TOKENS in the env config.
+# 2. Restart the container.
+# 3. Verify the revoked token is rejected:
+curl -i -H "Authorization: Bearer <revoked_token>" \
+     "https://<service-host>/lookup?country=DE&postal_code=10115"
+# → 401 Unauthorized
+```
+
+### Operator runbook — find the token id of a logged request
+
+```bash
+echo -n "<token>" | sha256sum | cut -c1-8
+```
+
+### Behaviour summary
+
+| Request | Result |
+|---|---|
+| No `Authorization` header | Per-IP `60/minute` cap, normal `200` / `429` |
+| `Authorization: Bearer <valid_token>` | Rate limit fully bypassed; `token_id=<8hex>` appended to access log |
+| `Authorization: Bearer <unknown_token>` | `401 Unauthorized` |
+| `Authorization: <not Bearer>` or malformed | `400 Bad Request` |
+
+### Disable the bypass entirely
+
+Unset or empty `PC2NUTS_TRUSTED_TOKENS`. All traffic falls back to the per-IP cap. The `Authorization` header is ignored entirely (no 400, no 401) when the feature is disabled. No code change needed.
+
+### Security notes
+
+- Tokens are **bearer credentials** — anyone holding the string can use the API at full rate. Treat them like passwords.
+- Always send tokens over HTTPS. Never accept a bearer token over plain HTTP.
+- Log lines contain only the 8-char SHA-256 prefix. Token values never appear in logs.
+- Token comparison is constant-time (`hmac.compare_digest`).
+- Revocation latency is bounded by container restart time (~30 s).
 
 ## Five-tier lookup
 
