@@ -300,6 +300,12 @@ def health(response: Response):
     table = get_lookup_table()
     estimates = get_estimates_table()
     stale = get_data_stale()
+
+    # Token DB staleness — only meaningful when the feature is enabled.
+    from app import auth as auth_mod
+
+    token_db_stale = auth_mod._token_db_stale if _config.settings.token_db_url else None
+
     return HealthResponse(
         status="ok" if len(table) > 0 else "no_data",
         total_postal_codes=len(table),
@@ -310,4 +316,5 @@ def health(response: Response):
         patterns_version=PATTERNS_META.get("version", "unknown"),
         data_stale=stale,
         last_updated=get_data_loaded_at(),
+        token_db_stale=token_db_stale,
     )

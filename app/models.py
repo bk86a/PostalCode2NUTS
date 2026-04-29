@@ -42,3 +42,4 @@ class HealthResponse(BaseModel):
     last_updated: str = Field(
         description="ISO 8601 timestamp of when TERCET data was last successfully loaded"
     )
+    token_db_stale: bool | None = None

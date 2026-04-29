@@ -132,6 +132,48 @@ class TestHealthEndpoint:
         data = resp.json()
         assert "total_nuts_names" in data
 
+    def test_health_includes_token_db_stale_when_db_url_set(self, monkeypatch, mock_data):
+        from unittest.mock import patch
+
+        from app import auth, config, data_loader
+
+        monkeypatch.setattr(config.settings, "token_db_url", "https://db.example/v1")
+        monkeypatch.setattr(auth, "_token_db_stale", False)
+
+        with patch.object(data_loader, "load_data"), patch.object(auth, "refresh_db_tokens", lambda db: None):
+            from fastapi.testclient import TestClient
+            from app.main import app
+
+            with TestClient(app) as client:
+                resp = client.get("/health")
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data.get("token_db_stale") is False
+
+    def test_health_omits_token_db_stale_when_db_url_unset(self, mock_data, client):
+        # `client` fixture has no PC2NUTS_TOKEN_DB_URL configured
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Field is None when feature is disabled — Pydantic serializes to null
+        assert data.get("token_db_stale") in (None,)
+
+    def test_health_token_db_stale_true_after_failure(self, monkeypatch, mock_data):
+        from unittest.mock import patch
+
+        from app import auth, config, data_loader
+
+        monkeypatch.setattr(config.settings, "token_db_url", "https://db.example/v1")
+        monkeypatch.setattr(auth, "_token_db_stale", True)
+
+        with patch.object(data_loader, "load_data"), patch.object(auth, "refresh_db_tokens", lambda db: None):
+            from fastapi.testclient import TestClient
+            from app.main import app
+
+            with TestClient(app) as client:
+                resp = client.get("/health")
+                assert resp.json().get("token_db_stale") is True
+
 
 # ── Auth-token bypass tests (#60) ────────────────────────────────────────────
 
