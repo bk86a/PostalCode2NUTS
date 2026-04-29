@@ -79,7 +79,7 @@ def get_estimates_table() -> dict[tuple[str, str], dict]:
 
 def get_loaded_countries() -> set[str]:
     """Return the set of country codes that have data loaded."""
-    return {cc for cc, _ in _lookup}
+    return {cc for cc, _ in _lookup} | set(_single_nuts3.keys())
 
 
 def get_data_stale() -> bool:
@@ -626,6 +626,10 @@ def _build_prefix_index() -> None:
     for cc, nuts3_set in country_nuts3.items():
         if len(nuts3_set) == 1:
             _single_nuts3[cc] = next(iter(nuts3_set))
+    # Merge in countries Eurostat treats as a single nationwide unit but for which
+    # no TERCET file is published (e.g. ME → ME000).
+    for cc, nuts3 in settings.single_nuts3_fallback.items():
+        _single_nuts3.setdefault(cc, nuts3)
     if _single_nuts3:
         logger.info("Single-NUTS3 countries: %s", ", ".join(sorted(_single_nuts3)))
 

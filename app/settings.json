@@ -5,8 +5,11 @@
     "FI", "FR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
     "NL", "PL", "PT", "RO", "SE", "SI", "SK",
     "CH", "IS", "LI", "NO",
-    "MK", "RS", "TR"
+    "ME", "MK", "RS", "TR"
   ],
+  "single_nuts3_fallback": {
+    "ME": "ME000"
+  },
   "confidence_map": {
     "high":   {"nuts3": 0.90, "nuts2": 0.95, "nuts1": 0.98},
     "medium": {"nuts3": 0.70, "nuts2": 0.80, "nuts1": 0.90},

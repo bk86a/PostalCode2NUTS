@@ -2,7 +2,7 @@
 
 FastAPI microservice that maps postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) for EU, EFTA, and EU candidate countries using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
 
-Returns NUTS levels 1, 2, and 3 for any postal code across 34 countries, with confidence scores indicating how the result was determined.
+Returns NUTS levels 1, 2, and 3 for any postal code across 35 countries, with confidence scores indicating how the result was determined.
 
 ## Coverage
 
@@ -14,8 +14,10 @@ Austria (AT), Belgium (BE), Bulgaria (BG), Croatia (HR), Cyprus (CY), Czechia (C
 **EFTA** (4 countries):
 Iceland (IS), Liechtenstein (LI), Norway (NO), Switzerland (CH)
 
-**EU candidate countries** (3):
-North Macedonia (MK), Serbia (RS), Türkiye (TR)
+**EU candidate countries** (4):
+North Macedonia (MK), Montenegro (ME), Serbia (RS), Türkiye (TR)
+
+> **Montenegro** is treated by Eurostat as a single nationwide unit at every NUTS level (`ME0` / `ME00` / `ME000`), and GISCO does not currently publish a TERCET file for it. Lookups for ME are served by the single-NUTS3 fallback (Tier 5) configured via `single_nuts3_fallback` in `app/settings.json`, returning `ME000` for any valid 5-digit code starting with `8`.
 
 ## Testing
 
@@ -137,7 +139,7 @@ GET /pattern
 ```
 
 ```json
-["AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "SE", "SI", "SK", "TR"]
+["AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "SE", "SI", "SK", "TR"]
 ```
 
 ```
@@ -287,6 +289,7 @@ User input: "Traiskirchen"
 | LT | 5 digits | LT- | `01100`, `LT-01100` |
 | LU | 4 digits | L- | `1009`, `L-1009` |
 | LV | 4 digits; TERCET key prefixed with "LV" | LV-, LV | `1010`, `LV-1010`, `LV 1010` |
+| ME | 5 digits, must start with `8` (no GISCO TERCET data — resolves to `ME000` via Tier 5) | ME- | `81000`, `ME-81000`, `ME 85320` |
 | MK | 4 digits | MK- | `1000`, `MK-1000` |
 | MT | 2–3 letters + optional separator + 2–4 digits; lookup uses letter prefix only | — | `VLT 1010`, `MST1000`, `FNT-1010` |
 | NL | 4 digits + optional space + 2 letters | NL- | `1012 AB`, `NL-1012AB` |
@@ -378,6 +381,7 @@ For countries where all postal codes map to the same NUTS1 and NUTS2 region but 
 For countries that have only a single NUTS3 region (e.g. LI, CY, LU), any postal code in that country is mapped to the sole NUTS3 code.
 
 - Confidence: **1.0** at all NUTS levels.
+- The set is auto-detected from the loaded TERCET data and additionally seeded from the `single_nuts3_fallback` map in `app/settings.json`. The latter covers countries Eurostat treats as a single nationwide unit but for which GISCO publishes no TERCET file (currently Montenegro → `ME000`).
 
 ### No match (404)
 
@@ -541,7 +545,7 @@ docker build -t postalcode2nuts .
 docker run -p 8000:8000 postalcode2nuts
 ```
 
-On first start the service downloads TERCET data for all 34 countries (~2-5 minutes depending on network). After that it caches everything in a SQLite database for instant restarts.
+On first start the service downloads TERCET data for the 34 countries with GISCO coverage (~2-5 minutes depending on network); Montenegro is served via the single-NUTS3 fallback and needs no download. After that everything is cached in a SQLite database for instant restarts.
 
 ### Persistent data volume
 

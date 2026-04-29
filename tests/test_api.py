@@ -45,6 +45,22 @@ class TestLookupEndpoint:
         assert data["country_code"] == "EL"
         assert data["nuts3"] == "EL303"
 
+    def test_me_lookup(self, client):
+        """Montenegro has a single NUTS3 (ME000); any valid input resolves to it."""
+        resp = client.get("/lookup", params={"postal_code": "81000", "country": "ME"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["country_code"] == "ME"
+        assert data["nuts3"] == "ME000"
+        assert data["nuts2"] == "ME00"
+        assert data["nuts1"] == "ME0"
+        assert data["match_type"] == "estimated"
+
+    def test_me_lookup_with_prefix(self, client):
+        resp = client.get("/lookup", params={"postal_code": "ME-85320", "country": "ME"})
+        assert resp.status_code == 200
+        assert resp.json()["nuts3"] == "ME000"
+
 
 # ── /pattern endpoint tests ──────────────────────────────────────────────────
 
@@ -64,7 +80,15 @@ class TestPatternEndpoint:
         data = resp.json()
         assert isinstance(data, list)
         assert "DE" in data
+        assert "ME" in data
         assert data == sorted(data)
+
+    def test_200_me_pattern(self, client):
+        resp = client.get("/pattern", params={"country": "ME"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["country_code"] == "ME"
+        assert "8" in data["regex"]
 
     def test_200_cache_header(self, client):
         resp = client.get("/pattern", params={"country": "DE"})
@@ -101,7 +125,7 @@ class TestHealthEndpoint:
         resp = client.get("/health")
         data = resp.json()
         assert "patterns_version" in data
-        assert data["patterns_version"] == "1.0"
+        assert data["patterns_version"] == "1.1"
 
     def test_includes_nuts_names(self, client):
         resp = client.get("/health")

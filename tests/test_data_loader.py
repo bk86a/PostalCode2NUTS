@@ -97,6 +97,22 @@ class TestLookup:
         assert result["nuts3"] == "XX000"
         assert result["nuts3_confidence"] == 1.0
 
+    def test_tier5_me_via_settings_fallback(self, mock_data):
+        """ME has no TERCET data; single-NUTS3 fallback comes from settings."""
+        result = lookup("ME", "81000")
+        assert result is not None
+        assert result["match_type"] == "estimated"
+        assert result["nuts3"] == "ME000"
+        assert result["nuts2"] == "ME00"
+        assert result["nuts1"] == "ME0"
+        assert result["nuts3_confidence"] == 1.0
+
+    def test_tier5_me_with_prefix(self, mock_data):
+        """ME-prefixed input still resolves via the single-NUTS3 fallback."""
+        result = lookup("ME", "ME-85320")
+        assert result is not None
+        assert result["nuts3"] == "ME000"
+
     def test_no_match(self, mock_data):
         """Country with data but no matching postal code and no fallback."""
         result = lookup("AT", "9999")

@@ -59,5 +59,13 @@ class Settings(BaseSettings):
     def approximate_min_confidence(self) -> float:
         return _defaults["approximate_min_confidence"]
 
+    @property
+    def single_nuts3_fallback(self) -> dict[str, str]:
+        """Country → NUTS3 code mapping for territories Eurostat treats as a single
+        nationwide unit at every NUTS level (e.g. ME → ME000). Merged into the
+        auto-detected single-NUTS3 set so countries with no TERCET data still
+        resolve via the Tier 5 fallback."""
+        return _defaults.get("single_nuts3_fallback", {})
+
 
 settings = Settings()

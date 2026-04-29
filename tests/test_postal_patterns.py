@@ -129,3 +129,12 @@ class TestExtractPostalCode:
 
     def test_el_with_gr_prefix(self):
         assert extract_postal_code("EL", "GR-10431") == "10431"
+
+    def test_me_basic(self):
+        assert extract_postal_code("ME", "81000") == "81000"
+
+    def test_me_with_prefix(self):
+        assert extract_postal_code("ME", "ME-85320") == "85320"
+
+    def test_me_with_space_prefix(self):
+        assert extract_postal_code("ME", "ME 85320") == "85320"

@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.0] - 2026-04-29
+
+### Added
+
+- **Montenegro (ME) support** (#53): postal-code lookups for Montenegro return `ME000` / `ME00` / `ME0` via the existing single-NUTS3 fallback (Tier 5). Eurostat treats Montenegro as a single nationwide unit at every NUTS level, and GISCO publishes no TERCET file for it; ME is therefore served entirely from the new `single_nuts3_fallback` map in `app/settings.json` (no external data download). Pattern: 5 digits starting with `8`, optional `ME-` / `ME ` prefix accepted.
+- **`single_nuts3_fallback` settings field**: data-driven seed for the Tier 5 single-NUTS3 set, allowing countries with no GISCO TERCET coverage but a single nationwide NUTS3 unit to be added via configuration alone. Auto-detected single-NUTS3 entries derived from real data take precedence on conflict.
+
+### Changed
+
+- **`patterns_version` bumped to 1.1** (additive change — new ME entry, no existing pattern altered).
+- **`get_loaded_countries()`** now includes countries served only via the single-NUTS3 fallback, so `/lookup` accepts them without a 400.
+
 ## [0.13.0] - 2026-02-23
 
 ### Added
