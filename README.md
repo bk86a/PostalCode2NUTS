@@ -316,7 +316,10 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
 | `PC2NUTS_RATE_LIMIT` | `60/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. |
 | `PC2NUTS_STARTUP_TIMEOUT` | `300` | Maximum seconds allowed for initial data loading. If exceeded, the service starts with whatever data was loaded and sets `data_stale: true`. |
-| `PC2NUTS_TRUSTED_TOKENS` | `""` (empty — bypass disabled) | Comma-separated list of opaque tokens that bypass the per-IP rate limit when sent via `Authorization: Bearer <token>`. See [Authentication & rate-limit bypass](#authentication--rate-limit-bypass) for the operator runbook. |
+| `PC2NUTS_TRUSTED_TOKENS` | `""` (empty — bypass disabled) | Comma-separated list of opaque tokens that bypass the per-IP rate limit when sent via `Authorization: Bearer <token>`. Continues to work as a union with the DB-backed registry below; set this only as a disaster-recovery fallback or for env-var-only deployments. See [Authentication & rate-limit bypass](#authentication--rate-limit-bypass) for the operator runbook. |
+| `PC2NUTS_TOKEN_DB_URL` | `""` (unset) | Connection string for the trusted-token database. Accepts both `https://…` and `libsql://…` (the latter is rewritten to `https://` automatically). Empty → DB-backed bypass disabled, falls back to env-var-only behaviour. |
+| `PC2NUTS_TOKEN_DB_AUTH_TOKEN` | `""` (unset) | Bearer JWT presented to the trusted-token database. Required when the provider enforces auth. |
+| `PC2NUTS_TOKEN_REFRESH_SECONDS` | `60` (min `1`) | How often the running service reloads the active trusted-token set from the DB. |
 | `PC2NUTS_DOCS_ENABLED` | `true` | Set to `false` to disable Swagger UI (`/docs`) and ReDoc (`/redoc`) in production. |
 | `PC2NUTS_CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins. Set to a specific origin (e.g. `https://example.com`) to restrict cross-origin access. Empty string disables CORS middleware. |
 | `PC2NUTS_ACCESS_LOG_FILE` | *(empty — stdout)* | Path to access log file. When set, logs are written to this file with automatic rotation. When empty, access logs go to stderr. |
@@ -339,17 +342,23 @@ By default, trusted tokens live in the `PC2NUTS_TRUSTED_TOKENS` env var (comma-s
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `PC2NUTS_TOKEN_DB_URL` | `""` (unset) | Connection string for the token database. Empty → DB-backed feature disabled (v0.16.0 env-var-only behaviour). |
-| `PC2NUTS_TOKEN_REFRESH_SECONDS` | `60` | How often the running service reloads the active set from the DB. |
+| `PC2NUTS_TOKEN_DB_URL` | `""` (unset) | Connection string for the token database. Accepts both `https://…` and `libsql://…` (the latter is rewritten to `https://` automatically). Empty → DB-backed feature disabled (v0.16.0 env-var-only behaviour). |
+| `PC2NUTS_TOKEN_DB_AUTH_TOKEN` | `""` (unset) | Bearer JWT presented to the database in the `Authorization` header on every request. Required when the database enforces auth (most managed offerings do). |
+| `PC2NUTS_TOKEN_REFRESH_SECONDS` | `60` (min `1`) | How often the running service reloads the active set from the DB. |
+
+The wire protocol assumed by the client is **libsql / Hrana v2** (`POST /v2/pipeline` with statements wrapped as `{requests: [{type: "execute", stmt: {sql, args}}]}`); this matches Bunny Database, Turso, and any other libsql-compatible service. If your provider uses a different wire shape, only `TokenDB.execute` in `app/token_db.py` needs adjusting — the rest of the system is insulated by mock-at-the-boundary unit tests.
 
 ### Operator runbook — initial setup (one-time)
 
 ```bash
-# On your laptop, with the DB connection string in your environment:
-export PC2NUTS_TOKEN_DB_URL='<connection string from the database provider>'
+# On your laptop, with both DB env vars set:
+export PC2NUTS_TOKEN_DB_URL='<libsql:// or https:// URL from the provider>'
+export PC2NUTS_TOKEN_DB_AUTH_TOKEN='<JWT issued by the provider>'
 python -m scripts.tokens init
 # → idempotent. Safe to re-run.
 ```
+
+Both values can also be passed per-invocation via `--db-url` / `--auth-token` flags if you prefer not to export them.
 
 ### Operator runbook — issue a token
 
@@ -411,9 +420,9 @@ Then remove that token from `PC2NUTS_TRUSTED_TOKENS` on the next config edit.
 
 ### Disable the bypass entirely
 
-Unset both `PC2NUTS_TOKEN_DB_URL` and `PC2NUTS_TRUSTED_TOKENS`. All traffic falls back to the per-IP cap. The `Authorization` header is ignored entirely (no 400, no 401) when the feature is disabled. No code change needed.
+Unset all three: `PC2NUTS_TOKEN_DB_URL`, `PC2NUTS_TOKEN_DB_AUTH_TOKEN`, and `PC2NUTS_TRUSTED_TOKENS`. All traffic falls back to the per-IP cap. The `Authorization` header is ignored entirely (no 400, no 401) when the feature is disabled. No code change needed.
 
-If only the DB URL is unset (env var still set), behaviour reverts exactly to v0.16.0.
+If only the DB env vars are unset (`PC2NUTS_TRUSTED_TOKENS` still set), behaviour reverts exactly to v0.16.0 (env-var only).
 
 ### Security notes
 
