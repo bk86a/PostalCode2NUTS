@@ -14,6 +14,11 @@ from starlette.responses import JSONResponse
 
 from app.config import settings
 
+# DB-backed token cache (refreshed by background task in main.lifespan).
+# Empty until the first refresh succeeds; merged into the active set via _get_trusted_tokens.
+_db_tokens: frozenset[str] = frozenset()
+_token_db_stale: bool = False
+
 
 def token_id(token: str) -> str:
     """First 8 hex chars of sha256(token). Stable, non-reversible audit id."""
@@ -36,8 +41,8 @@ def extract_bearer(request: Request) -> str | None:
 
 
 def _get_trusted_tokens() -> frozenset[str]:
-    """Indirection seam for tests; returns settings.trusted_tokens at call time."""
-    return settings.trusted_tokens
+    """Indirection seam for tests; returns the union of DB-loaded and env-var tokens."""
+    return _db_tokens | settings.trusted_tokens
 
 
 def is_trusted(candidate: str) -> bool:

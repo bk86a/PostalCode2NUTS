@@ -326,3 +326,53 @@ class TestIsTrustedRequest:
             assert is_trusted_request() is False
         finally:
             _request_var.reset(token)
+
+
+# ── DB-backed tokens — union semantic (#61) ──────────────────────────────────
+
+
+class TestDBTokensUnion:
+    def test_db_tokens_default_empty(self):
+        from app import auth
+
+        assert auth._db_tokens == frozenset()
+
+    def test_get_trusted_tokens_unions_db_and_env(self, monkeypatch):
+        from app import auth
+
+        monkeypatch.setattr(
+            type(auth.settings),
+            "trusted_tokens",
+            property(lambda self: frozenset({"env-token"})),
+        )
+        monkeypatch.setattr(auth, "_db_tokens", frozenset({"db-token"}))
+
+        result = auth._get_trusted_tokens()
+        assert result == frozenset({"env-token", "db-token"})
+
+    def test_get_trusted_tokens_empty_db_falls_back_to_env(self, monkeypatch):
+        from app import auth
+
+        monkeypatch.setattr(
+            type(auth.settings),
+            "trusted_tokens",
+            property(lambda self: frozenset({"env-only"})),
+        )
+        monkeypatch.setattr(auth, "_db_tokens", frozenset())
+        assert auth._get_trusted_tokens() == frozenset({"env-only"})
+
+    def test_get_trusted_tokens_empty_env_uses_db_only(self, monkeypatch):
+        from app import auth
+
+        monkeypatch.setattr(
+            type(auth.settings),
+            "trusted_tokens",
+            property(lambda self: frozenset()),
+        )
+        monkeypatch.setattr(auth, "_db_tokens", frozenset({"db-only"}))
+        assert auth._get_trusted_tokens() == frozenset({"db-only"})
+
+    def test_token_db_stale_default_false(self):
+        from app import auth
+
+        assert auth._token_db_stale is False
