@@ -58,3 +58,31 @@ class TestTrustedTokensConfig:
         monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "abc")
         settings = self._reload_settings()
         assert isinstance(settings.trusted_tokens, frozenset)
+
+
+# ── token_id helper ──────────────────────────────────────────────────────────
+
+
+class TestTokenId:
+    def test_deterministic(self):
+        from app.auth import token_id
+
+        assert token_id("hello") == token_id("hello")
+
+    def test_eight_hex_chars(self):
+        from app.auth import token_id
+
+        result = token_id("hello")
+        assert len(result) == 8
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_distinct_inputs_distinct_outputs(self):
+        from app.auth import token_id
+
+        assert token_id("alpha") != token_id("beta")
+
+    def test_known_value(self):
+        """sha256('hello') first 8 hex chars is '2cf24dba'."""
+        from app.auth import token_id
+
+        assert token_id("hello") == "2cf24dba"
