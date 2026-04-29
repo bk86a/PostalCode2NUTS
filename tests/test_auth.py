@@ -165,3 +165,45 @@ class TestExtractBearer:
         with pytest.raises(HTTPException) as exc_info:
             extract_bearer(request)
         assert exc_info.value.status_code == 400
+
+
+# ── is_trusted helper ────────────────────────────────────────────────────────
+
+
+class TestIsTrusted:
+    @pytest.fixture(autouse=True)
+    def _empty_tokens(self, monkeypatch):
+        # Stub settings.trusted_tokens for each test
+        from app import auth, config
+
+        monkeypatch.setattr(config.settings, "__dict__", config.settings.__dict__.copy())
+        # Note: trusted_tokens is a property; stub via a new Settings-ish object
+        # by patching the module-level reference auth uses.
+        self._monkeypatch = monkeypatch
+        self._auth = auth
+
+    def _set_tokens(self, *tokens):
+        # Patch auth's view of settings.trusted_tokens
+        self._monkeypatch.setattr(
+            self._auth, "_get_trusted_tokens", lambda: frozenset(tokens)
+        )
+
+    def test_match_against_single_token(self):
+        self._set_tokens("abc")
+        assert self._auth.is_trusted("abc") is True
+
+    def test_match_against_one_of_many(self):
+        self._set_tokens("abc", "def", "ghi")
+        assert self._auth.is_trusted("def") is True
+
+    def test_unknown_token_returns_false(self):
+        self._set_tokens("abc", "def")
+        assert self._auth.is_trusted("xyz") is False
+
+    def test_empty_string_returns_false(self):
+        self._set_tokens("abc")
+        assert self._auth.is_trusted("") is False
+
+    def test_empty_token_set_returns_false(self):
+        self._set_tokens()
+        assert self._auth.is_trusted("anything") is False
