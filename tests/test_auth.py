@@ -376,3 +376,51 @@ class TestDBTokensUnion:
         from app import auth
 
         assert auth._token_db_stale is False
+
+
+# ── refresh_db_tokens (#61) ──────────────────────────────────────────────────
+
+
+class TestRefreshDBTokens:
+    def test_refresh_populates_db_tokens(self, monkeypatch):
+        from app import auth
+
+        class FakeDB:
+            def list_active(self):
+                return [
+                    {"value": "a", "id": 1, "label": "x", "created_at": "..."},
+                    {"value": "b", "id": 2, "label": "y", "created_at": "..."},
+                ]
+
+        monkeypatch.setattr(auth, "_db_tokens", frozenset())
+        monkeypatch.setattr(auth, "_token_db_stale", False)
+        auth.refresh_db_tokens(FakeDB())
+        assert auth._db_tokens == frozenset({"a", "b"})
+        assert auth._token_db_stale is False
+
+    def test_refresh_failure_keeps_previous_set_and_sets_stale(self, monkeypatch):
+        from app import auth
+        from app.token_db import TokenDBError
+
+        class FailingDB:
+            def list_active(self):
+                raise TokenDBError("boom")
+
+        monkeypatch.setattr(auth, "_db_tokens", frozenset({"keepme"}))
+        monkeypatch.setattr(auth, "_token_db_stale", False)
+        auth.refresh_db_tokens(FailingDB())
+        assert auth._db_tokens == frozenset({"keepme"})  # unchanged
+        assert auth._token_db_stale is True
+
+    def test_refresh_recovery_clears_stale(self, monkeypatch):
+        from app import auth
+
+        class FakeDB:
+            def list_active(self):
+                return [{"value": "good"}]
+
+        monkeypatch.setattr(auth, "_db_tokens", frozenset({"old"}))
+        monkeypatch.setattr(auth, "_token_db_stale", True)
+        auth.refresh_db_tokens(FakeDB())
+        assert auth._db_tokens == frozenset({"good"})
+        assert auth._token_db_stale is False

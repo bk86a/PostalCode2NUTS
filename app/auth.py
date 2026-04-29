@@ -125,3 +125,24 @@ def is_trusted_request() -> bool:
     if request is None:
         return False
     return bool(getattr(request.state, "trusted", False))
+
+
+def refresh_db_tokens(db) -> None:
+    """Reload the active token set from the DB.
+
+    On success: replace _db_tokens with the new frozenset, clear the stale flag.
+    On failure: keep _db_tokens unchanged, set _token_db_stale = True.
+
+    `db` is duck-typed: must expose .list_active() returning rows with a 'value' key.
+    """
+    global _db_tokens, _token_db_stale
+    try:
+        rows = db.list_active()
+    except Exception as exc:  # noqa: BLE001 — caller passes a duck-typed client
+        import logging
+
+        logging.getLogger(__name__).warning("token DB refresh failed: %s", exc)
+        _token_db_stale = True
+        return
+    _db_tokens = frozenset(r["value"] for r in rows if r.get("value"))
+    _token_db_stale = False
