@@ -118,8 +118,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     url = _resolve_db_url(args.db_url)
     if not url:
         print(
-            "ERROR: PC2NUTS_TOKEN_DB_URL is not set. "
-            "Provide --db-url or set the environment variable.",
+            "ERROR: PC2NUTS_TOKEN_DB_URL is not set. Provide --db-url or set the environment variable.",
             file=sys.stderr,
         )
         return 2

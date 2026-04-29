@@ -179,9 +179,7 @@ def test_revoke_calls_db(fake_db, capsys):
 
 
 def test_revoke_already_revoked_exits_zero(fake_db, capsys):
-    fake_db.rows = [
-        {"id": 5, "label": "x", "created_at": "2026-01-01", "revoked_at": "2026-04-28"}
-    ]
+    fake_db.rows = [{"id": 5, "label": "x", "created_at": "2026-01-01", "revoked_at": "2026-04-28"}]
     from scripts.tokens import main
 
     rc = main(["revoke", "5"])

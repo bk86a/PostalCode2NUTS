@@ -71,9 +71,8 @@ class TestTokenDBExecute:
             def raise_for_status(self):
                 if self.status_code >= 400:
                     import httpx
-                    raise httpx.HTTPStatusError(
-                        "boom", request=None, response=self
-                    )
+
+                    raise httpx.HTTPStatusError("boom", request=None, response=self)
 
         captured: dict = {}
 
@@ -166,9 +165,11 @@ class TestTokenDBMethods:
 
     def test_list_active_filters_revoked(self, db):
         db._set_return.clear()
-        db._set_return.extend([
-            {"id": 1, "value": "v1", "label": "a", "created_at": "2026-01-01"},
-        ])
+        db._set_return.extend(
+            [
+                {"id": 1, "value": "v1", "label": "a", "created_at": "2026-01-01"},
+            ]
+        )
         rows = db.list_active()
         sql, params = db._captured[0]
         assert "revoked_at IS NULL" in sql

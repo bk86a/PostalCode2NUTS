@@ -98,13 +98,9 @@ class TokenDB:
     def list_active(self) -> list[dict]:
         """Return all rows where revoked_at IS NULL."""
         return self.execute(
-            "SELECT id, value, label, created_at FROM trusted_tokens "
-            "WHERE revoked_at IS NULL"
+            "SELECT id, value, label, created_at FROM trusted_tokens WHERE revoked_at IS NULL"
         )
 
     def list_all(self) -> list[dict]:
         """Return all rows, never including the raw value column."""
-        return self.execute(
-            "SELECT id, label, created_at, revoked_at FROM trusted_tokens "
-            "ORDER BY id"
-        )
+        return self.execute("SELECT id, label, created_at, revoked_at FROM trusted_tokens ORDER BY id")
