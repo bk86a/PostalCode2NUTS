@@ -41,8 +41,21 @@ def _cmd_init(db: TokenDB) -> int:
     return 0
 
 
+_HEX_CHARS = frozenset("0123456789abcdef")
+
+
 def _cmd_add(db: TokenDB, label: str, value: str | None) -> int:
-    token = value if value else secrets.token_hex(24)
+    if value is not None:
+        if len(value) < 32 or not all(c in _HEX_CHARS for c in value.lower()):
+            print(
+                "ERROR: --value must be at least 32 hex chars (lowercase). "
+                "Did you mean to omit --value to generate a fresh 48-hex token?",
+                file=sys.stderr,
+            )
+            return 2
+        token = value.lower()
+    else:
+        token = secrets.token_hex(24)
     try:
         new_id = db.add(token, label)
     except TokenDBError as exc:

@@ -88,6 +88,29 @@ def test_add_with_value_uses_provided(fake_db, capsys):
     assert fake_db.added[0]["value"] == "deadbeef" * 6
 
 
+def test_add_rejects_empty_value(fake_db, capsys):
+    from scripts.tokens import main
+
+    rc = main(["add", "--label", "x", "--value", ""])
+    assert rc == 2
+    assert "32 hex chars" in capsys.readouterr().err
+
+
+def test_add_rejects_non_hex_value(fake_db, capsys):
+    from scripts.tokens import main
+
+    rc = main(["add", "--label", "x", "--value", "z" * 48])
+    assert rc == 2
+    assert fake_db.added == []  # nothing inserted
+
+
+def test_add_rejects_too_short_value(fake_db, capsys):
+    from scripts.tokens import main
+
+    rc = main(["add", "--label", "x", "--value", "abcdef"])
+    assert rc == 2
+
+
 def test_add_failure_exits_non_zero(fake_db, capsys):
     from app.token_db import TokenDBError
     from scripts.tokens import main
