@@ -281,3 +281,50 @@ class TestAuthMiddleware:
         with TestClient(app) as client:
             resp = client.get("/health", headers={"Authorization": "Bearer wrong-token"})
         assert resp.status_code == 200
+
+
+# ── is_trusted_request predicate ─────────────────────────────────────────────
+
+
+class TestIsTrustedRequest:
+    def _request_with_state(self, *, trusted: bool):
+        from starlette.requests import Request
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "state": {},
+        }
+        request = Request(scope)
+        request.state.trusted = trusted
+        return request
+
+    def test_no_request_in_context_returns_false(self):
+        from app.auth import _request_var, is_trusted_request
+
+        # Ensure no request set
+        assert _request_var.get() is None
+        assert is_trusted_request() is False
+
+    def test_trusted_state_returns_true(self):
+        from app.auth import _request_var, is_trusted_request
+
+        request = self._request_with_state(trusted=True)
+        token = _request_var.set(request)
+        try:
+            assert is_trusted_request() is True
+        finally:
+            _request_var.reset(token)
+
+    def test_untrusted_state_returns_false(self):
+        from app.auth import _request_var, is_trusted_request
+
+        request = self._request_with_state(trusted=False)
+        token = _request_var.set(request)
+        try:
+            assert is_trusted_request() is False
+        finally:
+            _request_var.reset(token)

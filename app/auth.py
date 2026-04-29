@@ -100,3 +100,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         finally:
             _request_var.reset(ctx_token)
+
+
+def is_trusted_request() -> bool:
+    """Parameterless predicate for slowapi's exempt_when.
+
+    Reads the current Request from the ContextVar set by AuthMiddleware and
+    returns True iff request.state.trusted is True. Returns False outside
+    a request context (defensive default).
+    """
+    request = _request_var.get()
+    if request is None:
+        return False
+    return bool(getattr(request.state, "trusted", False))
