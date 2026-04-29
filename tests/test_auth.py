@@ -424,3 +424,57 @@ class TestRefreshDBTokens:
         auth.refresh_db_tokens(FakeDB())
         assert auth._db_tokens == frozenset({"good"})
         assert auth._token_db_stale is False
+
+
+# ── lifespan refresh task (#61) ──────────────────────────────────────────────
+
+
+class TestLifespanRefresh:
+    def test_lifespan_starts_refresh_when_db_url_set(self, monkeypatch):
+        """When PC2NUTS_TOKEN_DB_URL is set, lifespan should call refresh_db_tokens
+        at least once at startup."""
+        from app import auth, config, data_loader
+
+        called: list = []
+
+        def _fake_refresh(db):
+            called.append(db)
+            # Simulate one successful refresh
+            monkeypatch.setattr(auth, "_db_tokens", frozenset({"loaded-from-db"}))
+
+        monkeypatch.setattr(auth, "refresh_db_tokens", _fake_refresh)
+        monkeypatch.setattr(config.settings, "token_db_url", "https://db.example/v1")
+        monkeypatch.setattr(config.settings, "token_refresh_seconds", 3600)  # don't loop fast
+
+        from unittest.mock import patch
+
+        with patch.object(data_loader, "load_data"):
+            from fastapi.testclient import TestClient
+            from app.main import app
+
+            with TestClient(app):
+                pass  # entering the context = startup; exiting = shutdown
+
+        assert len(called) >= 1, "refresh_db_tokens was not called during lifespan"
+
+    def test_lifespan_skips_refresh_when_db_url_unset(self, monkeypatch):
+        from app import auth, config, data_loader
+
+        called: list = []
+
+        def _fake_refresh(db):
+            called.append(db)
+
+        monkeypatch.setattr(auth, "refresh_db_tokens", _fake_refresh)
+        monkeypatch.setattr(config.settings, "token_db_url", "")
+
+        from unittest.mock import patch
+
+        with patch.object(data_loader, "load_data"):
+            from fastapi.testclient import TestClient
+            from app.main import app
+
+            with TestClient(app):
+                pass
+
+        assert called == [], "refresh_db_tokens called despite empty DB URL"

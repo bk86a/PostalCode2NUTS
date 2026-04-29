@@ -4,6 +4,7 @@ Data source: GISCO TERCET flat files
 (c) European Union - GISCO, 2024, postal code point dataset, Licence CC-BY-SA 4.0
 """
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -17,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.responses import JSONResponse
 
-from app import __version__
+from app import __version__, config as _config
 from app.auth import AuthMiddleware, is_trusted_request
 from app.config import settings
 from app.data_loader import (
@@ -98,7 +99,42 @@ async def lifespan(app: FastAPI):
         logger.info("Extra data sources configured: %d", extra)
     if get_data_stale():
         logger.warning("Serving STALE data — TERCET refresh failed, using expired cache")
+
+    # ── Token DB refresh (#61) ──────────────────────────────────────────────
+    # Use _config.settings (module-level reference) so that test reloads of the
+    # config module don't cause a stale settings binding to be read here.
+    refresh_task: asyncio.Task | None = None
+    if _config.settings.token_db_url:
+        from app import auth as auth_mod
+        from app.token_db import TokenDB
+
+        token_db = TokenDB(_config.settings.token_db_url)
+
+        async def _refresh_loop():
+            interval = max(1, _config.settings.token_refresh_seconds)
+            while True:
+                await asyncio.to_thread(auth_mod.refresh_db_tokens, token_db)
+                try:
+                    await asyncio.sleep(interval)
+                except asyncio.CancelledError:
+                    return
+
+        # Initial synchronous refresh so /lookup is correct from the first request
+        await asyncio.to_thread(auth_mod.refresh_db_tokens, token_db)
+        refresh_task = asyncio.create_task(_refresh_loop())
+        logger.info(
+            "Token DB refresh task started (interval %ds)",
+            _config.settings.token_refresh_seconds,
+        )
+
     yield
+
+    if refresh_task is not None:
+        refresh_task.cancel()
+        try:
+            await refresh_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
