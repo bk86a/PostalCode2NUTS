@@ -333,45 +333,72 @@ The service applies a per-IP rate limit (`60/minute` by default) to `/lookup` an
 |---|---|---|
 | `PC2NUTS_TRUSTED_TOKENS` | `""` (unset) | Comma-separated list of valid bypass tokens. Empty → bypass disabled (current default). Whitespace and empty entries between commas are tolerated. |
 
+### Storage backend
+
+By default, trusted tokens live in the `PC2NUTS_TRUSTED_TOKENS` env var (comma-separated; restart-to-apply). When `PC2NUTS_TOKEN_DB_URL` is configured, tokens are also loaded from a managed SQLite-compatible database; the active set is the **union** of DB-loaded tokens and env-var tokens. The DB is the primary registry; the env var serves as a disaster-recovery fallback for cases where the DB is unreachable at startup.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `PC2NUTS_TOKEN_DB_URL` | `""` (unset) | Connection string for the token database. Empty → DB-backed feature disabled (v0.16.0 env-var-only behaviour). |
+| `PC2NUTS_TOKEN_REFRESH_SECONDS` | `60` | How often the running service reloads the active set from the DB. |
+
+### Operator runbook — initial setup (one-time)
+
+```bash
+# On your laptop, with the DB connection string in your environment:
+export PC2NUTS_TOKEN_DB_URL='<connection string from the database provider>'
+python -m scripts.tokens init
+# → idempotent. Safe to re-run.
+```
+
 ### Operator runbook — issue a token
 
 ```bash
-# 1. Generate locally (48 hex chars / 192 bits)
-openssl rand -hex 24
+python -m scripts.tokens add --label "alice-batch-2026-04"
+# Generated: e3a1f2…d4
+# Inserted id=3, label='alice-batch-2026-04', token_id=9a29f07a
 
-# 2. Add the printed token to PC2NUTS_TRUSTED_TOKENS in the production
-#    deployment's environment configuration. Multiple tokens are comma-separated.
-#    Example value with two active tokens:
-#       PC2NUTS_TRUSTED_TOKENS=9e7a3f...d2,4b1c8e...77
-
-# 3. Restart the service container to load the new env value.
-#    The SQLite postal-code cache survives the restart, so cold-start is ~30 s.
-
-# 4. Verify the new token bypasses the rate limit:
-curl -i -H "Authorization: Bearer <new_token>" \
-     "https://<service-host>/lookup?country=DE&postal_code=10115"
-# → 200, audit log shows token_id=<first 8 hex of sha256(token)>
-
-# 5. Hand the raw token to the consumer over a confidential channel
-#    (1Password, Signal, encrypted email — not Slack, not GitHub issues).
+# The token is active in the running service within ~PC2NUTS_TOKEN_REFRESH_SECONDS.
+# Hand the printed token to the consumer over a confidential channel
+# (1Password, Signal, encrypted email — not Slack, not GitHub issues).
 ```
+
+### Operator runbook — list tokens
+
+```bash
+python -m scripts.tokens list           # active only (default)
+python -m scripts.tokens list --all     # include revoked
+```
+
+The `value` column is never printed.
 
 ### Operator runbook — revoke a token
 
 ```bash
-# 1. Remove the token entry from PC2NUTS_TRUSTED_TOKENS in the env config.
-# 2. Restart the container.
-# 3. Verify the revoked token is rejected:
-curl -i -H "Authorization: Bearer <revoked_token>" \
-     "https://<service-host>/lookup?country=DE&postal_code=10115"
-# → 401 Unauthorized
+python -m scripts.tokens revoke 3
+# Token id=3 revoked.
+# (Already-revoked ids print "already revoked" and exit 0.)
 ```
+
+Revocation takes effect within `PC2NUTS_TOKEN_REFRESH_SECONDS` (default 60 s). For an emergency revocation, restart the container to force an immediate refresh.
 
 ### Operator runbook — find the token id of a logged request
 
 ```bash
 echo -n "<token>" | sha256sum | cut -c1-8
 ```
+
+The CLI's `add` command also prints the `token_id` at issuance time.
+
+### Operator runbook — migrate a v1 env-var token
+
+To preserve the audit `token_id` of an existing env-var token when moving it to the DB:
+
+```bash
+python -m scripts.tokens add --label "perf-test-2026-04-29" --value "<the existing 48-hex token>"
+```
+
+Then remove that token from `PC2NUTS_TRUSTED_TOKENS` on the next config edit.
 
 ### Behaviour summary
 
@@ -384,7 +411,9 @@ echo -n "<token>" | sha256sum | cut -c1-8
 
 ### Disable the bypass entirely
 
-Unset or empty `PC2NUTS_TRUSTED_TOKENS`. All traffic falls back to the per-IP cap. The `Authorization` header is ignored entirely (no 400, no 401) when the feature is disabled. No code change needed.
+Unset both `PC2NUTS_TOKEN_DB_URL` and `PC2NUTS_TRUSTED_TOKENS`. All traffic falls back to the per-IP cap. The `Authorization` header is ignored entirely (no 400, no 401) when the feature is disabled. No code change needed.
+
+If only the DB URL is unset (env var still set), behaviour reverts exactly to v0.16.0.
 
 ### Security notes
 
