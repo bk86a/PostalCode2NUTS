@@ -3,11 +3,14 @@
 See docs/superpowers/specs/2026-04-29-auth-token-bypass-design.md for the design.
 """
 
+import contextvars
 import hashlib
 import hmac
 
 from fastapi import HTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from app.config import settings
 
@@ -46,3 +49,54 @@ def is_trusted(candidate: str) -> bool:
     if not candidate:
         return False
     return any(hmac.compare_digest(candidate, t) for t in _get_trusted_tokens())
+
+
+_request_var: contextvars.ContextVar[Request | None] = contextvars.ContextVar(
+    "pc2nuts_request", default=None
+)
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Validate Authorization header up-front.
+
+    - No header → request.state.trusted = False, normal flow.
+    - Valid bearer token → request.state.trusted = True, request.state.token_id set.
+    - Invalid token → 401 short-circuit (no rate-limit consumed).
+    - Malformed header → 400 short-circuit.
+    - /health is exempt entirely — header is ignored, request flows through.
+      This protects monitoring tooling from false 401s if a service mesh adds
+      an Authorization header globally.
+
+    Also stores the Request in a ContextVar so the parameterless slowapi
+    exempt_when callable can read it (slowapi calls exempt_when()).
+    """
+
+    EXEMPT_PATHS = frozenset({"/health"})
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in self.EXEMPT_PATHS:
+            request.state.trusted = False
+            request.state.token_id = None
+            return await call_next(request)
+
+        try:
+            token = extract_bearer(request)
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+        if token is not None:
+            if not is_trusted(token):
+                return JSONResponse(
+                    {"detail": "invalid token"}, status_code=401
+                )
+            request.state.trusted = True
+            request.state.token_id = token_id(token)
+        else:
+            request.state.trusted = False
+            request.state.token_id = None
+
+        ctx_token = _request_var.set(request)
+        try:
+            return await call_next(request)
+        finally:
+            _request_var.reset(ctx_token)

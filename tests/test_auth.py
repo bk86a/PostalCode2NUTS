@@ -207,3 +207,67 @@ class TestIsTrusted:
     def test_empty_token_set_returns_false(self):
         self._set_tokens()
         assert self._auth.is_trusted("anything") is False
+
+
+# ── AuthMiddleware ───────────────────────────────────────────────────────────
+
+
+class TestAuthMiddleware:
+    def _build_app(self, *trusted: str):
+        """Build a minimal Starlette app with AuthMiddleware mounted."""
+        from starlette.applications import Starlette
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+
+        from app import auth
+
+        async def endpoint(request):
+            return JSONResponse(
+                {
+                    "trusted": getattr(request.state, "trusted", False),
+                    "token_id": getattr(request.state, "token_id", None),
+                }
+            )
+
+        app = Starlette(routes=[Route("/x", endpoint)])
+        app.add_middleware(auth.AuthMiddleware)
+        # Patch the trusted-token getter for the duration of this app
+        auth._get_trusted_tokens = lambda: frozenset(trusted)
+        return app
+
+    def test_no_header_marks_untrusted(self):
+        from starlette.testclient import TestClient
+
+        app = self._build_app("good-token")
+        with TestClient(app) as client:
+            resp = client.get("/x")
+        assert resp.status_code == 200
+        assert resp.json() == {"trusted": False, "token_id": None}
+
+    def test_valid_token_marks_trusted_with_token_id(self):
+        from starlette.testclient import TestClient
+
+        from app.auth import token_id
+
+        app = self._build_app("good-token")
+        with TestClient(app) as client:
+            resp = client.get("/x", headers={"Authorization": "Bearer good-token"})
+        assert resp.status_code == 200
+        assert resp.json() == {"trusted": True, "token_id": token_id("good-token")}
+
+    def test_invalid_token_returns_401(self):
+        from starlette.testclient import TestClient
+
+        app = self._build_app("good-token")
+        with TestClient(app) as client:
+            resp = client.get("/x", headers={"Authorization": "Bearer wrong-token"})
+        assert resp.status_code == 401
+        assert "invalid token" in resp.json()["detail"].lower()
+
+    def test_malformed_header_returns_400(self):
+        from starlette.testclient import TestClient
+
+        app = self._build_app("good-token")
+        with TestClient(app) as client:
+            resp = client.get("/x", headers={"Authorization": "Basic abc"})
+        assert resp.status_code == 400
