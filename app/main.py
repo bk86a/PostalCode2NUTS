@@ -18,6 +18,7 @@ from slowapi.util import get_remote_address
 from starlette.responses import JSONResponse
 
 from app import __version__
+from app.auth import AuthMiddleware, is_trusted_request
 from app.config import settings
 from app.data_loader import (
     get_data_loaded_at,
@@ -147,6 +148,7 @@ if settings.cors_origins:
 
 
 app.add_middleware(AccessLogMiddleware)
+app.add_middleware(AuthMiddleware)
 
 
 def _available_countries_str() -> str:
@@ -164,7 +166,7 @@ def _available_countries_str() -> str:
     },
     summary="Look up NUTS codes for a postal code",
 )
-@limiter.limit(settings.rate_limit)
+@limiter.limit(settings.rate_limit, exempt_when=is_trusted_request)
 def lookup_postal_code(
     request: Request,
     response: Response,
@@ -216,7 +218,7 @@ def lookup_postal_code(
     },
     summary="Get postal code regex pattern for a country",
 )
-@limiter.limit(settings.rate_limit)
+@limiter.limit(settings.rate_limit, exempt_when=is_trusted_request)
 def get_pattern(
     request: Request,
     response: Response,

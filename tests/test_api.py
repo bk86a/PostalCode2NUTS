@@ -131,3 +131,58 @@ class TestHealthEndpoint:
         resp = client.get("/health")
         data = resp.json()
         assert "total_nuts_names" in data
+
+
+# ── Auth-token bypass tests (#60) ────────────────────────────────────────────
+
+
+class TestAuthBypass:
+    def test_no_header_normal_flow(self, trusted_client):
+        """Without an Authorization header, behaviour is unchanged."""
+        resp = trusted_client.get(
+            "/lookup", params={"postal_code": "10115", "country": "DE"}
+        )
+        assert resp.status_code == 200
+
+    def test_valid_token_returns_200(self, trusted_client):
+        resp = trusted_client.get(
+            "/lookup",
+            params={"postal_code": "10115", "country": "DE"},
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 200
+
+    def test_invalid_token_returns_401(self, trusted_client):
+        resp = trusted_client.get(
+            "/lookup",
+            params={"postal_code": "10115", "country": "DE"},
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+        assert resp.status_code == 401
+        assert "invalid token" in resp.json()["detail"].lower()
+
+    def test_malformed_header_returns_400(self, trusted_client):
+        resp = trusted_client.get(
+            "/lookup",
+            params={"postal_code": "10115", "country": "DE"},
+            headers={"Authorization": "Basic dXNlcjpwYXNz"},
+        )
+        assert resp.status_code == 400
+
+    def test_health_anonymous_works(self, trusted_client):
+        resp = trusted_client.get("/health")
+        assert resp.status_code == 200
+
+    def test_health_ignores_invalid_token(self, trusted_client):
+        """/health is in AuthMiddleware.EXEMPT_PATHS — header is ignored entirely.
+        Protects monitoring tools that may inject auth headers globally."""
+        resp = trusted_client.get(
+            "/health", headers={"Authorization": "Bearer wrong-token"}
+        )
+        assert resp.status_code == 200
+
+    def test_health_ignores_malformed_header(self, trusted_client):
+        resp = trusted_client.get(
+            "/health", headers={"Authorization": "Basic dXNlcjpwYXNz"}
+        )
+        assert resp.status_code == 200

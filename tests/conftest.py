@@ -119,3 +119,21 @@ def client(mock_data):
 
         with TestClient(app) as tc:
             yield tc
+
+
+@pytest.fixture()
+def trusted_client(mock_data, monkeypatch):
+    """TestClient with one configured trusted token: 'test-token-aaa'."""
+    from unittest.mock import patch
+
+    from app import auth, data_loader
+
+    monkeypatch.setattr(auth, "_get_trusted_tokens", lambda: frozenset({"test-token-aaa"}))
+
+    from fastapi.testclient import TestClient
+
+    with patch.object(data_loader, "load_data"):
+        from app.main import app
+
+        with TestClient(app) as tc:
+            yield tc
