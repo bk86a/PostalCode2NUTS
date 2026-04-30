@@ -15,7 +15,7 @@
 >
 > **Recommended operating point: 27 RPS (~1,620/min), p99 < 200 ms.**
 
-The current `60/minute` per-IP cap is therefore not the system bottleneck — the deployment can serve roughly **30× that volume in aggregate** before throughput plateaus. A single client could be permitted up to ~1,500/minute (25 RPS) without affecting overall headroom; the per-IP cap should be set well below the aggregate ceiling regardless.
+The per-IP cap is therefore not the system bottleneck — the deployment can serve roughly **15× the default `120/minute` cap in aggregate** before throughput plateaus. A single client could in principle be permitted up to ~1,500/minute (25 RPS) without affecting overall headroom; the per-IP cap is set well below the aggregate ceiling so that ~15 simultaneous full-rate clients can coexist without degradation.
 
 ---
 
@@ -92,7 +92,7 @@ No drift over the 3-minute window. p99 stayed well under 200 ms throughout.
 
 ## Recommendations
 
-1. **Keep per-IP cap conservative relative to aggregate ceiling.** The current `60/minute` (1 RPS per IP) leaves comfortable headroom: even ~30 saturation-rate clients in parallel could sustain themselves before degrading the aggregate. No change needed unless trusted-token traffic patterns become heavy.
+1. **Per-IP cap set to `120/minute` (2 RPS per IP).** Chosen as 1/15 of the aggregate ceiling — up to 15 simultaneous full-rate anonymous clients can sustain themselves before the aggregate degrades. Friendlier UX for casual users (a small country's worth of postcodes finishes in roughly half the time it took at `60/minute`) while still tight enough that batch users feel the pressure to request a trusted token. Revisit when multi-worker (#68) ships and the aggregate ceiling rises.
 
 2. **Pick `p99 ≤ 200 ms` as the SLO** at the recommended 27 RPS operating point. The full 3-minute sustained run met this.
 

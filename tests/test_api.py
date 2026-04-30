@@ -224,11 +224,11 @@ class TestAuthBypass:
         assert resp.status_code == 200
 
     def test_valid_token_bypasses_rate_limit(self, trusted_client):
-        """Default rate limit is 60/minute. With a valid bypass token, more
-        than 60 requests in tight succession all return 200. Without bypass,
-        request 61+ would 429."""
+        """Default rate limit is 120/minute. With a valid bypass token, more
+        than 120 requests in tight succession all return 200. Without bypass,
+        request 121+ would 429."""
         headers = {"Authorization": "Bearer test-token-aaa"}
-        for i in range(80):
+        for i in range(150):
             resp = trusted_client.get(
                 "/lookup",
                 params={"postal_code": "10115", "country": "DE"},

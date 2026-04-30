@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     token_db_url: str = ""
     token_db_auth_token: str = ""
     token_refresh_seconds: int = Field(default=60, ge=1)
-    rate_limit: str = _defaults.get("rate_limit", "60/minute")
+    rate_limit: str = _defaults.get("rate_limit", "120/minute")
     rate_limit_headers: bool = _defaults.get("rate_limit_headers", True)
     cache_max_age: int = _defaults.get("cache_max_age", 3600)
     startup_timeout: int = 300

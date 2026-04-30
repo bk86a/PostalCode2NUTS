@@ -314,7 +314,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
 | `PC2NUTS_ESTIMATES_CSV` | `./tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
-| `PC2NUTS_RATE_LIMIT` | `60/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. |
+| `PC2NUTS_RATE_LIMIT` | `120/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. The default leaves comfortable headroom under the measured aggregate ceiling (~30 RPS) — see [`docs/performance.md`](docs/performance.md) for the rationale. |
 | `PC2NUTS_STARTUP_TIMEOUT` | `300` | Maximum seconds allowed for initial data loading. If exceeded, the service starts with whatever data was loaded and sets `data_stale: true`. |
 | `PC2NUTS_TRUSTED_TOKENS` | `""` (empty — bypass disabled) | Comma-separated list of opaque tokens that bypass the per-IP rate limit when sent via `Authorization: Bearer <token>`. Continues to work as a union with the DB-backed registry below; set this only as a disaster-recovery fallback or for env-var-only deployments. See [Authentication & rate-limit bypass](#authentication--rate-limit-bypass) for the operator runbook. |
 | `PC2NUTS_TOKEN_DB_URL` | `""` (unset) | Connection string for the trusted-token database. Accepts both `https://…` and `libsql://…` (the latter is rewritten to `https://` automatically). Empty → DB-backed bypass disabled, falls back to env-var-only behaviour. |
@@ -328,7 +328,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 
 ## Authentication & rate-limit bypass
 
-The service applies a per-IP rate limit (`60/minute` by default) to `/lookup` and `/pattern`. Trusted callers — operator-issued, manually distributed — can bypass this limit by presenting an `Authorization: Bearer <token>` header. `/health` stays anonymous.
+The service applies a per-IP rate limit (`120/minute` by default) to `/lookup` and `/pattern`. Trusted callers — operator-issued, manually distributed — can bypass this limit by presenting an `Authorization: Bearer <token>` header. `/health` stays anonymous.
 
 ### Configuration
 
@@ -413,7 +413,7 @@ Then remove that token from `PC2NUTS_TRUSTED_TOKENS` on the next config edit.
 
 | Request | Result |
 |---|---|
-| No `Authorization` header | Per-IP `60/minute` cap, normal `200` / `429` |
+| No `Authorization` header | Per-IP `120/minute` cap, normal `200` / `429` |
 | `Authorization: Bearer <valid_token>` | Rate limit fully bypassed; `token_id=<8hex>` appended to access log |
 | `Authorization: Bearer <unknown_token>` | `401 Unauthorized` |
 | `Authorization: <not Bearer>` or malformed | `400 Bad Request` |
