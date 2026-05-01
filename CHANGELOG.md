@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-05-01
+
 ### Added
 
 - **Multi-worker deployment** (#68): set `PC2NUTS_WORKERS` to launch N uvicorn worker processes. Multi-worker mode requires `PC2NUTS_RATE_LIMIT_STORAGE_URI` (e.g. a Redis URL) so the published per-IP rate limit stays accurate across workers; the service refuses to start otherwise. Transient backend unavailability is tolerated via slowapi's `in_memory_fallback_enabled` — falls back to per-process in-memory rate limiting and re-probes with exponential backoff, with one WARNING log per outage and one INFO log on recovery.
