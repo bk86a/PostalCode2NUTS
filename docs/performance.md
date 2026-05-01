@@ -103,6 +103,18 @@ Compared to Scenario B at the same rate: p50 62 ms vs 56 ms; p99 115 ms vs 112 m
 
 No drift over the 3-minute window. p99 stayed under 200 ms throughout. Tail-latency distribution is tighter at the median under single-worker (much more <50 ms) but the >100 ms tail is slightly fatter under multi-worker — net p99 is ~30 ms higher. Within the SLO either way.
 
+## Resource utilisation
+
+Pulled from the platform's per-app overview API at the end of the run (one sample, averaged over the recent activity window):
+
+| Metric | Value |
+|---|---|
+| Avg pod RAM | ~810 MB |
+| Avg pod CPU | ~13% |
+| Avg pod RAM as % of limit | 2.5% |
+
+Both numbers are well clear of pressure. CPU at 13% during sustained 27 RPS is a useful corroboration that the bottleneck isn't pure compute — the workers are idle most of the time, waiting on something else (TLS, network, or scheduler). Memory headroom is comfortable for adding a third worker or an in-process cache if either becomes warranted.
+
 ## Rate-limit shared-storage verification
 
 A separate probe with **no `Authorization` header** was used to exercise the
