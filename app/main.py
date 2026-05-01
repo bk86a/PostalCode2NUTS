@@ -13,14 +13,13 @@ from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from starlette.responses import JSONResponse
 
 from app import __version__, config as _config
 from app.auth import AuthMiddleware, is_trusted_request
 from app.config import settings
+from app.limiter import limiter
 from app.data_loader import (
     get_data_loaded_at,
     get_data_stale,
@@ -41,8 +40,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-limiter = Limiter(key_func=get_remote_address)
 
 # Access logger — separate from app logger.
 # Propagates to the root logger so pytest caplog can capture records.
