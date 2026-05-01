@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`__version__` was stale at `0.14.0`** since the v0.14 release; openapi.json and FastAPI's `version` field have been reporting the wrong number for every release since then. Bumped to `0.18.0`. Future releases need to update `app/__init__.py` alongside the CHANGELOG until version derivation is automated.
+
 ## [0.18.0] - 2026-05-01
 
 ### Added
