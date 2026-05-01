@@ -325,6 +325,8 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ACCESS_LOG_FILE` | *(empty — stdout)* | Path to access log file. When set, logs are written to this file with automatic rotation. When empty, access logs go to stderr. |
 | `PC2NUTS_ACCESS_LOG_MAX_MB` | `10` | Maximum size of each access log file in MB before rotation. |
 | `PC2NUTS_ACCESS_LOG_BACKUP_COUNT` | `5` | Number of rotated access log files to keep (e.g. 5 x 10 MB = 50 MB max disk usage). |
+| `PC2NUTS_ESTIMATES_REFRESH_URL` | *(empty — feature disabled)* | When set, the worker periodically fetches this URL and replaces the in-memory estimates table. Recommended value: `https://raw.githubusercontent.com/bk86a/PostalCode2NUTS/main/tercet_missing_codes.csv`. |
+| `PC2NUTS_ESTIMATES_REFRESH_INTERVAL_SECONDS` | `86400` (24 h) | How often the periodic task fetches the URL. Set to `0` to disable the periodic loop while keeping the bootstrap fetch on startup. |
 
 ### Multi-worker deployment
 
@@ -434,6 +436,28 @@ python -m scripts.tokens add --label "perf-test-2026-04-29" --value "<the existi
 ```
 
 Then remove that token from `PC2NUTS_TRUSTED_TOKENS` on the next config edit.
+
+### Operator runbook — manually refresh estimates
+
+When you've merged a new entry into `tercet_missing_codes.csv` on `main` and want to verify it's live in production without waiting up to 24 hours for the next periodic refresh:
+
+```bash
+curl -X POST -H "Authorization: Bearer $PC2NUTS_TRUSTED_TOKEN" \
+  https://api.example.invalid/admin/refresh-estimates
+```
+
+Possible responses:
+
+| HTTP | `status` | Meaning |
+|---|---|---|
+| 200 | `refreshed` | Upstream content changed, sanity guard passed, in-memory state updated. Body includes `previous_count` and `new_count`. |
+| 200 | `unchanged` | Upstream content identical to current state (matched by SHA-256 hash or 304 Not Modified). |
+| 401 | — | Missing or invalid `Authorization` header. |
+| 409 | `rejected` | Sanity guard refused the candidate CSV (< 50 % of current row count). Live state is untouched. |
+| 502 | `failed` | Upstream fetch or parse failed. Live state is untouched. |
+| 503 | `disabled` | `PC2NUTS_ESTIMATES_REFRESH_URL` is unset on the deployed pod. |
+
+`/health` exposes `estimates_refresh_stale: bool | None` — `null` when disabled, `false` after a successful most-recent refresh, `true` after a failed one.
 
 ### Behaviour summary
 

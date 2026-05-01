@@ -32,3 +32,28 @@ class TestWorkersValidator:
         """Empty string should be treated the same as None — both mean unset."""
         with pytest.raises(ValidationError):
             Settings(workers=2, rate_limit_storage_uri="")
+
+
+class TestEstimatesRefreshSettings:
+    def test_defaults_disable_remote_refresh(self):
+        s = Settings()
+        assert s.estimates_refresh_url == ""
+        assert s.estimates_refresh_interval_seconds == 86400
+
+    def test_url_can_be_set_via_env(self, monkeypatch):
+        monkeypatch.setenv(
+            "PC2NUTS_ESTIMATES_REFRESH_URL",
+            "https://raw.githubusercontent.com/bk86a/PostalCode2NUTS/main/tercet_missing_codes.csv",
+        )
+        s = Settings()
+        assert s.estimates_refresh_url.endswith("/tercet_missing_codes.csv")
+
+    def test_interval_zero_is_allowed(self, monkeypatch):
+        monkeypatch.setenv("PC2NUTS_ESTIMATES_REFRESH_INTERVAL_SECONDS", "0")
+        s = Settings()
+        assert s.estimates_refresh_interval_seconds == 0
+
+    def test_interval_negative_is_rejected(self, monkeypatch):
+        monkeypatch.setenv("PC2NUTS_ESTIMATES_REFRESH_INTERVAL_SECONDS", "-5")
+        with pytest.raises(ValidationError):
+            Settings()

@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 
 from app import __version__, config as _config
 from app.auth import AuthMiddleware, is_trusted_request
+from app.estimates_refresh import get_refresh_stale as _get_estimates_refresh_stale
 from app.config import settings
 from app.limiter import limiter
 from app.data_loader import (
@@ -127,12 +128,44 @@ async def lifespan(app: FastAPI):
             _config.settings.token_refresh_seconds,
         )
 
+    # ── Estimates remote-refresh (#44) ──────────────────────────────────────
+    estimates_refresh_task: asyncio.Task | None = None
+    if _config.settings.estimates_refresh_url:
+        from app import estimates_refresh as _estimates_refresh
+
+        # Bootstrap synchronously so the worker reflects upstream before reporting ready.
+        try:
+            result = await _estimates_refresh.refresh_estimates_once()
+            logger.info(
+                "Estimates bootstrap fetch: %s (previous=%d, new=%d)",
+                result.status,
+                result.previous_count,
+                result.new_count,
+            )
+        except Exception:
+            logger.exception("Estimates bootstrap fetch crashed; continuing with bundled CSV")
+            _estimates_refresh._stale = True
+
+        if _config.settings.estimates_refresh_interval_seconds > 0:
+            estimates_refresh_task = asyncio.create_task(_estimates_refresh.refresh_estimates_loop())
+            logger.info(
+                "Estimates refresh task started (interval %ds)",
+                _config.settings.estimates_refresh_interval_seconds,
+            )
+
     yield
 
     if refresh_task is not None:
         refresh_task.cancel()
         try:
             await refresh_task
+        except asyncio.CancelledError:
+            pass
+
+    if estimates_refresh_task is not None:
+        estimates_refresh_task.cancel()
+        try:
+            await estimates_refresh_task
         except asyncio.CancelledError:
             pass
 
@@ -340,4 +373,61 @@ def health(response: Response):
         data_stale=stale,
         last_updated=get_data_loaded_at(),
         token_db_stale=token_db_stale,
+        estimates_refresh_stale=_get_estimates_refresh_stale(),
+    )
+
+
+@app.post(
+    "/admin/refresh-estimates",
+    summary="Force-refresh estimates from the configured remote URL",
+    description=(
+        "Operator-only — requires `Authorization: Bearer <trusted-token>`. "
+        "Synchronously fetches the configured `PC2NUTS_ESTIMATES_REFRESH_URL` and, "
+        "if the content has changed and passes the sanity guard, replaces the "
+        "in-memory estimates table. No body."
+    ),
+    responses={
+        200: {"description": "Refresh succeeded (content changed and applied)"},
+        401: {"description": "Missing or invalid trusted bearer token"},
+        409: {"description": "Sanity guard rejected the candidate CSV"},
+        502: {"description": "Upstream fetch or parse failed"},
+        503: {"description": "Feature disabled (PC2NUTS_ESTIMATES_REFRESH_URL unset)"},
+    },
+)
+async def admin_refresh_estimates(request: Request) -> JSONResponse:
+    if not getattr(request.state, "trusted", False):
+        raise HTTPException(status_code=401, detail="Trusted token required")
+
+    from app import estimates_refresh as _estimates_refresh
+
+    result = await _estimates_refresh.refresh_estimates_once()
+
+    if result.status == "disabled":
+        return JSONResponse(status_code=503, content={"status": "disabled"})
+    if result.status == "rejected":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "rejected",
+                "reason": result.reason,
+                "previous_count": result.previous_count,
+                "candidate_count": result.new_count,
+            },
+        )
+    if result.status == "failed":
+        return JSONResponse(
+            status_code=502,
+            content={"status": "failed", "reason": result.reason},
+        )
+
+    # "refreshed" or "unchanged"
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": result.status,
+            "previous_count": result.previous_count,
+            "new_count": result.new_count,
+            "skipped_rows": result.skipped_rows,
+            "source_url": settings.estimates_refresh_url,
+        },
     )

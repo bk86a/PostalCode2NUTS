@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     rate_limit_headers: bool = _defaults.get("rate_limit_headers", True)
     workers: int = Field(default=_defaults.get("workers", 1), ge=1)
     rate_limit_storage_uri: str | None = _defaults.get("rate_limit_storage_uri", None)
+    estimates_refresh_url: str = ""
+    estimates_refresh_interval_seconds: int = Field(default=86400, ge=0)
     cache_max_age: int = _defaults.get("cache_max_age", 3600)
     startup_timeout: int = 300
     docs_enabled: bool = True
