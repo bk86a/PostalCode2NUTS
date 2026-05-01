@@ -23,5 +23,7 @@
   "approximate_min_confidence": 0.1,
   "rate_limit": "120/minute",
   "rate_limit_headers": true,
+  "workers": 1,
+  "rate_limit_storage_uri": null,
   "cache_max_age": 3600
 }

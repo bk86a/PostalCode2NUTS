@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 _settings_path = Path(__file__).parent / "settings.json"
@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     token_refresh_seconds: int = Field(default=60, ge=1)
     rate_limit: str = _defaults.get("rate_limit", "120/minute")
     rate_limit_headers: bool = _defaults.get("rate_limit_headers", True)
+    workers: int = Field(default=_defaults.get("workers", 1), ge=1)
+    rate_limit_storage_uri: str | None = _defaults.get("rate_limit_storage_uri", None)
     cache_max_age: int = _defaults.get("cache_max_age", 3600)
     startup_timeout: int = 300
     docs_enabled: bool = True
@@ -36,6 +38,16 @@ class Settings(BaseSettings):
     countries: list[str] = _defaults["countries"]
 
     model_config = {"env_prefix": "PC2NUTS_"}
+
+    @model_validator(mode="after")
+    def _check_workers_have_shared_storage(self) -> "Settings":
+        if self.workers > 1 and not self.rate_limit_storage_uri:
+            raise ValueError(
+                "PC2NUTS_WORKERS > 1 requires PC2NUTS_RATE_LIMIT_STORAGE_URI to be set "
+                "(e.g. 'redis://host:6379/0'). Without shared storage the per-IP rate "
+                "limit would silently loosen by a factor of WORKERS."
+            )
+        return self
 
     @property
     def extra_source_urls(self) -> list[str]:
