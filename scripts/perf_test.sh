@@ -104,13 +104,20 @@ PYEOF
 
 run_warm() {
     echo "=== warm: 500 sequential mixed lookups ==="
+    # vegeta target files have 2-line entries (GET URL\n\n), so picking by raw
+    # line number lands on a blank line half the time → curl gets an empty URL
+    # → set -e kills the script. Extract just the GET URLs first.
+    local urls=()
+    mapfile -t urls < <(awk 'NR%2==1 && /^GET / {print substr($0, 5)}' "${OUTDIR}/targets_B.txt")
+    if [ "${#urls[@]}" -eq 0 ]; then
+        echo "warm: no targets in ${OUTDIR}/targets_B.txt" >&2
+        return 1
+    fi
     local errors=0
     for _ in $(seq 1 500); do
-        local n=$((RANDOM % 100 + 2))
-        local line
-        line=$(sed -n "${n}p" "${OUTDIR}/targets_B.txt")
+        local idx=$((RANDOM % ${#urls[@]}))
         local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" -H "${HEADER}" "${line#GET }")
+        code=$(curl -s -o /dev/null -w "%{http_code}" -H "${HEADER}" "${urls[$idx]}")
         [ "${code}" = "200" ] || errors=$((errors + 1))
     done
     echo "warm complete; errors=${errors}"
