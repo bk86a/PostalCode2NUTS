@@ -144,6 +144,7 @@ async def lifespan(app: FastAPI):
             )
         except Exception:
             logger.exception("Estimates bootstrap fetch crashed; continuing with bundled CSV")
+            _estimates_refresh._stale = True
 
         if _config.settings.estimates_refresh_interval_seconds > 0:
             estimates_refresh_task = asyncio.create_task(_estimates_refresh.refresh_estimates_loop())

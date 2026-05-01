@@ -234,6 +234,33 @@ class TestRefreshOnce:
         assert len(seed_estimates) == 100  # unchanged
 
     @pytest.mark.asyncio
+    async def test_warning_logs_once_per_outage(self, url, seed_estimates, caplog):
+        """Successive failures must NOT each emit a WARNING; only the
+        transition from success → failure should log."""
+        from app import estimates_refresh
+
+        def handler(request):
+            return httpx.Response(503)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            # First call: success → failure transition. Must log WARNING.
+            with caplog.at_level("WARNING", logger="app.estimates_refresh"):
+                await estimates_refresh.refresh_estimates_once(client=client)
+            first_warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+            assert any("fetch failed" in r.message for r in first_warnings), (
+                f"first failure should warn; got {first_warnings}"
+            )
+
+            # Second call: still failing. Must NOT emit a second "fetch failed" WARNING.
+            caplog.clear()
+            with caplog.at_level("WARNING", logger="app.estimates_refresh"):
+                await estimates_refresh.refresh_estimates_once(client=client)
+            second_warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+            assert not any("fetch failed" in r.message for r in second_warnings), (
+                f"successive failures must be silent; got {second_warnings}"
+            )
+
+    @pytest.mark.asyncio
     async def test_failed_on_parse_error(self, url, seed_estimates):
         from app import estimates_refresh
 
@@ -307,7 +334,7 @@ class TestRefreshLoop:
 
     @pytest.mark.asyncio
     async def test_loop_calls_refresh_on_each_tick(self, monkeypatch):
-        """With a tiny interval and a counter, we should see N refreshes."""
+        """The loop must call refresh_estimates_once once per tick."""
         monkeypatch.setattr(
             "app.estimates_refresh.settings",
             _stub_settings(url="https://example.invalid/x.csv", interval=1),
@@ -320,18 +347,27 @@ class TestRefreshLoop:
 
         monkeypatch.setattr("app.estimates_refresh.refresh_estimates_once", fake_refresh)
 
+        # Replace asyncio.sleep so we don't actually wait the configured interval.
+        # After 3 sleep calls, raise CancelledError to break out of the otherwise
+        # infinite loop.
+        sleep_calls = 0
+
+        async def fake_sleep(secs):
+            nonlocal sleep_calls
+            sleep_calls += 1
+            if sleep_calls >= 3:
+                raise asyncio.CancelledError
+
+        monkeypatch.setattr("app.estimates_refresh.asyncio.sleep", fake_sleep)
+
         from app.estimates_refresh import refresh_estimates_loop
 
-        task = asyncio.create_task(refresh_estimates_loop())
-        # Speed up: monkeypatch asyncio.sleep to fast-forward.
-        await asyncio.sleep(0.05)
-        # Cancel and verify at least one call happened (interval=1s, so likely 0
-        # under real sleep). Use a smaller interval check via direct invocation:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        with pytest.raises(asyncio.CancelledError):
+            await refresh_estimates_loop()
+
+        # We slept 3 times, called refresh_estimates_once 2 times (sleep is BEFORE
+        # the call, and the 3rd sleep raises before the 3rd refresh runs).
+        assert call_count["n"] == 2
 
     @pytest.mark.asyncio
     async def test_loop_survives_exception_in_refresh(self, monkeypatch):
