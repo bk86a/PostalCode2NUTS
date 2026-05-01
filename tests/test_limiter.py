@@ -11,6 +11,7 @@ def _reload_limiter():
     the current env. Returns the freshly-imported app.limiter module."""
     import app.config
     import app.limiter
+
     importlib.reload(app.config)
     importlib.reload(app.limiter)
     return app.limiter
