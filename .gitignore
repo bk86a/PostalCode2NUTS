@@ -8,3 +8,9 @@ build/
 venv/
 data/
 tests/*.csv
+
+# Private real-query analysis data — never commit
+local-data/
+
+# Git worktrees for in-flight feature branches
+.worktrees/
