@@ -326,6 +326,32 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ACCESS_LOG_MAX_MB` | `10` | Maximum size of each access log file in MB before rotation. |
 | `PC2NUTS_ACCESS_LOG_BACKUP_COUNT` | `5` | Number of rotated access log files to keep (e.g. 5 x 10 MB = 50 MB max disk usage). |
 
+### Multi-worker deployment
+
+By default the service runs a single uvicorn worker process. Throughput is
+CPU-bound at ~30 RPS per worker (see [docs/performance.md](docs/performance.md)).
+For higher RPS, set `PC2NUTS_WORKERS` to the number of worker processes you
+want — the rough rule of thumb is one worker per CPU core, capped by the
+available memory (~150-200 MB resident set per worker).
+
+| Env var | Default | Effect |
+|---|---|---|
+| `PC2NUTS_WORKERS` | `1` | Number of uvicorn worker processes. |
+| `PC2NUTS_RATE_LIMIT_STORAGE_URI` | (unset) | When unset, slowapi uses per-process in-memory storage (default). When set (e.g. `redis://host:6379/0`), counters are shared across workers so the published `rate_limit` cap stays accurate. |
+
+When `PC2NUTS_WORKERS > 1`, `PC2NUTS_RATE_LIMIT_STORAGE_URI` MUST be set
+to a reachable shared backend; the service refuses to start otherwise.
+This guards against the per-IP rate limit silently loosening to
+`PC2NUTS_WORKERS × rate_limit` per IP under multi-worker.
+
+**Degraded mode.** If the configured storage backend becomes unreachable
+at runtime, slowapi (`in_memory_fallback_enabled=True`) falls back to
+per-process in-memory rate limiting and re-probes the primary storage
+with exponential backoff. During the outage window the effective per-IP
+cap is `PC2NUTS_WORKERS × rate_limit`. Recovery is automatic; one
+WARNING log line is emitted at the start of the outage and one INFO line
+on recovery.
+
 ## Authentication & rate-limit bypass
 
 The service applies a per-IP rate limit (`120/minute` by default) to `/lookup` and `/pattern`. Trusted callers — operator-issued, manually distributed — can bypass this limit by presenting an `Authorization: Bearer <token>` header. `/health` stays anonymous.
