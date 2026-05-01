@@ -196,6 +196,26 @@ class TestHealthEndpoint:
                 resp = client.get("/health")
                 assert resp.json().get("token_db_stale") is True
 
+    def test_health_includes_estimates_refresh_stale_when_url_set(self, monkeypatch, client):
+        from app import config, estimates_refresh
+
+        monkeypatch.setattr(config.settings, "estimates_refresh_url", "https://example.invalid/x.csv")
+        monkeypatch.setattr(estimates_refresh, "_stale", False)
+
+        resp = client.get("/health")
+        data = resp.json()
+        assert data["estimates_refresh_stale"] is False
+
+    def test_health_estimates_refresh_stale_none_when_url_unset(self, monkeypatch, client):
+        from app import config, estimates_refresh
+
+        monkeypatch.setattr(config.settings, "estimates_refresh_url", "")
+        monkeypatch.setattr(estimates_refresh, "_stale", None)
+
+        resp = client.get("/health")
+        data = resp.json()
+        assert data["estimates_refresh_stale"] is None
+
 
 # ── Auth-token bypass tests (#60) ────────────────────────────────────────────
 

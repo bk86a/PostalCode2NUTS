@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 
 from app import __version__, config as _config
 from app.auth import AuthMiddleware, is_trusted_request
+from app.estimates_refresh import get_refresh_stale as _get_estimates_refresh_stale
 from app.config import settings
 from app.limiter import limiter
 from app.data_loader import (
@@ -340,4 +341,5 @@ def health(response: Response):
         data_stale=stale,
         last_updated=get_data_loaded_at(),
         token_db_stale=token_db_stale,
+        estimates_refresh_stale=_get_estimates_refresh_stale(),
     )
