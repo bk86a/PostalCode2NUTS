@@ -6,8 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **Performance re-baseline under multi-worker** (#68): `docs/performance.md` updated with the post-#68 numbers and a new rate-limit shared-storage verification subsection. Realistic-corpus knee at 35-40 RPS (vs ~30 single-worker), hot-key plateau at ~50 RPS, p99 at the old knee dropped from 4.5 s to 150 ms. Recommended operating point unchanged at 27 RPS — the win is headroom, not the operating point itself. The Redis sidecar shared-storage path is verified end-to-end: 130 anonymous requests against the published `120/minute` cap produced exactly 120 × `200` + 10 × `429`, ruling out per-worker counter divergence.
+
 ### Fixed
 
+- **`scripts/perf_test.sh` `run_warm`**: indexing the vegeta target file by raw line number landed on a blank line half the time, crashing the script under `set -e`. Now extracts only the GET URLs into an array first.
 - **`__version__` was stale at `0.14.0`** since the v0.14 release; openapi.json and FastAPI's `version` field have been reporting the wrong number for every release since then. Bumped to `0.18.0`. Future releases need to update `app/__init__.py` alongside the CHANGELOG until version derivation is automated.
 
 ## [0.18.0] - 2026-05-01
