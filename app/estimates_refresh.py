@@ -53,3 +53,32 @@ def _passes_sanity_guard(new_count: int, current_count: int) -> bool:
     if current_count == 0:
         return True
     return new_count >= 0.5 * current_count
+
+
+async def fetch_remote_csv(
+    client: httpx.AsyncClient,
+) -> tuple[Optional[bytes], int, dict[str, str]]:
+    """GET settings.estimates_refresh_url with conditional headers.
+
+    Returns (body, status_code, response_headers). body is None on 304 Not
+    Modified, on any non-200 status, and on transport errors. Caller decides
+    what to log based on the status code (304 is silent; non-200 is a warning).
+    """
+    headers: dict[str, str] = {}
+    if _last_etag:
+        headers["If-None-Match"] = _last_etag
+    if _last_modified:
+        headers["If-Modified-Since"] = _last_modified
+
+    try:
+        r = await client.get(settings.estimates_refresh_url, headers=headers, timeout=10.0)
+    except httpx.HTTPError as exc:
+        logger.debug("Remote estimates fetch transport error: %s", exc)
+        return None, 0, {}
+
+    response_headers = {k.lower(): v for k, v in r.headers.items()}
+    if r.status_code == 304:
+        return None, 304, response_headers
+    if r.status_code != 200:
+        return None, r.status_code, response_headers
+    return r.content, 200, response_headers
