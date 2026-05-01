@@ -96,9 +96,8 @@ No drift over the 3-minute window. p99 stayed well under 200 ms throughout.
 
 2. **Pick `p99 ≤ 200 ms` as the SLO** at the recommended 27 RPS operating point. The full 3-minute sustained run met this.
 
-3. **Re-baseline after issues #7, #45, or any worker-count change land.** Specifically:
+3. **Re-baseline after issue #7 or any worker-count change lands.** Specifically:
    - **#7 (UK NSPL, +1.79M postcodes)** — should not change per-request latency materially (still a dict lookup) but doubles in-memory state. Re-run to confirm.
-   - **#45 (happyGISCO outbound geocoding)** — would add a network call to the lookup path; the saturation RPS will drop sharply. **Mandatory** re-baseline.
    - **Switching from single-worker to multi-worker** — likely the easiest large win. Each additional worker should approximately add another 30 RPS of headroom up to the container's CPU count.
 
 4. **Don't run unattended high-concurrency tests.** Bombardier at c≥100 from a single source triggers platform-level connection refusal (`5xx`, dial timeouts) and risks short-term throttling. Keep scripted load below c=80.
