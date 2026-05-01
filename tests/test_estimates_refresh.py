@@ -1,5 +1,6 @@
 """Tests for app.estimates_refresh — periodic refresh of tercet_missing_codes.csv (#44)."""
 
+import hashlib
 import importlib
 from unittest.mock import patch
 
@@ -123,6 +124,164 @@ class TestFetchRemoteCsv:
 
         assert status == 0
         assert data is None
+
+
+class TestRefreshOnce:
+    @pytest.fixture
+    def url(self, monkeypatch):
+        u = "https://example.invalid/tercet.csv"
+        monkeypatch.setattr("app.estimates_refresh.settings", _stub_settings(url=u))
+        return u
+
+    @pytest.fixture
+    def seed_estimates(self):
+        from app.data_loader import _estimates
+
+        _estimates.clear()
+        for i in range(100):
+            _estimates[("DE", f"{10000+i}")] = {
+                "nuts3": "DE300",
+                "nuts2": "DE30",
+                "nuts1": "DE3",
+                "nuts3_confidence": 0.9,
+                "nuts2_confidence": 0.95,
+                "nuts1_confidence": 0.98,
+            }
+        yield _estimates
+        _estimates.clear()
+
+    @staticmethod
+    def _csv(rows: list[tuple[str, str, str]] = None) -> bytes:
+        rows = rows or [("DE", "99999", "high"), ("FR", "75000", "medium")]
+        header = "COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\n"
+        body = "".join(f"{cc},{pc},{cc}300,{cc}30,{cc}3,{conf}\n" for cc, pc, conf in rows)
+        return (header + body).encode("utf-8")
+
+    @pytest.mark.asyncio
+    async def test_disabled_when_url_unset(self, monkeypatch):
+        monkeypatch.setattr("app.estimates_refresh.settings", _stub_settings(url=""))
+        from app.estimates_refresh import refresh_estimates_once
+
+        result = await refresh_estimates_once()
+        assert result.status == "disabled"
+
+    @pytest.mark.asyncio
+    async def test_swaps_on_changed_content(self, url, seed_estimates):
+        from app import estimates_refresh
+
+        new_csv = self._csv([("DE", str(20000 + i), "high") for i in range(80)])
+
+        def handler(request):
+            return httpx.Response(200, content=new_csv, headers={"ETag": "W/new"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await estimates_refresh.refresh_estimates_once(client=client)
+
+        assert result.status == "refreshed"
+        assert result.previous_count == 100
+        assert result.new_count == 80
+        assert estimates_refresh._stale is False
+        assert estimates_refresh._last_etag == "W/new"
+
+    @pytest.mark.asyncio
+    async def test_unchanged_on_304(self, url, seed_estimates):
+        from app import estimates_refresh
+
+        estimates_refresh._last_etag = "W/abc"
+
+        def handler(request):
+            return httpx.Response(304)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await estimates_refresh.refresh_estimates_once(client=client)
+
+        assert result.status == "unchanged"
+        assert result.previous_count == 100
+        assert result.new_count == 100
+        assert estimates_refresh._stale is False
+        # Live dict was not touched
+        assert len(seed_estimates) == 100
+
+    @pytest.mark.asyncio
+    async def test_unchanged_on_identical_hash(self, url, seed_estimates):
+        from app import estimates_refresh
+
+        body = self._csv()
+        estimates_refresh._last_hash = hashlib.sha256(body).hexdigest()
+
+        def handler(request):
+            return httpx.Response(200, content=body)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await estimates_refresh.refresh_estimates_once(client=client)
+
+        assert result.status == "unchanged"
+        assert estimates_refresh._stale is False
+
+    @pytest.mark.asyncio
+    async def test_failed_on_5xx(self, url, seed_estimates):
+        from app import estimates_refresh
+
+        def handler(request):
+            return httpx.Response(503)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await estimates_refresh.refresh_estimates_once(client=client)
+
+        assert result.status == "failed"
+        assert estimates_refresh._stale is True
+        assert len(seed_estimates) == 100  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_failed_on_parse_error(self, url, seed_estimates):
+        from app import estimates_refresh
+
+        def handler(request):
+            return httpx.Response(200, content=b"not,a,valid,csv\n\xff\xfe")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await estimates_refresh.refresh_estimates_once(client=client)
+
+        assert result.status == "failed"
+        assert estimates_refresh._stale is True
+        assert len(seed_estimates) == 100
+
+    @pytest.mark.asyncio
+    async def test_rejected_by_sanity_guard(self, url, seed_estimates):
+        from app import estimates_refresh
+
+        small_csv = self._csv([("DE", "99999", "high")])  # 1 row vs current 100
+
+        def handler(request):
+            return httpx.Response(200, content=small_csv)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await estimates_refresh.refresh_estimates_once(client=client)
+
+        assert result.status == "rejected"
+        assert result.previous_count == 100
+        assert result.new_count == 1
+        assert estimates_refresh._stale is True
+        # Live dict was not touched
+        assert len(seed_estimates) == 100
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_path_accepts_any_size(self, url):
+        """When current is empty (first-ever fetch), the sanity guard must not block."""
+        from app import estimates_refresh
+        from app.data_loader import _estimates
+
+        _estimates.clear()
+        small_csv = self._csv([("DE", "99999", "high")])
+
+        def handler(request):
+            return httpx.Response(200, content=small_csv)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await estimates_refresh.refresh_estimates_once(client=client)
+
+        assert result.status == "refreshed"
+        assert result.new_count == 1
 
 
 def _stub_settings(*, url: str = "", interval: int = 86400):
