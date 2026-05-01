@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`/` root endpoint** returns service metadata and pointers to `/openapi.json`, `/docs`, `/redoc`, `/health`, and example `/lookup` and `/pattern` URLs. Replaces the previous `{"detail":"Not Found"}` response on the bare hostname. Marked `include_in_schema=False` so it doesn't clutter the OpenAPI document.
+- **Persistent-volume support** via a new `docker-entrypoint.sh`: container starts as root, `chown appuser:appuser /app/data` (idempotent — no-op on warm starts), then `exec gosu appuser "$@"` to drop privileges before uvicorn starts. `Dockerfile` installs `gosu` and replaces `USER appuser` with `ENTRYPOINT`. Lets a freshly-provisioned platform persistent volume (initially root-owned) be mounted at `/app/data` without breaking the SQLite cache build. Cold-start cache survives pod recreates and redeploys; subsequent restarts skip the GISCO TERCET re-download until the configured TTL expires.
+
 ### Documentation
 
 - **Performance re-baseline under multi-worker** (#68): `docs/performance.md` updated with the post-#68 numbers and a new rate-limit shared-storage verification subsection. Realistic-corpus knee at 35-40 RPS (vs ~30 single-worker), hot-key plateau at ~50 RPS, p99 at the old knee dropped from 4.5 s to 150 ms. Recommended operating point unchanged at 27 RPS — the win is headroom, not the operating point itself. The Redis sidecar shared-storage path is verified end-to-end: 130 anonymous requests against the published `120/minute` cap produced exactly 120 × `200` + 10 × `429`, ruling out per-worker counter divergence.

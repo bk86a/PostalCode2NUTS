@@ -291,6 +291,29 @@ def get_pattern(
 
 
 @app.get(
+    "/",
+    summary="Service entry point",
+    include_in_schema=False,
+)
+def root(request: Request, response: Response):
+    response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
+    base = str(request.base_url).rstrip("/")
+    return {
+        "service": "PostalCode2NUTS",
+        "version": __version__,
+        "links": {
+            "openapi": f"{base}/openapi.json",
+            "docs": f"{base}/docs" if settings.docs_enabled else None,
+            "redoc": f"{base}/redoc" if settings.docs_enabled else None,
+            "health": f"{base}/health",
+            "lookup_example": f"{base}/lookup?country=DE&postal_code=10115",
+            "pattern_example": f"{base}/pattern?country=DE",
+            "source": "https://github.com/bk86a/PostalCode2NUTS",
+        },
+    }
+
+
+@app.get(
     "/health",
     response_model=HealthResponse,
     summary="Health check and data statistics",
