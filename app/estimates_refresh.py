@@ -33,6 +33,13 @@ _last_etag: Optional[str] = None
 _last_modified: Optional[str] = None
 _stale: Optional[bool] = None  # None when feature disabled
 
+# Serialises concurrent refresh attempts (the periodic loop + the admin
+# endpoint can both invoke refresh_estimates_once on the same event loop).
+# Holding the lock across `await fetch_remote_csv` is intentional — without
+# that, two parallel fetches could complete in non-monotonic order and the
+# older response would overwrite newer state.
+_refresh_lock: asyncio.Lock = asyncio.Lock()
+
 
 @dataclass
 class RefreshResult:
@@ -89,9 +96,11 @@ async def refresh_estimates_once(
 ) -> RefreshResult:
     """One refresh attempt: fetch, sanity-check, swap.
 
-    When `client` is None, an ephemeral httpx.AsyncClient is created and
-    closed. Production callers (the lifespan loop, the admin endpoint)
-    should pass a long-lived client to reuse connections.
+    Concurrent calls are serialised by `_refresh_lock` so the post-fetch
+    swap can't overwrite a newer state with older content. When `client` is
+    None, an ephemeral httpx.AsyncClient is created and closed. Production
+    callers (the lifespan loop, the admin endpoint) should pass a long-lived
+    client to reuse connections.
     """
     global _last_hash, _last_etag, _last_modified, _stale
 
@@ -104,101 +113,107 @@ async def refresh_estimates_once(
             new_count=previous_count,
         )
 
-    own_client = client is None
-    if own_client:
-        client = httpx.AsyncClient()
-    try:
-        body, status, headers = await fetch_remote_csv(client)
-    finally:
+    async with _refresh_lock:
+        # Recompute previous_count under the lock so the result reflects the
+        # state we're actually transitioning from (a previous concurrent call
+        # may have just finished and changed _estimates while we were waiting).
+        previous_count = len(_estimates)
+
+        own_client = client is None
         if own_client:
-            await client.aclose()
+            client = httpx.AsyncClient()
+        try:
+            body, status, headers = await fetch_remote_csv(client)
+        finally:
+            if own_client:
+                await client.aclose()
 
-    # 304 Not Modified — content unchanged, refresh succeeded
-    if status == 304:
-        _stale = False
-        return RefreshResult(
-            status="unchanged",
-            previous_count=previous_count,
-            new_count=previous_count,
-        )
-
-    # Any other non-200 (including transport errors with status=0)
-    if body is None:
-        was_stale_before = _stale is True
-        _stale = True
-        if not was_stale_before:
-            logger.warning(
-                "Remote estimates fetch failed (status=%d); keeping current state",
-                status,
+        # 304 Not Modified — content unchanged, refresh succeeded
+        if status == 304:
+            _stale = False
+            return RefreshResult(
+                status="unchanged",
+                previous_count=previous_count,
+                new_count=previous_count,
             )
-        return RefreshResult(
-            status="failed",
-            previous_count=previous_count,
-            new_count=previous_count,
-            reason=f"http={status}",
-        )
 
-    new_hash = hashlib.sha256(body).hexdigest()
-    if new_hash == _last_hash:
+        # Any other non-200 (including transport errors with status=0)
+        if body is None:
+            was_stale_before = _stale is True
+            _stale = True
+            if not was_stale_before:
+                logger.warning(
+                    "Remote estimates fetch failed (status=%d); keeping current state",
+                    status,
+                )
+            return RefreshResult(
+                status="failed",
+                previous_count=previous_count,
+                new_count=previous_count,
+                reason=f"http={status}",
+            )
+
+        new_hash = hashlib.sha256(body).hexdigest()
+        if new_hash == _last_hash:
+            _stale = False
+            return RefreshResult(
+                status="unchanged",
+                previous_count=previous_count,
+                new_count=previous_count,
+            )
+
+        try:
+            text = body.decode("utf-8-sig")
+            new_dict, skipped = parse_estimates_from_text(text)
+        except (UnicodeDecodeError, ValueError, csv.Error, KeyError) as exc:
+            _stale = True
+            logger.warning("Remote estimates parse failed: %s", exc)
+            return RefreshResult(
+                status="failed",
+                previous_count=previous_count,
+                new_count=previous_count,
+                reason=f"parse: {exc}",
+            )
+
+        if not _passes_sanity_guard(len(new_dict), previous_count):
+            _stale = True
+            logger.warning(
+                "Remote estimates sanity guard rejected swap (new=%d, current=%d)",
+                len(new_dict),
+                previous_count,
+            )
+            return RefreshResult(
+                status="rejected",
+                previous_count=previous_count,
+                new_count=len(new_dict),
+                reason=f"sanity guard: {len(new_dict)} < 50% of {previous_count}",
+            )
+
+        # Swap. _data_lock is a threading.Lock; acquiring it briefly from an async
+        # context is fine — the swap is microseconds.
+        with _data_lock:
+            _estimates.clear()
+            _estimates.update(new_dict)
+            _revalidate_estimates()
+        new_count = len(_estimates)
+
+        _last_hash = new_hash
+        _last_etag = headers.get("etag")
+        _last_modified = headers.get("last-modified")
         _stale = False
-        return RefreshResult(
-            status="unchanged",
-            previous_count=previous_count,
-            new_count=previous_count,
-        )
 
-    try:
-        text = body.decode("utf-8-sig")
-        new_dict, skipped = parse_estimates_from_text(text)
-    except (UnicodeDecodeError, ValueError, csv.Error, KeyError) as exc:
-        _stale = True
-        logger.warning("Remote estimates parse failed: %s", exc)
-        return RefreshResult(
-            status="failed",
-            previous_count=previous_count,
-            new_count=previous_count,
-            reason=f"parse: {exc}",
-        )
-
-    if not _passes_sanity_guard(len(new_dict), previous_count):
-        _stale = True
-        logger.warning(
-            "Remote estimates sanity guard rejected swap (new=%d, current=%d)",
-            len(new_dict),
+        logger.info(
+            "Remote estimates refreshed: %d -> %d (skipped %d rows during parse)",
             previous_count,
+            new_count,
+            skipped,
         )
         return RefreshResult(
-            status="rejected",
+            status="refreshed",
             previous_count=previous_count,
-            new_count=len(new_dict),
-            reason=f"sanity guard: {len(new_dict)} < 50% of {previous_count}",
+            new_count=new_count,
+            skipped_rows=skipped,
         )
-
-    # Swap. _data_lock is a threading.Lock; acquiring it briefly from an async
-    # context is fine — the swap is microseconds.
-    with _data_lock:
-        _estimates.clear()
-        _estimates.update(new_dict)
-        _revalidate_estimates()
-    new_count = len(_estimates)
-
-    _last_hash = new_hash
-    _last_etag = headers.get("etag")
-    _last_modified = headers.get("last-modified")
-    _stale = False
-
-    logger.info(
-        "Remote estimates refreshed: %d -> %d (skipped %d rows during parse)",
-        previous_count,
-        new_count,
-        skipped,
-    )
-    return RefreshResult(
-        status="refreshed",
-        previous_count=previous_count,
-        new_count=new_count,
-        skipped_rows=skipped,
-    )
 
 
 async def refresh_estimates_loop() -> None:

@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- **Concurrency: refreshes now serialised** (#44 follow-up): added a module-level `asyncio.Lock` around `refresh_estimates_once`. Without it, two overlapping calls (the periodic task and the admin endpoint) could resolve their fetches in non-monotonic order and overwrite newer state with older content. Codex flagged the race on the original PR (#72); fix is internal, no API change.
 - **`scripts/perf_test.sh` `run_warm`**: indexing the vegeta target file by raw line number landed on a blank line half the time, crashing the script under `set -e`. Now extracts only the GET URLs into an array first.
 - **`__version__` was stale at `0.14.0`** since the v0.14 release; openapi.json and FastAPI's `version` field have been reporting the wrong number for every release since then. Bumped to `0.18.0`. Future releases need to update `app/__init__.py` alongside the CHANGELOG until version derivation is automated.
 

@@ -400,6 +400,103 @@ class TestRefreshLoop:
         assert len(sleeps) >= 2
 
 
+class TestConcurrentRefresh:
+    """Regression tests for the asyncio.Lock that serialises concurrent calls
+    (Codex flagged the race on PR #72)."""
+
+    @pytest.fixture
+    def url(self, monkeypatch):
+        u = "https://example.invalid/tercet.csv"
+        monkeypatch.setattr("app.estimates_refresh.settings", _stub_settings(url=u))
+        return u
+
+    @pytest.fixture
+    def seed_estimates(self):
+        from app.data_loader import _estimates
+
+        _estimates.clear()
+        for i in range(100):
+            _estimates[("DE", f"{10000 + i}")] = {
+                "nuts3": "DE300",
+                "nuts2": "DE30",
+                "nuts1": "DE3",
+                "nuts3_confidence": 0.9,
+                "nuts2_confidence": 0.95,
+                "nuts1_confidence": 0.98,
+            }
+        yield _estimates
+        _estimates.clear()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_calls_are_serialised(self, url, seed_estimates):
+        """Two overlapping refresh_estimates_once() calls must not interleave
+        their fetch+swap sequences. We instrument fetch_remote_csv to record
+        entry/exit timestamps and assert the second call's entry is strictly
+        after the first call's exit."""
+        from app import estimates_refresh
+
+        # Each fetch returns a unique CSV body so we can tell which one wins.
+        def make_csv(tag: str) -> bytes:
+            header = "COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\n"
+            rows = "".join(
+                f"{tag[0].upper()}{tag[1].upper()},{i:05d},XX300,XX30,XX3,high\n"
+                for i in range(80)
+            )
+            return (header + rows).encode("utf-8")
+
+        events: list[tuple[str, str]] = []  # [(tag, "enter"|"exit"), ...]
+        responses = {"a": make_csv("aa"), "b": make_csv("bb")}
+        next_tag = ["a"]
+
+        async def instrumented_fetch(client):
+            tag = next_tag[0]
+            next_tag[0] = "b"
+            events.append((tag, "enter"))
+            # Yield twice so the other coroutine has a chance to advance.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            events.append((tag, "exit"))
+            return responses[tag], 200, {"etag": f'W/"{tag}"'}
+
+        original_fetch = estimates_refresh.fetch_remote_csv
+        estimates_refresh.fetch_remote_csv = instrumented_fetch
+        try:
+            results = await asyncio.gather(
+                estimates_refresh.refresh_estimates_once(),
+                estimates_refresh.refresh_estimates_once(),
+            )
+        finally:
+            estimates_refresh.fetch_remote_csv = original_fetch
+
+        # Both calls should have completed without raising.
+        assert len(results) == 2
+        # Order must be: a-enter, a-exit, b-enter, b-exit (strictly nested).
+        assert events == [("a", "enter"), ("a", "exit"), ("b", "enter"), ("b", "exit")], (
+            f"events interleaved: {events}"
+        )
+        # The "b" call sees the "a" hash already set, so depending on whether
+        # the bodies hash differently, b will either swap (different content)
+        # or short-circuit as unchanged. Either is fine — the assertion above
+        # is the real concurrency check.
+
+    @pytest.mark.asyncio
+    async def test_disabled_short_circuit_does_not_take_lock(self, monkeypatch):
+        """The disabled short-circuit returns before acquiring the lock. This
+        test isn't strictly needed for correctness, but documents the
+        intentional placement of the disabled check OUTSIDE async with."""
+        monkeypatch.setattr("app.estimates_refresh.settings", _stub_settings(url=""))
+        from app import estimates_refresh
+
+        # Hold the lock; if disabled-check were inside the lock, this call
+        # would block forever (or until our timeout).
+        async with estimates_refresh._refresh_lock:
+            result = await asyncio.wait_for(
+                estimates_refresh.refresh_estimates_once(), timeout=1.0
+            )
+
+        assert result.status == "disabled"
+
+
 def _stub_settings(*, url: str = "", interval: int = 86400):
     """Build a minimal settings stub for tests that only need the two new fields."""
 
