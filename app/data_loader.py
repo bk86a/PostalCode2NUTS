@@ -460,45 +460,54 @@ def _load_estimates_from_db(db: Path) -> bool:
         return False
 
 
+def parse_estimates_from_text(text: str) -> tuple[dict[tuple[str, str], dict], int]:
+    """Parse an estimates CSV from a string into a fresh dict.
+
+    Returns (parsed_dict, skipped_count). Rows with unknown confidence labels
+    are counted in skipped_count and not included in the dict. Used both by
+    _load_estimates_from_csv (file path) and app.estimates_refresh (HTTP body).
+    """
+    out: dict[tuple[str, str], dict] = {}
+    skipped = 0
+    reader = csv.DictReader(io.StringIO(text.removeprefix("﻿")))
+    for row in reader:
+        cc = row["COUNTRY_CODE"].strip().upper()
+        pc = normalize_postal_code(row["POSTAL_CODE"])
+        n3 = row["ESTIMATED_NUTS3"].strip()
+        n2 = row["ESTIMATED_NUTS2"].strip()
+        n1 = row["ESTIMATED_NUTS1"].strip()
+        label = row["CONFIDENCE"].strip().lower()
+        conf = settings.confidence_map.get(label)
+        if conf is None:
+            skipped += 1
+            continue
+        out[(cc, pc)] = {
+            "nuts3": n3,
+            "nuts2": n2,
+            "nuts1": n1,
+            "nuts3_confidence": conf["nuts3"],
+            "nuts2_confidence": conf["nuts2"],
+            "nuts1_confidence": conf["nuts1"],
+        }
+    return out, skipped
+
+
 def _load_estimates_from_csv(csv_path: Path) -> bool:
-    """Load pre-computed estimates directly from CSV into memory."""
+    """Load pre-computed estimates from a file into the live in-memory dict."""
     if not csv_path.is_file():
         return False
     try:
-        count = 0
-        skipped = 0
-        with open(csv_path, newline="", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                cc = row["COUNTRY_CODE"].strip().upper()
-                pc = normalize_postal_code(row["POSTAL_CODE"])
-                n3 = row["ESTIMATED_NUTS3"].strip()
-                n2 = row["ESTIMATED_NUTS2"].strip()
-                n1 = row["ESTIMATED_NUTS1"].strip()
-                label = row["CONFIDENCE"].strip().lower()
-
-                conf = settings.confidence_map.get(label)
-                if conf is None:
-                    skipped += 1
-                    continue
-
-                _estimates[(cc, pc)] = {
-                    "nuts3": n3,
-                    "nuts2": n2,
-                    "nuts1": n1,
-                    "nuts3_confidence": conf["nuts3"],
-                    "nuts2_confidence": conf["nuts2"],
-                    "nuts1_confidence": conf["nuts1"],
-                }
-                count += 1
-        if skipped:
-            logger.warning("Skipped %d estimate rows with unknown confidence labels", skipped)
-        if count:
-            logger.info("Loaded %d estimates from %s", count, csv_path)
-        return count > 0
+        text = csv_path.read_text(encoding="utf-8-sig")
+        parsed, skipped = parse_estimates_from_text(text)
     except (OSError, KeyError, ValueError, csv.Error) as exc:
         logger.warning("Failed to load estimates from CSV: %s", exc)
         return False
+    _estimates.update(parsed)
+    if skipped:
+        logger.warning("Skipped %d estimate rows with unknown confidence labels", skipped)
+    if parsed:
+        logger.info("Loaded %d estimates from %s", len(parsed), csv_path)
+    return len(parsed) > 0
 
 
 def _revalidate_estimates() -> int:

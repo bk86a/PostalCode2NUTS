@@ -133,3 +133,45 @@ class TestLookup:
         """Country not in data should return None."""
         result = lookup("ZZ", "12345")
         assert result is None
+
+
+class TestParseEstimatesFromText:
+    def test_parses_well_formed_csv(self):
+        from app.data_loader import parse_estimates_from_text
+
+        text = (
+            "COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\n"
+            "DE,99999,DE300,DE30,DE3,high\n"
+            "FR,75000,FR101,FR10,FR1,medium\n"
+        )
+        d, skipped = parse_estimates_from_text(text)
+        assert skipped == 0
+        assert len(d) == 2
+        assert d[("DE", "99999")]["nuts3"] == "DE300"
+        assert d[("FR", "75000")]["nuts3"] == "FR101"
+        # Confidence is mapped from label to numeric per settings.confidence_map.
+        assert 0.0 < d[("DE", "99999")]["nuts3_confidence"] <= 1.0
+
+    def test_skips_unknown_confidence(self):
+        from app.data_loader import parse_estimates_from_text
+
+        text = (
+            "COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\n"
+            "DE,99999,DE300,DE30,DE3,high\n"
+            "DE,99998,DE300,DE30,DE3,bogus\n"
+        )
+        d, skipped = parse_estimates_from_text(text)
+        assert skipped == 1
+        assert ("DE", "99998") not in d
+        assert ("DE", "99999") in d
+
+    def test_handles_utf8_bom(self):
+        from app.data_loader import parse_estimates_from_text
+
+        text = (
+            "﻿COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\n"
+            "DE,99999,DE300,DE30,DE3,high\n"
+        )
+        d, skipped = parse_estimates_from_text(text)
+        assert len(d) == 1
+        assert ("DE", "99999") in d
