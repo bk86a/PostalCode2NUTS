@@ -91,7 +91,7 @@ The exact field name and Pydantic version semantics are existing-codebase concer
 
 ### 4.2 `app/limiter.py` — new module
 
-Single responsibility: own the slowapi `Limiter` instance and the storage choice. Today this is inline in `app/main.py`; pulling it out keeps `main.py` slimmer and gives the fail-degraded wrapper a natural home.
+Single responsibility: own the slowapi `Limiter` instance and the storage-mode choice. Today this is inline in `app/main.py`; pulling it out keeps `main.py` slimmer and isolates the (small) configuration logic.
 
 Public surface:
 
@@ -99,54 +99,34 @@ Public surface:
 # app/limiter.py
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.config import settings
 
-limiter: Limiter  # constructed at import time from settings
+if settings.rate_limit_storage_uri:
+    limiter = Limiter(
+        key_func=get_remote_address,
+        storage_uri=settings.rate_limit_storage_uri,
+        in_memory_fallback_enabled=True,
+    )
+else:
+    limiter = Limiter(key_func=get_remote_address)
 ```
 
-Internal logic:
-
-- If `settings.rate_limit_storage_uri` is `None` → `Limiter(key_func=get_remote_address)` (current behavior, byte-for-byte).
-- If set → construct a `_FailDegradedStorage` (see 4.3) and pass it to `Limiter` via the `storage_uri` parameter using a custom URI scheme, OR — more directly — construct the `Limiter` with the underlying URI and then monkey-patch the storage attribute. Implementation will pick whichever the slowapi/limits public API supports cleanly; design intent is "Limiter calls the wrapper, wrapper calls Redis with memory fallback."
+That's the entire module. Two branches; default branch is byte-for-byte identical to the current `app/main.py:45` line.
 
 `app/main.py` changes from `limiter = Limiter(...)` to `from app.limiter import limiter`. The `app.state.limiter = limiter` and `@limiter.limit(...)` decorators stay exactly as they are.
 
-### 4.3 `_FailDegradedStorage` — fail-degraded wrapper
+### 4.3 Fail-degraded behavior — slowapi built-in
 
-A custom `limits` storage class wrapping a primary storage (Redis) and a sibling `MemoryStorage`. Implements the same interface as `limits.storage.Storage` (or whichever subclass `slowapi`/`limits` requires for moving-window rate limiting — `MovingWindowSupport`). All methods (`incr`, `get`, `get_expiry`, `check`, `reset`, etc.) follow the same pattern:
+slowapi 0.1.9 already implements the fail-degraded design we want via the `in_memory_fallback_enabled` parameter. Behavior, taken directly from `slowapi/extension.py`:
 
-```python
-# Pseudo-code — exact method signatures match the limits.storage.Storage interface
-# under the slowapi version pinned in requirements.lock; see §10 open question.
-_PRIMARY_STORAGE_EXCEPTIONS = (
-    redis.exceptions.RedisError,         # connection refused, timeout, auth failure, …
-    OSError,                              # socket-level errors not wrapped by redis-py
-)
+- **Trigger:** when any storage call raises, slowapi sets an internal `_storage_dead = True` flag, logs once at WARNING (`"Rate limit storage unreachable - falling back to in-memory storage"`), and routes subsequent rate-limit checks to a separate per-process `MemoryStorage`-backed `MovingWindowRateLimiter`.
+- **Recovery:** uses exponential backoff. The `__should_check_backend()` helper waits `2^N` seconds between consecutive re-probes (where `N` is the consecutive check count, capped at `MAX_BACKEND_CHECKS`). When a probe succeeds (`self._storage.check()`), `_storage_dead` is cleared and slowapi logs at INFO (`"Rate limit storage recovered"`).
+- **Logging policy:** the `if not self._storage_dead` guard around the WARNING means it fires once per outage transition, exactly matching our spec intent.
+- **Concurrency:** each worker has its own `_storage_dead` flag and its own fallback `MemoryStorage`. Per-worker outage tracking is correct (a worker that can't reach Redis is independently degraded), and the fallback is per-worker, so during an outage the effective cap loosens to `N × settings.rate_limit` per IP — same as our designed §3 behavior.
 
-def incr(self, key, expiry, elastic_expiry=False, amount=1):
-    if self._is_unhealthy():
-        return self._memory.incr(key, expiry, elastic_expiry, amount)
-    try:
-        return self._primary.incr(key, expiry, elastic_expiry, amount)
-    except _PRIMARY_STORAGE_EXCEPTIONS:
-        self._mark_unhealthy()
-        return self._memory.incr(key, expiry, elastic_expiry, amount)
-```
+This means we write **zero custom storage code**. The plan only needs to wire `in_memory_fallback_enabled=True` into the `Limiter` construction and verify the wiring at the unit-test level.
 
-State:
-- `_unhealthy_until: float | None` — monotonic timestamp; when set and not yet elapsed, skip the primary entirely.
-- `_unhealthy_window_seconds: int = 30` — class-level constant. Hard-coded; not a config knob unless a concrete need appears.
-
-Health-check / re-probe:
-- `_is_unhealthy()` returns True if `_unhealthy_until` is set and not yet elapsed.
-- After the window, next call probes the primary again; success → clear the flag, failure → extend the window.
-
-Logging:
-- Log at WARNING **once per outage window** (when transitioning healthy → unhealthy), with the exception class and message.
-- Log at INFO when transitioning unhealthy → healthy after a successful re-probe.
-- Do not log on every routed-to-memory call (that would be ~one log per request during an outage).
-
-Concurrency:
-- Each worker has its own `_FailDegradedStorage` instance and its own `_unhealthy_until` clock. That's intentional: workers do not share state, and per-worker outage tracking is correct (a worker that can't reach Redis is independently degraded). The `MemoryStorage` fallback is also per-worker, which is exactly the pre-this-issue behavior, so the cap loosens to N× *only during the outage window*.
+The exponential-backoff recovery cadence (rather than a fixed 30 s window) is strictly better for the operator: gentler on a recovering Redis under load, faster recovery for short blips.
 
 ### 4.4 `Dockerfile`
 
@@ -186,10 +166,11 @@ Identical to today. Trusted-token requests skip the limiter via `exempt_when`.
 
 ```
 Request → uvicorn (N workers, OS distributes) → FastAPI → @limiter.limit
-       → _FailDegradedStorage
-            healthy:    → Redis (shared across workers) → handler
-            unhealthy:  → MemoryStorage (per-worker, cap effectively loosened to N× during outage window)
-                       → handler
+       → slowapi Limiter (in_memory_fallback_enabled=True)
+            _storage_dead=False:  → Redis (shared across workers) → handler
+            _storage_dead=True:   → per-worker MemoryStorage fallback → handler
+                                  (cap effectively loosened to N× during outage window;
+                                   slowapi re-probes Redis with exponential backoff)
 ```
 
 Trusted-token requests still skip the limiter entirely; the storage call is not made for them.
@@ -198,22 +179,22 @@ Trusted-token requests still skip the limiter entirely; the storage call is not 
 
 ## 6. Error handling
 
-The fail-degraded storage is the only new failure surface. Behavior matrix:
+The fail-degraded path lives entirely inside slowapi (`in_memory_fallback_enabled=True`). Behavior matrix, derived from `slowapi/extension.py`:
 
-| Condition | Behavior | Cap during this state |
+| Condition | slowapi behavior | Cap during this state |
 |---|---|---|
 | Redis healthy | All counters in Redis, shared across workers | Strict `settings.rate_limit` per IP |
-| Redis raises (connection error, timeout, etc.) | Wrapper catches, marks unhealthy for 30 s, routes to per-worker memory; logs WARNING once | `N × settings.rate_limit` per IP per worker |
-| Redis recovers within 30 s | Next request after the window probes Redis; success clears the flag | Strict on next request |
-| Redis still down after 30 s | Re-probe fails, window extends another 30 s; no new log | Continues N× per worker |
+| Redis raises (any exception) | `_storage_dead = True`; logs WARNING once; routes subsequent checks to per-worker `MemoryStorage` | `N × settings.rate_limit` per IP per worker |
+| Redis recovery probe (every `2^N` seconds, exponential backoff) succeeds | `_storage_dead = False`; logs INFO once; back to Redis | Strict on next request |
+| Redis still down at next probe | Probe fails silently; backoff continues; no new log | Continues N× per worker |
 
-Storage exceptions caught: connection errors, timeouts, redis-specific errors. **Not caught:** programming errors (e.g. type errors from passing wrong arguments) — those bubble up so they're caught in tests.
+slowapi catches `Exception` broadly around its storage interactions, so connection errors, timeouts, and redis-py-specific errors are all handled. Programming errors in our own code paths still bubble up.
 
-The existing `_rate_limit_handler` for `RateLimitExceeded` is unchanged. Trusted-token requests still bypass entirely.
+The existing `_rate_limit_handler` for `RateLimitExceeded` is unchanged. Trusted-token requests still bypass entirely (the `exempt_when` check fires before the storage call).
 
 ### Documented degraded mode
 
-`README.md` adds a short note in the rate-limit section: "When `PC2NUTS_RATE_LIMIT_STORAGE_URI` is set and the configured backend is unreachable, the service falls back to per-process in-memory rate limiting for 30 s before re-probing. During this window, the effective per-IP cap is `PC2NUTS_WORKERS × rate_limit`."
+`README.md` adds a short note in the rate-limit section: "When `PC2NUTS_RATE_LIMIT_STORAGE_URI` is set and the configured backend is unreachable, the service falls back to per-process in-memory rate limiting (slowapi `in_memory_fallback_enabled`). During the outage window, the effective per-IP cap is `PC2NUTS_WORKERS × rate_limit`. slowapi re-probes the primary storage with exponential backoff and resumes shared rate limiting on recovery."
 
 ---
 
@@ -227,25 +208,18 @@ The existing `_rate_limit_handler` for `RateLimitExceeded` is unchanged. Trusted
 
 Unit:
 
-- **`test_limiter_storage_selection`** — when `rate_limit_storage_uri` is `None`, `app.limiter.limiter._storage` is a plain `MemoryStorage` (or whatever the slowapi default exposes). When set, it's a `_FailDegradedStorage`.
-- **`test_fail_degraded_routes_to_memory_on_raise`** — inject a primary storage stub that raises `ConnectionError` on `incr`; assert the wrapper returns the memory-storage value, the unhealthy flag is set, and a WARNING was logged once.
-- **`test_fail_degraded_re_probes_after_window`** — same stub, raise once, sleep past the 30 s window (or use a monotonic-clock seam), assert next call hits the primary again.
-- **`test_fail_degraded_logs_once_per_window`** — multiple consecutive raises within one window log only once.
+- **`test_limiter_default_uses_memory_storage`** — when `rate_limit_storage_uri` is unset, `app.limiter.limiter._storage_uri` is the slowapi default (`None` or `"memory://"`) and `_in_memory_fallback_enabled` is `False`. Confirms the no-config path is byte-for-byte the current behavior.
+- **`test_limiter_with_redis_uri_enables_fallback`** — when `rate_limit_storage_uri="redis://localhost:6379/0"` is configured (via `monkeypatch.setenv`), `app.limiter.limiter._storage_uri` is the configured URI and `_in_memory_fallback_enabled` is `True`. Does not contact Redis (Limiter constructor builds the storage object lazily-enough that no connection is opened until first request, but to be safe the test asserts on the constructor-level attributes only).
 
-Startup:
+Startup validator:
 
 - **`test_workers_gt_1_without_storage_uri_fails_startup`** — instantiate `Settings(workers=2, rate_limit_storage_uri=None)` and assert `ValidationError`. Asserts the validator fires.
-- **`test_workers_gt_1_with_storage_uri_succeeds`** — `Settings(workers=2, rate_limit_storage_uri="redis://localhost:6379/0")` constructs cleanly without contacting Redis (storage construction is lazy; only `Limiter` instantiation touches the network, and even then it's lazy until first request).
+- **`test_workers_gt_1_with_storage_uri_succeeds`** — `Settings(workers=2, rate_limit_storage_uri="redis://localhost:6379/0")` constructs cleanly without contacting Redis.
+- **`test_workers_eq_1_without_storage_uri_succeeds`** — defaults still validate (regression guard).
 
-Integration (optional, if a dockerised Redis is acceptable in CI):
+Integration (out of scope for the implementation PR — left as a separate task if CI gains a Redis service container):
 
-- **`test_multi_worker_with_real_redis`** — spin up an ephemeral Redis (via `pytest-docker` or similar), run two workers via `uvicorn --workers 2`, fire `>120` requests in a minute from a single client, assert the cap is observed across workers. Skip if no Redis available; gate behind a marker.
-
-The design does not require the integration test to land in this PR. Unit tests for the wrapper plus the startup-validator test are sufficient evidence of correctness; the integration test is a nice-to-have follow-up if CI gains a Redis service container.
-
-### Test seam for the unhealthy clock
-
-`_FailDegradedStorage` reads the current time via an injectable callable (default `time.monotonic`) so tests don't have to sleep. Constructor takes `clock: Callable[[], float] = time.monotonic`.
+- A future integration test could spin up an ephemeral Redis, run two workers via `uvicorn --workers 2`, fire `>120` requests in a minute from a single client, assert the cap is observed across workers. The slowapi fail-degraded path is library code (already tested upstream), so the implementation PR does not need to re-test it; we only verify that our wiring activates the right slowapi configuration.
 
 ---
 
@@ -272,8 +246,7 @@ The two "out of scope" items are operational/empirical work that can only happen
 
 ## 10. Open questions deferred to implementation
 
-- **Exact slowapi/limits API surface for plugging in a custom storage class.** slowapi's `Limiter` accepts `storage_uri` (string) and `storage_options` (dict); whether a pre-instantiated `Storage` instance can be passed directly varies by version. If not, the wrapper registers a custom URI scheme (`limits` library supports this via entry points or `register_storage`) and the env var uses that scheme. Implementation pins the chosen approach.
-- **Redis client library version pin.** `redis` (redis-py) versus `redis>=5,<7` — driven by what `limits` requires. Confirmed at implementation time against the current `slowapi` pin.
-- **Pydantic validator semantics.** `model_validator(mode="after")` on Pydantic v2 vs `root_validator` on v1 — the project is on Pydantic v2 (per `requirements.lock` and recent dependabot bumps), so v2 is the target. Verified during implementation.
+- **Redis client library version pin.** `redis` (redis-py) — exact version range driven by what `limits 5.8.0` requires. The `limits[redis]` extra is the cleanest path; falls back to a direct pin if needed. Confirmed at implementation time.
+- **Pydantic validator semantics.** Confirmed: project is on Pydantic v2 (`pydantic==2.12.5`, `pydantic-settings==2.13.0` per `requirements.lock`), so `@model_validator(mode="after")` is the target.
 
 These are mechanical questions that don't change the architecture; they're called out so the implementation plan addresses them rather than stumbling on them.
