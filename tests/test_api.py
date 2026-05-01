@@ -337,3 +337,150 @@ class TestAuthBypass:
             trusted_client.get("/lookup", params={"postal_code": "10115", "country": "DE"})
         log_text = " ".join(r.message for r in caplog.records if r.name == "app.access")
         assert "token_id=" not in log_text
+
+
+class TestAdminRefreshEstimatesEndpoint:
+    def test_401_without_authorization(self, trusted_client, monkeypatch):
+        from app import config
+
+        monkeypatch.setattr(
+            config.settings,
+            "estimates_refresh_url",
+            "https://example.invalid/x.csv",
+        )
+        resp = trusted_client.post("/admin/refresh-estimates")
+        assert resp.status_code == 401
+
+    def test_401_with_invalid_bearer(self, trusted_client, monkeypatch):
+        from app import config
+
+        monkeypatch.setattr(
+            config.settings,
+            "estimates_refresh_url",
+            "https://example.invalid/x.csv",
+        )
+        resp = trusted_client.post(
+            "/admin/refresh-estimates",
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+        assert resp.status_code == 401
+
+    def test_503_when_feature_disabled(self, trusted_client, monkeypatch):
+        from app import config
+
+        monkeypatch.setattr(config.settings, "estimates_refresh_url", "")
+        resp = trusted_client.post(
+            "/admin/refresh-estimates",
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["status"] == "disabled"
+
+    def test_200_on_successful_refresh(self, trusted_client, monkeypatch):
+        from app import config, estimates_refresh
+        from app.estimates_refresh import RefreshResult
+
+        monkeypatch.setattr(
+            config.settings,
+            "estimates_refresh_url",
+            "https://example.invalid/x.csv",
+        )
+
+        async def fake_refresh(client=None):
+            return RefreshResult(
+                status="refreshed", previous_count=7000, new_count=7042, skipped_rows=0
+            )
+
+        monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
+
+        resp = trusted_client.post(
+            "/admin/refresh-estimates",
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "refreshed"
+        assert body["previous_count"] == 7000
+        assert body["new_count"] == 7042
+
+    def test_200_on_unchanged_refresh(self, trusted_client, monkeypatch):
+        """When upstream content is unchanged (304 / identical hash), the
+        endpoint returns 200 with status='unchanged' and equal counts."""
+        from app import config, estimates_refresh
+        from app.estimates_refresh import RefreshResult
+
+        monkeypatch.setattr(
+            config.settings,
+            "estimates_refresh_url",
+            "https://example.invalid/x.csv",
+        )
+
+        async def fake_refresh(client=None):
+            return RefreshResult(
+                status="unchanged", previous_count=7000, new_count=7000, skipped_rows=0
+            )
+
+        monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
+
+        resp = trusted_client.post(
+            "/admin/refresh-estimates",
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "unchanged"
+        assert body["previous_count"] == 7000
+        assert body["new_count"] == 7000
+
+    def test_502_on_failed_refresh(self, trusted_client, monkeypatch):
+        from app import config, estimates_refresh
+        from app.estimates_refresh import RefreshResult
+
+        monkeypatch.setattr(
+            config.settings,
+            "estimates_refresh_url",
+            "https://example.invalid/x.csv",
+        )
+
+        async def fake_refresh(client=None):
+            return RefreshResult(
+                status="failed", previous_count=7000, new_count=7000, reason="http=503"
+            )
+
+        monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
+
+        resp = trusted_client.post(
+            "/admin/refresh-estimates",
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 502
+        assert resp.json()["status"] == "failed"
+
+    def test_409_on_sanity_guard_rejection(self, trusted_client, monkeypatch):
+        from app import config, estimates_refresh
+        from app.estimates_refresh import RefreshResult
+
+        monkeypatch.setattr(
+            config.settings,
+            "estimates_refresh_url",
+            "https://example.invalid/x.csv",
+        )
+
+        async def fake_refresh(client=None):
+            return RefreshResult(
+                status="rejected",
+                previous_count=7000,
+                new_count=12,
+                reason="sanity guard: 12 < 50% of 7000",
+            )
+
+        monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
+
+        resp = trusted_client.post(
+            "/admin/refresh-estimates",
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 409
+        body = resp.json()
+        assert body["status"] == "rejected"
+        assert body["candidate_count"] == 12

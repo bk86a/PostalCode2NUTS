@@ -343,3 +343,59 @@ def health(response: Response):
         token_db_stale=token_db_stale,
         estimates_refresh_stale=_get_estimates_refresh_stale(),
     )
+
+
+@app.post(
+    "/admin/refresh-estimates",
+    summary="Force-refresh estimates from the configured remote URL",
+    description=(
+        "Operator-only — requires `Authorization: Bearer <trusted-token>`. "
+        "Synchronously fetches the configured `PC2NUTS_ESTIMATES_REFRESH_URL` and, "
+        "if the content has changed and passes the sanity guard, replaces the "
+        "in-memory estimates table. No body."
+    ),
+    responses={
+        200: {"description": "Refresh succeeded (content changed and applied)"},
+        401: {"description": "Missing or invalid trusted bearer token"},
+        409: {"description": "Sanity guard rejected the candidate CSV"},
+        502: {"description": "Upstream fetch or parse failed"},
+        503: {"description": "Feature disabled (PC2NUTS_ESTIMATES_REFRESH_URL unset)"},
+    },
+)
+async def admin_refresh_estimates(request: Request) -> JSONResponse:
+    if not getattr(request.state, "trusted", False):
+        raise HTTPException(status_code=401, detail="Trusted token required")
+
+    from app import estimates_refresh as _estimates_refresh
+
+    result = await _estimates_refresh.refresh_estimates_once()
+
+    if result.status == "disabled":
+        return JSONResponse(status_code=503, content={"status": "disabled"})
+    if result.status == "rejected":
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "rejected",
+                "reason": result.reason,
+                "previous_count": result.previous_count,
+                "candidate_count": result.new_count,
+            },
+        )
+    if result.status == "failed":
+        return JSONResponse(
+            status_code=502,
+            content={"status": "failed", "reason": result.reason},
+        )
+
+    # "refreshed" or "unchanged"
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": result.status,
+            "previous_count": result.previous_count,
+            "new_count": result.new_count,
+            "skipped_rows": result.skipped_rows,
+            "source_url": settings.estimates_refresh_url,
+        },
+    )
