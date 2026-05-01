@@ -1,0 +1,73 @@
+# Production-shape stack: api + redis sidecar + persistent volume.
+#
+# Mirrors the canonical multi-worker deployment pattern in a way that runs
+# unmodified anywhere Docker Compose is supported: laptop, CI, single VM,
+# or any provider that supports compose files. Same shape translates 1:1
+# to Kubernetes (api + redis as sibling containers in one pod, PVC for
+# /app/data) or any orchestrator with multi-container pod / task-definition
+# semantics.
+#
+# Run with:
+#   docker compose up           # build locally if needed, run in foreground
+#   docker compose up -d        # detached
+#   docker compose down         # stop and remove containers
+#   docker compose down -v      # also wipe the persistent volume
+#
+# Swap-out points for a different deployment target:
+#
+#   - Different image source: drop `build: .` and the image will be pulled
+#     from ghcr.io. Pin a digest if you don't want `:latest`.
+#
+#   - External Redis (managed service, sidecar in another pod, etc.):
+#     remove the `redis` service block, and set
+#     PC2NUTS_RATE_LIMIT_STORAGE_URI to its reachable URL.
+#
+#   - No multi-worker / no Redis (simplest): set PC2NUTS_WORKERS=1 and
+#     unset PC2NUTS_RATE_LIMIT_STORAGE_URI; the redis service can also be
+#     removed. The startup validator at app/config.py:42-50 enforces this
+#     pairing, so leaving it half-configured will refuse to start.
+#
+#   - Different volume backend (NFS, EFS, hostPath, cloud disk): swap the
+#     `volumes:` declaration for whatever the host supports. The container
+#     just expects /app/data to exist and be (or become) writable by the
+#     unprivileged appuser; the entrypoint handles the chown.
+
+services:
+  redis:
+    image: redis:7-alpine
+    # In-memory only — rate-limit counters are 60-second sliding windows,
+    # persistence would just store transient state across restarts.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  api:
+    # Build locally; if you'd rather pull, comment `build:` out — the
+    # `image:` tag below will resolve from ghcr.io.
+    build: .
+    image: ghcr.io/bk86a/postalcode2nuts:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # Multi-worker requires a shared rate-limit backend; the validator
+      # in app/config.py refuses to start otherwise. With a single worker,
+      # both lines below can be omitted.
+      PC2NUTS_WORKERS: "2"
+      PC2NUTS_RATE_LIMIT_STORAGE_URI: "redis://redis:6379/0"
+
+      # Optional knobs — uncomment as needed.
+      # PC2NUTS_RATE_LIMIT: "120/minute"
+      # PC2NUTS_TRUSTED_TOKENS: "<comma-separated>"  # rate-limit bypass via Bearer token
+      # PC2NUTS_TOKEN_DB_URL: "libsql://..."         # managed token registry
+      # PC2NUTS_TOKEN_DB_AUTH_TOKEN: "..."           # paired with the above
+      # PC2NUTS_DOCS_ENABLED: "false"                # disable /docs and /redoc
+      # PC2NUTS_CORS_ORIGINS: "https://yourapp.com"
+      # PC2NUTS_EXTRA_SOURCES: "https://example.invalid/extra1.zip,..."
+      # PC2NUTS_ACCESS_LOG_FILE: "/app/data/access.log"
+    volumes:
+      - data:/app/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  data:

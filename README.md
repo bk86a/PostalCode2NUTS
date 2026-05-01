@@ -661,7 +661,8 @@ Changing the `PC2NUTS_EXTRA_SOURCES` list invalidates the SQLite cache automatic
 
 - **Data refresh:** The service loads data once at startup and serves it for the lifetime of the process. To refresh data, restart the service. The SQLite cache ensures fast restarts; a full re-download only happens when the cache expires (default: 30 days) or is missing.
 - **HTTPS:** The service serves plain HTTP. Place it behind a TLS-terminating reverse proxy (nginx, cloud load balancer) in production.
-- **Docker:** The container runs as a non-root user (`appuser`). The `/app/data` volume must be writable by this user. Pre-computed estimates are included in the image.
+- **Docker:** The container starts briefly as root, the entrypoint chowns `/app/data` to `appuser`, then drops privileges via `gosu` before launching uvicorn. This means a freshly-mounted persistent volume (typically root-owned by the platform) "just works" — no operator-side `chown` required. Pre-computed estimates are included in the image. If you prefer to launch the container as a non-root user (`docker run --user appuser …`), the entrypoint detects that and skips the chown — you're then responsible for ensuring `/app/data` is writable by that UID.
+- **Reverse proxies:** The image runs uvicorn with `--proxy-headers --forwarded-allow-ips '*'`, so `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` are honoured for any TLS-terminating proxy in front of the service (CDN, K8s ingress, nginx, etc.). The `/` info route's link URLs and rate-limit per-IP keying both depend on this.
 - **Rate limiting:** Limits are per-client IP (`X-Forwarded-For` aware). Behind a reverse proxy, ensure the proxy sets this header correctly.
 - **Access logging:** Every request is logged with client IP, method, path, status code, and duration. Set `PC2NUTS_ACCESS_LOG_FILE` to write to a rotating file instead of stderr.
 
@@ -708,32 +709,37 @@ This disables Swagger UI, restricts CORS to a single origin, increases the rate 
 
 ### Docker Compose
 
-```yaml
-services:
-  postalcode2nuts:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - postalcode2nuts-data:/app/data
-    environment:
-      - PC2NUTS_DOCS_ENABLED=false
-      - PC2NUTS_CORS_ORIGINS=https://mysite.com
-      - PC2NUTS_ACCESS_LOG_FILE=/app/data/access.log
-    restart: unless-stopped
+The repository ships [`compose.yaml`](./compose.yaml) — a production-shape stack with the api, a Redis sidecar for shared rate-limit storage, a persistent named volume for `/app/data`, and `PC2NUTS_WORKERS=2`. Run anywhere Docker Compose is supported:
 
-volumes:
-  postalcode2nuts-data:
+```bash
+docker compose up           # build (or pull) and run
+docker compose up -d        # detached
+docker compose down         # stop and remove containers (volume preserved)
+docker compose down -v      # also wipe the persistent volume
 ```
+
+Or the equivalent Makefile shortcuts: `make compose-up`, `make compose-down`, `make compose-logs`.
+
+The compose file is the canonical reference for the production deployment shape and is intentionally provider-agnostic. Drop in to any orchestrator with multi-container pod / task-definition semantics by translating the same three pieces:
+
+| Piece | What it does | Translates to |
+|---|---|---|
+| `api` service with `PC2NUTS_WORKERS` and `PC2NUTS_RATE_LIMIT_STORAGE_URI` | The service itself, configured for multi-worker behind a shared rate-limit backend | Any container runtime that runs a single image with env vars and an exposed port |
+| `redis` service in the same compose project | Co-located rate-limit counter store, reachable as `redis://redis:6379/0` | A sibling container in the same Kubernetes pod, ECS task, etc. — or an external managed Redis (just point the URI at it) |
+| Named `data` volume on `/app/data` | Persists the SQLite cache and downloaded TERCET zips across restarts so cold-starts don't re-fetch from Eurostat | Any persistent-storage primitive: K8s PVC, EFS, hostPath, cloud disk, host bind mount |
+
+For the simplest setup (single worker, no Redis, no persistence) drop both the `redis` service and the multi-worker env vars from the compose file — the startup validator at `app/config.py:42-50` rejects partial configurations to prevent the per-IP rate limit from silently loosening.
 
 ### What's in the image
 
 | Item | Details |
 |------|---------|
-| Base image | `python:3.12-slim` |
-| User | `appuser` (non-root) |
+| Base image | `python:3.14-slim` |
+| User at runtime | `appuser` (non-root, switched by the entrypoint via `gosu`) |
 | Dependencies | Pinned via `requirements.lock` |
 | Estimates CSV | Included (`tercet_missing_codes.csv`) |
+| Entrypoint | `/usr/local/bin/docker-entrypoint.sh` (chowns `/app/data`, drops privileges) |
+| uvicorn flags | `--proxy-headers --forwarded-allow-ips '*'` (any TLS-terminating proxy works) |
 | Health check | Built-in (`/health`, 30s interval, 120s start period) |
 | Port | 8000 |
 | Volume | `/app/data` (SQLite cache + downloaded ZIPs) |

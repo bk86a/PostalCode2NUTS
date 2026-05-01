@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **`/` root endpoint** returns service metadata and pointers to `/openapi.json`, `/docs`, `/redoc`, `/health`, and example `/lookup` and `/pattern` URLs. Replaces the previous `{"detail":"Not Found"}` response on the bare hostname. Marked `include_in_schema=False` so it doesn't clutter the OpenAPI document.
 - **Persistent-volume support** via a new `docker-entrypoint.sh`: container starts as root, `chown appuser:appuser /app/data` (idempotent — no-op on warm starts), then `exec gosu appuser "$@"` to drop privileges before uvicorn starts. `Dockerfile` installs `gosu` and replaces `USER appuser` with `ENTRYPOINT`. Lets a freshly-provisioned platform persistent volume (initially root-owned) be mounted at `/app/data` without breaking the SQLite cache build. Cold-start cache survives pod recreates and redeploys; subsequent restarts skip the GISCO TERCET re-download until the configured TTL expires.
+- **Provider-agnostic deployment**: new `compose.yaml` at the repo root demonstrates the canonical multi-worker production pattern (api + redis sidecar + persistent volume + multi-worker env vars) in a way that runs unmodified anywhere Docker Compose is supported and translates 1:1 to Kubernetes pods, ECS task definitions, or any orchestrator with multi-container semantics. New `compose-up`/`compose-down`/`compose-logs` Makefile targets. README "Docker deployment" section rewritten to point at it and to call out the swap-out points for switching providers.
+
+### Changed
+
+- **uvicorn now runs with `--proxy-headers --forwarded-allow-ips '*'`** in the Dockerfile CMD, so `X-Forwarded-Proto`, `X-Forwarded-For`, and `X-Forwarded-Host` are honoured for any TLS-terminating proxy in front of the service (CDN, K8s ingress, nginx, Cloudflare). Concretely, the new `/` route's link URLs now return `https://` when behind a TLS proxy, and rate-limit per-IP keying correctly identifies the real client IP rather than the proxy's.
+- **`docker-entrypoint.sh` is now safe to launch as a non-root user.** When started with `--user appuser` (or any non-root UID), the entrypoint skips the chown branch and just `exec`s the CMD as the current user — operators who pre-prepared `/app/data` ownership get the same behaviour as a fresh root start.
 
 ### Documentation
 

@@ -99,6 +99,28 @@ class TestPatternEndpoint:
         assert resp.status_code == 404
 
 
+# ── / (root) endpoint tests ─────────────────────────────────────────────────
+
+
+class TestRootEndpoint:
+    def test_200_returns_service_metadata(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["service"] == "PostalCode2NUTS"
+        assert "version" in data
+        assert "links" in data
+        assert "openapi" in data["links"]
+        assert data["links"]["openapi"].endswith("/openapi.json")
+        assert "health" in data["links"]
+        assert data["links"]["source"] == "https://github.com/bk86a/PostalCode2NUTS"
+
+    def test_root_not_in_schema(self, client):
+        # include_in_schema=False — must not appear in /openapi.json paths
+        resp = client.get("/openapi.json")
+        assert "/" not in resp.json()["paths"]
+
+
 # ── /health endpoint tests ───────────────────────────────────────────────────
 
 

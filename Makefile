@@ -1,4 +1,4 @@
-.PHONY: lint format test run docker-build docker-run
+.PHONY: lint format test run docker-build docker-run compose-up compose-down compose-logs
 
 lint:
 	ruff check app/ scripts/
@@ -17,3 +17,12 @@ docker-build:
 
 docker-run:
 	docker run -p 8000:8000 postalcode2nuts
+
+compose-up:
+	docker compose up --build -d
+
+compose-down:
+	docker compose down
+
+compose-logs:
+	docker compose logs -f
