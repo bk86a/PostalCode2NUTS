@@ -128,12 +128,43 @@ async def lifespan(app: FastAPI):
             _config.settings.token_refresh_seconds,
         )
 
+    # ── Estimates remote-refresh (#44) ──────────────────────────────────────
+    estimates_refresh_task: asyncio.Task | None = None
+    if _config.settings.estimates_refresh_url:
+        from app import estimates_refresh as _estimates_refresh
+
+        # Bootstrap synchronously so the worker reflects upstream before reporting ready.
+        try:
+            result = await _estimates_refresh.refresh_estimates_once()
+            logger.info(
+                "Estimates bootstrap fetch: %s (previous=%d, new=%d)",
+                result.status,
+                result.previous_count,
+                result.new_count,
+            )
+        except Exception:
+            logger.exception("Estimates bootstrap fetch crashed; continuing with bundled CSV")
+
+        if _config.settings.estimates_refresh_interval_seconds > 0:
+            estimates_refresh_task = asyncio.create_task(_estimates_refresh.refresh_estimates_loop())
+            logger.info(
+                "Estimates refresh task started (interval %ds)",
+                _config.settings.estimates_refresh_interval_seconds,
+            )
+
     yield
 
     if refresh_task is not None:
         refresh_task.cancel()
         try:
             await refresh_task
+        except asyncio.CancelledError:
+            pass
+
+    if estimates_refresh_task is not None:
+        estimates_refresh_task.cancel()
+        try:
+            await estimates_refresh_task
         except asyncio.CancelledError:
             pass
 
