@@ -199,3 +199,20 @@ async def refresh_estimates_once(
         new_count=new_count,
         skipped_rows=skipped,
     )
+
+
+async def refresh_estimates_loop() -> None:
+    """Periodic refresh task. Returns immediately when feature is disabled."""
+    if not settings.estimates_refresh_url:
+        return
+    interval = settings.estimates_refresh_interval_seconds
+    if interval <= 0:
+        return
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await refresh_estimates_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("refresh_estimates_loop iteration crashed; will retry")

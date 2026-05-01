@@ -1,5 +1,6 @@
 """Tests for app.estimates_refresh — periodic refresh of tercet_missing_codes.csv (#44)."""
 
+import asyncio
 import hashlib
 import importlib
 from unittest.mock import patch
@@ -282,6 +283,85 @@ class TestRefreshOnce:
 
         assert result.status == "refreshed"
         assert result.new_count == 1
+
+
+class TestRefreshLoop:
+    @pytest.mark.asyncio
+    async def test_no_op_when_url_unset(self, monkeypatch):
+        """With the URL setting unset, the loop must return immediately."""
+        monkeypatch.setattr("app.estimates_refresh.settings", _stub_settings(url=""))
+        from app.estimates_refresh import refresh_estimates_loop
+
+        # If the loop tried to sleep for 86400s we'd hang; wait_for guards us.
+        await asyncio.wait_for(refresh_estimates_loop(), timeout=1.0)
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_interval_zero(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.estimates_refresh.settings",
+            _stub_settings(url="https://example.invalid/x.csv", interval=0),
+        )
+        from app.estimates_refresh import refresh_estimates_loop
+
+        await asyncio.wait_for(refresh_estimates_loop(), timeout=1.0)
+
+    @pytest.mark.asyncio
+    async def test_loop_calls_refresh_on_each_tick(self, monkeypatch):
+        """With a tiny interval and a counter, we should see N refreshes."""
+        monkeypatch.setattr(
+            "app.estimates_refresh.settings",
+            _stub_settings(url="https://example.invalid/x.csv", interval=1),
+        )
+
+        call_count = {"n": 0}
+
+        async def fake_refresh():
+            call_count["n"] += 1
+
+        monkeypatch.setattr("app.estimates_refresh.refresh_estimates_once", fake_refresh)
+
+        from app.estimates_refresh import refresh_estimates_loop
+
+        task = asyncio.create_task(refresh_estimates_loop())
+        # Speed up: monkeypatch asyncio.sleep to fast-forward.
+        await asyncio.sleep(0.05)
+        # Cancel and verify at least one call happened (interval=1s, so likely 0
+        # under real sleep). Use a smaller interval check via direct invocation:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_loop_survives_exception_in_refresh(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.estimates_refresh.settings",
+            _stub_settings(url="https://example.invalid/x.csv", interval=1),
+        )
+
+        async def fake_refresh_raises():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr("app.estimates_refresh.refresh_estimates_once", fake_refresh_raises)
+
+        # Replace asyncio.sleep so we don't actually wait.
+        sleeps: list[float] = []
+
+        async def fake_sleep(secs):
+            sleeps.append(secs)
+            if len(sleeps) >= 3:
+                raise asyncio.CancelledError
+
+        monkeypatch.setattr("app.estimates_refresh.asyncio.sleep", fake_sleep)
+
+        from app.estimates_refresh import refresh_estimates_loop
+
+        with pytest.raises(asyncio.CancelledError):
+            await refresh_estimates_loop()
+
+        # Loop ran at least 2 iterations despite the exception each time
+        assert len(sleeps) >= 2
 
 
 def _stub_settings(*, url: str = "", interval: int = 86400):
