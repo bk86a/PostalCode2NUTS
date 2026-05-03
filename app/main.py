@@ -431,3 +431,90 @@ async def admin_refresh_estimates(request: Request) -> JSONResponse:
             "source_url": settings.estimates_refresh_url,
         },
     )
+
+
+@app.get(
+    "/admin/memory",
+    summary="Memory and runtime diagnostics",
+    description=(
+        "Operator-only — requires `Authorization: Bearer <trusted-token>`. "
+        "Returns sizes of in-memory state, /proc process counters, asyncio task / "
+        "thread / file-descriptor counts, and a `gc.get_objects()` type histogram. "
+        "Intended for one-off leak investigations; safe to call repeatedly but "
+        "the gc walk takes ~hundreds of ms on large heaps."
+    ),
+    include_in_schema=False,
+)
+async def admin_memory(request: Request) -> JSONResponse:
+    if not getattr(request.state, "trusted", False):
+        raise HTTPException(status_code=401, detail="Trusted token required")
+
+    import asyncio
+    import gc
+    import os
+    import threading
+    from collections import Counter
+
+    from app import auth as _auth
+    from app import data_loader as _dl
+    from app.limiter import limiter as _limiter
+
+    sizes: dict[str, int] = {
+        "data_loader._lookup": len(_dl._lookup),
+        "data_loader._estimates": len(_dl._estimates),
+        "data_loader._prefix_index_countries": len(_dl._prefix_index),
+        "data_loader._prefix_index_total_entries": sum(
+            sum(len(v) for v in idx.values()) for idx in _dl._prefix_index.values()
+        ),
+        "data_loader._nuts_names": len(_dl._nuts_names),
+        "data_loader._single_nuts3": len(_dl._single_nuts3),
+        "data_loader._country_fallback": len(_dl._country_fallback),
+        "auth._db_tokens": len(_auth._db_tokens),
+    }
+    storage = getattr(_limiter, "_storage", None)
+    if storage is not None:
+        for attr in ("storage", "expirations", "events", "locks"):
+            d = getattr(storage, attr, None)
+            if d is not None:
+                try:
+                    sizes[f"limiter._storage.{attr}"] = len(d)
+                except TypeError:
+                    pass
+
+    proc: dict[str, str | int] = {}
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                key, _, val = line.partition(":")
+                if key in {"VmRSS", "VmSize", "VmHWM", "RssAnon", "RssFile", "Threads"}:
+                    proc[key] = val.strip()
+    except OSError:
+        pass
+    try:
+        proc["fd_count"] = len(os.listdir("/proc/self/fd"))
+    except OSError:
+        pass
+
+    try:
+        tasks = asyncio.all_tasks()
+        task_info: dict[str, object] = {
+            "count": len(tasks),
+            "sample": sorted({str(t.get_coro())[:160] for t in tasks})[:15],
+        }
+    except RuntimeError:
+        task_info = {"count": -1, "sample": []}
+
+    gc.collect()
+    type_counts = Counter(type(o).__name__ for o in gc.get_objects())
+    top_types = [{"type": t, "count": c} for t, c in type_counts.most_common(30)]
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "sizes": sizes,
+            "proc": proc,
+            "asyncio_tasks": task_info,
+            "thread_count": threading.active_count(),
+            "gc_top_30_types": top_types,
+        },
+    )
