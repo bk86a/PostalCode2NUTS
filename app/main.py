@@ -495,6 +495,8 @@ async def admin_memory(request: Request) -> JSONResponse:
     except OSError:
         pass
 
+    # asyncio.all_tasks() must run on the event loop, so capture it before
+    # offloading anything else.
     try:
         tasks = asyncio.all_tasks()
         task_info: dict[str, object] = {
@@ -504,9 +506,17 @@ async def admin_memory(request: Request) -> JSONResponse:
     except RuntimeError:
         task_info = {"count": -1, "sample": []}
 
-    gc.collect()
-    type_counts = Counter(type(o).__name__ for o in gc.get_objects())
-    top_types = [{"type": t, "count": c} for t, c in type_counts.most_common(30)]
+    # The gc.get_objects() walk is the expensive part — on a multi-GB heap it
+    # iterates 10M+ objects. Offload to a thread so the GIL releases between
+    # iterations of the pure-Python Counter loop and other coroutines on this
+    # worker can interleave. gc.collect() is intentionally omitted: on a heap
+    # this size it costs seconds and holds the GIL throughout, while
+    # transient-cycle noise is negligible compared to anything worth diagnosing.
+    def _gc_type_histogram() -> list[dict[str, object]]:
+        type_counts = Counter(type(o).__name__ for o in gc.get_objects())
+        return [{"type": t, "count": c} for t, c in type_counts.most_common(30)]
+
+    top_types = await asyncio.to_thread(_gc_type_histogram)
 
     return JSONResponse(
         status_code=200,
