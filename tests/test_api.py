@@ -484,3 +484,49 @@ class TestAdminRefreshEstimatesEndpoint:
         body = resp.json()
         assert body["status"] == "rejected"
         assert body["candidate_count"] == 12
+
+
+class TestAdminMemoryEndpoint:
+    def test_401_without_authorization(self, trusted_client):
+        resp = trusted_client.get("/admin/memory")
+        assert resp.status_code == 401
+
+    def test_401_with_invalid_bearer(self, trusted_client):
+        resp = trusted_client.get(
+            "/admin/memory",
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+        assert resp.status_code == 401
+
+    def test_200_returns_diagnostic_payload(self, trusted_client):
+        resp = trusted_client.get(
+            "/admin/memory",
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # Top-level keys present
+        assert set(body.keys()) >= {
+            "sizes",
+            "proc",
+            "asyncio_tasks",
+            "thread_count",
+            "gc_top_30_types",
+        }
+        # Module-scoped sizes are present and integer-valued
+        for key in (
+            "data_loader._lookup",
+            "data_loader._estimates",
+            "data_loader._prefix_index_countries",
+            "auth._db_tokens",
+        ):
+            assert key in body["sizes"]
+            assert isinstance(body["sizes"][key], int)
+        # gc histogram is non-empty
+        assert isinstance(body["gc_top_30_types"], list)
+        assert len(body["gc_top_30_types"]) > 0
+        assert {"type", "count"} <= set(body["gc_top_30_types"][0].keys())
+        # asyncio task info has the expected shape
+        assert "count" in body["asyncio_tasks"]
+        # thread count is at least 1 (the test thread itself)
+        assert body["thread_count"] >= 1
