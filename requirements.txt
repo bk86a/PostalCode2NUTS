@@ -1,4 +1,4 @@
-fastapi>=0.136.0,<1
+fastapi>=0.136.1,<1
 uvicorn[standard]>=0.45.0,<1
 httpx>=0.28.1,<1
 pydantic>=2.13.3,<3
