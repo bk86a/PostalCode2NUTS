@@ -4,5 +4,5 @@ httpx>=0.28.1,<1
 pydantic>=2.13.4,<3
 pydantic-settings>=2.14.0,<3
 slowapi>=0.1.9,<1
-limits[redis]>=2.3
+limits[redis]>=5.8.0
 python-dotenv>=1.2.2,<2
