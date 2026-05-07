@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-05-07
+
+### Changed
+
+- **Dependency bumps** via Dependabot:
+  - `fastapi` 0.136.0 → 0.136.1 (#80)
+  - `pydantic` 2.13.3 → 2.13.4 (#81)
+  - `limits` >=2.3 → >=5.8.0 (#77) — used transitively via `slowapi`; no API surface in this repo touches `limits` directly.
+  - `pytest-asyncio` 0.23 → 1.3.0 (#78, dev) — `asyncio_mode = "auto"` config remains supported.
+  - `pytest` 8 → 9.0.3 (#79, dev) — required the `pytest-asyncio` 1.x bump first to avoid the `'Package' object has no attribute 'obj'` collection error in `pytest-asyncio` 0.23 under pytest 9.
+
 ## [0.19.0] - 2026-05-03
 
 ### Added
