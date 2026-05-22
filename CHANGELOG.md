@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-05-22
+
+### Security
+
+- **`idna` bumped to 3.16** (#87) to clear **CVE-2026-45409** (fixed in 3.15). `idna` is pulled in transitively via `httpx`; the CI `security` gate audits `requirements.lock`, so the fix is a `idna==3.16` pin there plus an `idna>=3.15,<4` floor in `requirements.txt` to keep future lockfile regenerations clear. Dependabot does not open PRs for undeclared transitive dependencies, so this was pinned directly.
+
+### Changed
+
+- **Dependency bumps** via Dependabot:
+  - `uvicorn` >=0.45.0 → >=0.47.0 (#86)
+  - `pydantic-settings` 2.14.0 → 2.14.1 (#84)
+  - `ruff` 0.15.12 → 0.15.13 (#85, dev)
+
 ## [0.19.1] - 2026-05-07
 
 ### Changed
