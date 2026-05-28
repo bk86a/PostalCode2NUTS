@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -13,10 +14,14 @@ permissions:
 
 jobs:
   # Detect whether the change touches any code-relevant path.
-  # Docs-only changes (README, *.md, *.csv, docs/**) skip heavy work
-  # while every required check name still reports success — this avoids
-  # the paths-ignore + required-status-checks deadlock that previously
-  # blocked docs-only PRs.
+  # Docs-only changes (README, *.md outside the repo root data files,
+  # docs/**) skip heavy work while every required check name still
+  # reports success — this avoids the paths-ignore + required-status-checks
+  # deadlock that previously blocked docs-only PRs.
+  #
+  # Data files bundled into the container image (tercet_missing_codes.csv,
+  # docker-entrypoint.sh) ARE code-relevant — a change to either affects
+  # what ships in `ghcr.io/.../:latest`, so they belong in the filter.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -36,6 +41,8 @@ jobs:
               - 'pyproject.toml'
               - 'Dockerfile'
               - 'Makefile'
+              - 'docker-entrypoint.sh'
+              - 'tercet_missing_codes.csv'
               - '.github/workflows/**'
 
   lint:
@@ -126,7 +133,7 @@ jobs:
         run: echo "Docs-only change — skipping docker build."
 
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true'
     needs: [changes, lint, import-check, test, security, docker]
     runs-on: ubuntu-latest
     steps:
