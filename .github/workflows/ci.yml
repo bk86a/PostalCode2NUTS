@@ -133,7 +133,9 @@ jobs:
         run: echo "Docs-only change — skipping docker build."
 
   publish:
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true'
+    # workflow_dispatch on main always publishes (the whole point of a manual
+    # trigger); push to main publishes only if a code-relevant file changed.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.changes.outputs.code == 'true'))
     needs: [changes, lint, import-check, test, security, docker]
     runs-on: ubuntu-latest
     steps:
