@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-05-28
+
+### Security
+
+- **`starlette` bumped to 1.1.0** to clear **PYSEC-2026-161** (fixed in 1.0.1). `starlette` is pulled in transitively via `fastapi`; the CI `security` gate audits `requirements.lock`, so the fix is a `starlette==1.1.0` pin there. `fastapi` 0.136.3 declares `starlette>=0.46.0` with no upper bound, so the 1.x bump is in-range. Dependabot does not open PRs for undeclared transitive dependencies, so this was pinned directly as part of the lockfile regeneration.
+
+### Changed
+
+- **Dependency bumps** via Dependabot (bundled, superseding #89, #90, #91, #92):
+  - `fastapi` 0.136.1 → 0.136.3 (#89) — stricter underscore-header validation when `convert_underscores=True`
+  - `uvicorn` >=0.47.0 → >=0.48.0 (#91) — `ssl_ciphers` defaults to OpenSSL, `ProxyHeadersMiddleware` ignores duplicate forwarding headers
+  - `idna` >=3.15 → >=3.16 (#90) — floor raised to match the lockfile pin already in place from #87
+  - `pytest-asyncio` 1.3.0 → 1.4.0 (#92, dev) — deprecates overriding the `event_loop_policy` fixture in favour of the new `pytest_asyncio_loop_factories` hook; current test suite does not override it
+
 ## [0.19.2] - 2026-05-22
 
 ### Security
