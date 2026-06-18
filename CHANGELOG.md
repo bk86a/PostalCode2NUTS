@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.19.4] - 2026-06-19
+
+### Security
+
+- **`starlette` bumped to 1.3.1** to clear **CVE-2026-54282** (fixed in 1.3.0) and **CVE-2026-54283** (fixed in 1.3.1). `starlette` is pulled in transitively via `fastapi`; the CI `security` gate audits `requirements.lock`, so the fix is a `starlette==1.3.1` pin there, reached by regenerating the lockfile. Dependabot does not open PRs for undeclared transitive dependencies, so this was picked up as part of the lockfile regeneration.
+
+### Changed
+
+- **Dependency bumps** via Dependabot (bundled in #103, superseding #96, #98, #99, #101, #102):
+  - `uvicorn` >=0.48.0 → >=0.49.0 (#96)
+  - `idna` >=3.16 → >=3.18 (#98)
+  - `pip-audit` >=2.10.0 → >=2.10.1 (#99, dev)
+  - `pytest` >=9.0.3 → >=9.1.0 (#101, dev)
+  - `ruff` >=0.15.14 → >=0.15.17 (#102, dev)
+- **Lockfile regeneration** also floated transitive pins: `anyio` 4.14.0, `certifi` 2026.6.17, `fastapi` 0.137.2, `redis` 7.4.1, `slowapi` 0.1.10.
+
+### Fixed
+
+- **CI now republishes the container image on bundled-data changes** (#95): `tercet_missing_codes.csv` and `docker-entrypoint.sh` are `COPY`'d into the image but were missing from the `changes` path filter, so a data-only change (e.g. #93) merged without rebuilding `ghcr.io/.../:latest`. Both are now treated as code-relevant. Adds a `workflow_dispatch` trigger so manual rebuilds no longer need an empty commit.
+- Removed a pre-existing unused import in `tests/test_estimates_refresh.py` surfaced by the `ruff` bump.
+
 ## [0.19.3] - 2026-05-28
 
 ### Security
