@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+- Add Faroe Islands (FO) support: synthetic single-region lookup (`FO000`,
+  `match_type="approximate"`, capped confidence) for the territory, which has no
+  NUTS coverage. (#55)
+
 ## [0.19.4] - 2026-06-19
 
 ### Security
