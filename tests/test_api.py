@@ -124,6 +124,11 @@ class TestFaroeIslandsAPI:
         r = client.get("/lookup", params={"country": "FO", "postal_code": "1234"})
         assert r.status_code == 404
 
+    def test_lookup_fo_two_digit_404(self, client):
+        # A 2-digit code must not be leading-zero-padded into a valid FO000 hit.
+        r = client.get("/lookup", params={"country": "FO", "postal_code": "10"})
+        assert r.status_code == 404
+
     def test_pattern_fo(self, client):
         r = client.get("/pattern", params={"country": "FO"})
         assert r.status_code == 200
