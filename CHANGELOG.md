@@ -6,9 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-- Add Faroe Islands (FO) support: synthetic single-region lookup (`FO000`,
-  `match_type="approximate"`, capped confidence) for the territory, which has no
-  NUTS coverage. (#55)
+## [0.20.0] - 2026-06-29
+
+### Added
+
+- **Faroe Islands (FO) support** (#55): the Faroe Islands has no NUTS coverage,
+  so lookups now resolve via a new synthetic single-region fallback (Tier 6).
+  Any well-formed 3-digit FO code returns `FO0` / `FO00` / `FO000` with
+  `match_type="approximate"` and capped confidence (`0.90` / `0.85` / `0.80`).
+  The code is fabricated (not a real NUTS code), configured via a new
+  `synthetic_nuts_fallback` key in `app/settings.json`. Distinct from
+  Montenegro's `single_nuts3_fallback` (Tier 5), whose `ME000` is genuine.
 
 ## [0.19.4] - 2026-06-19
 
