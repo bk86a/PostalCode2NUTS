@@ -18,6 +18,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `synthetic_nuts_fallback` key in `app/settings.json`. Distinct from
   Montenegro's `single_nuts3_fallback` (Tier 5), whose `ME000` is genuine.
 
+## [0.19.5] - 2026-06-25
+
+### Security
+
+- **`pydantic-settings` bumped to 2.14.2** to clear **GHSA-4xgf-cpjx-pc3j** (fixed in 2.14.2). The CI `security` gate audits `requirements.lock`, where `pydantic-settings` was still pinned at 2.14.1; Dependabot only edits `requirements.txt`, so the fix lands by regenerating the lockfile. This single stale lock pin was failing the `security` check on every open Dependabot PR (#105–#110), not just the `pydantic-settings` one.
+
+### Changed
+
+- **Dependency bumps** via Dependabot (bundled in #111, superseding #105, #106, #107, #108, #109, #110):
+  - `fastapi` >=0.136.3 → >=0.138.0 (#107)
+  - `slowapi` >=0.1.9 → >=0.1.10 (#108)
+  - `pydantic-settings` >=2.14.1 → >=2.14.2 (#110)
+  - `ruff` >=0.15.17 → >=0.15.19 (#106, dev)
+  - `pytest` >=9.1.0 → >=9.1.1 (#109, dev)
+  - `actions/checkout` v6 → v7 (#105, CI)
+- **Lockfile regeneration** also floated transitive pins: `anyio` 4.14.0 → 4.14.1, `click` 8.4.1 → 8.4.2, `fastapi` 0.137.2 → 0.138.0, `wrapt` 2.2.1 → 2.2.2.
+
 ## [0.19.4] - 2026-06-19
 
 ### Security
