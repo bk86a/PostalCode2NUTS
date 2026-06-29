@@ -138,3 +138,24 @@ class TestExtractPostalCode:
 
     def test_me_with_space_prefix(self):
         assert extract_postal_code("ME", "ME 85320") == "85320"
+
+
+class TestFaroeIslands:
+    def test_bare_three_digits(self):
+        from app.postal_patterns import extract_postal_code
+        assert extract_postal_code("FO", "100") == "100"
+
+    def test_prefixed_variants(self):
+        from app.postal_patterns import extract_postal_code
+        assert extract_postal_code("FO", "FO-100") == "100"
+        assert extract_postal_code("FO", "FO 100") == "100"
+        assert extract_postal_code("FO", "FO100") == "100"
+
+    def test_rejects_non_three_digit(self):
+        # No regex match → falls back to normalize_postal_code(cleaned),
+        # which is NOT a clean 3-digit extraction.
+        from app.postal_patterns import _COMPILED
+        pat = _COMPILED["FO"]
+        assert pat.match("1234") is None
+        assert pat.match("ABC") is None
+        assert pat.match("DK-3800") is None
