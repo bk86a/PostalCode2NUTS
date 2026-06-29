@@ -162,6 +162,12 @@ class TestLookup:
         assert lookup("FO", "ABC") is None
         assert lookup("FO", "DK-3800") is None
 
+    def test_tier6_fo_rejects_two_digit(self, mock_data):
+        """Real FO codes are 100-970, never leading-zero-padded. A bare 2-digit
+        input must NOT be recovered to a 3-digit code and resolve to FO000."""
+        assert lookup("FO", "10") is None
+        assert lookup("FO", "99") is None
+
     def test_tier6_fo_in_loaded_countries(self, mock_data):
         from app.data_loader import get_loaded_countries
         assert "FO" in get_loaded_countries()

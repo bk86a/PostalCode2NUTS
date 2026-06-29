@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-06-29
+
+### Fixed
+
+- **Faroe Islands (FO) 2-digit inputs no longer resolve to `FO000`** (#55): the FO
+  pattern declared `expected_digits: 3`, which opted FO into the generic
+  leading-zero recovery — so `_preprocess` padded a bare 2-digit value (e.g. `10`)
+  to `010`, and the Tier 6 format guard then accepted it, returning the synthetic
+  result instead of the documented 404. Real FO codes are 100–970 and never carry
+  a leading zero, so `expected_digits` is dropped from the FO pattern; non-3-digit
+  input now correctly returns 404.
+
 ## [0.20.0] - 2026-06-29
 
 ### Added
