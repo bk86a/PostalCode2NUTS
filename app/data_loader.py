@@ -40,6 +40,10 @@ _single_nuts3: dict[str, str] = {}
 # (e.g. FO -> FO000). Resolved via Tier 6 as approximate/capped confidence.
 _synthetic_nuts: dict[str, str] = {}
 
+# Region display names for synthetic (non-NUTS) territories, keyed by country
+# code. Kept here (not in settings) so synthetic_nuts_fallback stays cc->code.
+_SYNTHETIC_NAMES: dict[str, str] = {"FO": "Faroe Islands"}
+
 # Country-level majority-vote fallback for countries where NUTS1/NUTS2
 # are unanimous but NUTS3 has a dominant winner (e.g. MT → MT0/MT00/MT001)
 _country_fallback: dict[str, dict] = {}
@@ -651,11 +655,15 @@ def _build_prefix_index() -> None:
     _synthetic_nuts.clear()
     for cc, nuts3 in settings.synthetic_nuts_fallback.items():
         _synthetic_nuts[cc] = nuts3
-        # Inject a literal region name so output is not null. Applied here (after
-        # GISCO names load in both load paths) and only for codes not already
-        # present, so real names are never overwritten.
-        for code in (nuts3[:3], nuts3[:4], nuts3):
-            _nuts_names.setdefault(code, "Faroe Islands")
+        # Inject a per-country region name so output is not null. Applied here
+        # (after GISCO names load in both load paths) and only for codes not
+        # already present, so real names are never overwritten. A territory
+        # without an entry in _SYNTHETIC_NAMES gets null names rather than the
+        # wrong name.
+        name = _SYNTHETIC_NAMES.get(cc)
+        if name is not None:
+            for code in (nuts3[:3], nuts3[:4], nuts3):
+                _nuts_names.setdefault(code, name)
     if _synthetic_nuts:
         logger.info("Synthetic-NUTS territories: %s", ", ".join(sorted(_synthetic_nuts)))
 
