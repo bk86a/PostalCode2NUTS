@@ -134,6 +134,38 @@ class TestLookup:
         result = lookup("ZZ", "12345")
         assert result is None
 
+    def test_tier6_fo_synthetic(self, mock_data):
+        """FO has no NUTS coverage → synthetic approximate result."""
+        result = lookup("FO", "100")
+        assert result is not None
+        assert result["match_type"] == "approximate"
+        assert result["nuts3"] == "FO000"
+        assert result["nuts2"] == "FO00"
+        assert result["nuts1"] == "FO0"
+        assert result["nuts3_confidence"] == 0.80
+        assert result["nuts2_confidence"] == 0.85
+        assert result["nuts1_confidence"] == 0.90
+
+    def test_tier6_fo_names(self, mock_data):
+        result = lookup("FO", "100")
+        assert result["nuts1_name"] == "Faroe Islands"
+        assert result["nuts2_name"] == "Faroe Islands"
+        assert result["nuts3_name"] == "Faroe Islands"
+
+    def test_tier6_fo_prefix_variants(self, mock_data):
+        for raw in ("FO-100", "FO 100", "FO100", "970", "999"):
+            assert lookup("FO", raw)["nuts3"] == "FO000"
+
+    def test_tier6_fo_rejects_bad_format(self, mock_data):
+        """Format guard: non-3-digit input gets no synthetic result."""
+        assert lookup("FO", "1234") is None
+        assert lookup("FO", "ABC") is None
+        assert lookup("FO", "DK-3800") is None
+
+    def test_tier6_fo_in_loaded_countries(self, mock_data):
+        from app.data_loader import get_loaded_countries
+        assert "FO" in get_loaded_countries()
+
 
 class TestParseEstimatesFromText:
     def test_parses_well_formed_csv(self):
