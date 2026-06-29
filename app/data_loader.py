@@ -36,6 +36,14 @@ _prefix_index: dict[str, dict[str, list[str]]] = {}
 # Countries with a single NUTS3 region: country_code -> nuts3 code
 _single_nuts3: dict[str, str] = {}
 
+# Territories with NO NUTS coverage: country_code -> fabricated NUTS3-style code
+# (e.g. FO -> FO000). Resolved via Tier 6 as approximate/capped confidence.
+_synthetic_nuts: dict[str, str] = {}
+
+# Region display names for synthetic (non-NUTS) territories, keyed by country
+# code. Kept here (not in settings) so synthetic_nuts_fallback stays cc->code.
+_SYNTHETIC_NAMES: dict[str, str] = {"FO": "Faroe Islands"}
+
 # Country-level majority-vote fallback for countries where NUTS1/NUTS2
 # are unanimous but NUTS3 has a dominant winner (e.g. MT → MT0/MT00/MT001)
 _country_fallback: dict[str, dict] = {}
@@ -79,7 +87,7 @@ def get_estimates_table() -> dict[tuple[str, str], dict]:
 
 def get_loaded_countries() -> set[str]:
     """Return the set of country codes that have data loaded."""
-    return {cc for cc, _ in _lookup} | set(_single_nuts3.keys())
+    return {cc for cc, _ in _lookup} | set(_single_nuts3.keys()) | set(_synthetic_nuts.keys())
 
 
 def get_data_stale() -> bool:
@@ -642,6 +650,23 @@ def _build_prefix_index() -> None:
     if _single_nuts3:
         logger.info("Single-NUTS3 countries: %s", ", ".join(sorted(_single_nuts3)))
 
+    # Synthetic single-region fallback for territories with NO NUTS coverage
+    # (e.g. FO). Fabricated codes → approximate provenance at lookup time.
+    _synthetic_nuts.clear()
+    for cc, nuts3 in settings.synthetic_nuts_fallback.items():
+        _synthetic_nuts[cc] = nuts3
+        # Inject a per-country region name so output is not null. Applied here
+        # (after GISCO names load in both load paths) and only for codes not
+        # already present, so real names are never overwritten. A territory
+        # without an entry in _SYNTHETIC_NAMES gets null names rather than the
+        # wrong name.
+        name = _SYNTHETIC_NAMES.get(cc)
+        if name is not None:
+            for code in (nuts3[:3], nuts3[:4], nuts3):
+                _nuts_names.setdefault(code, name)
+    if _synthetic_nuts:
+        logger.info("Synthetic-NUTS territories: %s", ", ".join(sorted(_synthetic_nuts)))
+
     # Country-level majority-vote fallback for countries NOT in _single_nuts3
     # where NUTS1 and NUTS2 are unanimous but NUTS3 has a dominant winner
     _country_fallback.clear()
@@ -978,15 +1003,33 @@ def _build_result(match_type: str, nuts3: str, nuts1: str = "", nuts2: str = "",
     }
 
 
+def _matches_pattern(cc: str, raw: str) -> bool:
+    """True if raw input matches the country's compiled postal pattern.
+
+    Used as a format guard for synthetic (Tier 6) countries so that, unlike the
+    single-NUTS3 tier, FO accepts only well-formed input. Imported locally to
+    avoid the postal_patterns ↔ data_loader circular import.
+    """
+    from app.postal_patterns import _COMPILED, _preprocess, POSTAL_PATTERNS
+
+    pat = _COMPILED.get(cc)
+    if pat is None:
+        return False
+    cleaned = _preprocess(raw.strip(), POSTAL_PATTERNS.get(cc))
+    return pat.match(cleaned.upper()) is not None
+
+
 def lookup(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
-    Five-tier fall-through:
+    Six-tier fall-through:
     1. Exact TERCET match → confidence 1.0
     2. Pre-computed estimate → stored confidence per level
     3. Runtime prefix-based estimation → calculated confidence
     4. Country-level majority vote → unanimous NUTS1/2, dominant NUTS3 (e.g. MT)
     5. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
+    6. Synthetic single-region fallback → match_type='approximate', capped
+       confidence (e.g. FO → FO000; fabricated, not a real NUTS code)
 
     Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
@@ -1037,5 +1080,19 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     nuts3 = _single_nuts3.get(cc)
     if nuts3 is not None:
         return _build_result("estimated", nuts3)
+
+    # Tier 6: Synthetic single-region fallback for non-NUTS territories (e.g. FO).
+    # Fabricated code → approximate match_type, capped confidence. Format-guarded
+    # so only well-formed input resolves (contrast Tier 5, which fires on cc alone).
+    syn = _synthetic_nuts.get(cc)
+    if syn is not None and _matches_pattern(cc, postal_code):
+        caps = settings.approximate_confidence_caps
+        return _build_result(
+            "approximate",
+            syn,
+            nuts1_confidence=caps["nuts1"],
+            nuts2_confidence=caps["nuts2"],
+            nuts3_confidence=caps["nuts3"],
+        )
 
     return None

@@ -19,6 +19,11 @@ North Macedonia (MK), Montenegro (ME), Serbia (RS), Türkiye (TR)
 
 > **Montenegro** is treated by Eurostat as a single nationwide unit at every NUTS level (`ME0` / `ME00` / `ME000`), and GISCO does not currently publish a TERCET file for it. Lookups for ME are served by the single-NUTS3 fallback (Tier 5) configured via `single_nuts3_fallback` in `app/settings.json`, returning `ME000` for any valid 5-digit code starting with `8`.
 
+**Other territories** (1):
+Faroe Islands (FO) — not part of NUTS; synthetic result.
+
+> **Faroe Islands** is an autonomous Danish territory with no NUTS coverage and no GISCO TERCET file. Lookups for FO are served by a synthetic single-region fallback (Tier 6) configured via `synthetic_nuts_fallback` in `app/settings.json`, returning `FO0` / `FO00` / `FO000` with `match_type="approximate"` and capped confidence (`0.90` / `0.85` / `0.80`) for any well-formed 3-digit code. The code is fabricated, not derived from a real NUTS dataset — contrast Montenegro's `ME000`, which is a genuine single-region NUTS code.
+
 ## Testing
 
 The service has been tested against **134 million real-world postal codes** from 34 countries, sourced from 8 publicly available European datasets (GeoNames, OpenAddresses, GLEIF, SIRENE, TED, OffeneRegister, FTS, and Erasmus+ ECHE). All are open data published under permissive licenses (CC BY 4.0, CC0, or Licence Ouverte v2.0).
@@ -279,6 +284,7 @@ User input: "Traiskirchen"
 | EL | 5 digits or 2+3 / 3+2 with space | GR-, EL- | `10431`, `GR-10431`, `EL-10431`, `105 57` |
 | ES | 5 digits | E- | `28001`, `E-28001` |
 | FI | 5 digits | FI- | `00100`, `FI-00100` |
+| FO | 3 digits (no NUTS coverage — resolves to synthetic `FO000` via Tier 6, `approximate`/capped confidence) | FO- | `100`, `FO-100`, `FO 100` |
 | FR | 5 digits | F- | `75001`, `F-75001` |
 | HR | 5 digits | HR- | `10000`, `HR-10000` |
 | HU | 4 digits | H- | `1011`, `H-1011` |

@@ -81,6 +81,7 @@ def mock_data():
     orig_names = data_loader._nuts_names.copy()
     orig_prefix = {k: dict(v) for k, v in data_loader._prefix_index.items()}
     orig_single = data_loader._single_nuts3.copy()
+    orig_synthetic = data_loader._synthetic_nuts.copy()
     orig_fallback = data_loader._country_fallback.copy()
 
     # Populate
@@ -105,6 +106,8 @@ def mock_data():
     data_loader._prefix_index.update(orig_prefix)
     data_loader._single_nuts3.clear()
     data_loader._single_nuts3.update(orig_single)
+    data_loader._synthetic_nuts.clear()
+    data_loader._synthetic_nuts.update(orig_synthetic)
     data_loader._country_fallback.clear()
     data_loader._country_fallback.update(orig_fallback)
 
