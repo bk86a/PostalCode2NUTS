@@ -12,6 +12,7 @@ into one centroid. Offline analysis tool — NOT imported by the served app.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -23,7 +24,11 @@ def _normalize_pc(postal_code: str) -> str:
 
 def load_geonames_coords(
     paths: list[str | Path],
+    normalize_cc: Callable[[str], str] = str.upper,
 ) -> dict[tuple[str, str], tuple[float, float]]:
+    # normalize_cc maps the raw GeoNames (ISO) country code to the caller's
+    # canonical convention — e.g. app.data_loader.normalize_country maps GR→EL
+    # so Greek centroids key under the same code the app/queries use.
     # (cc, pc) -> [lat_sum, lon_sum, count]
     sums: dict[tuple[str, str], list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0])
     for path in paths:
@@ -35,7 +40,7 @@ def load_geonames_coords(
                 lat_s, lon_s = cols[9].strip(), cols[10].strip()
                 if not lat_s or not lon_s:
                     continue
-                key = (cols[0].strip().upper(), _normalize_pc(cols[1]))
+                key = (normalize_cc(cols[0].strip()), _normalize_pc(cols[1]))
                 acc = sums[key]
                 acc[0] += float(lat_s)
                 acc[1] += float(lon_s)

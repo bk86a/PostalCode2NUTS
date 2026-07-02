@@ -49,3 +49,18 @@ def test_rows_without_coordinates_are_skipped(tmp_path):
 
 def test_normalize_pc():
     assert gc._normalize_pc(" 1011 ab ") == "1011AB"
+
+
+def test_normalize_cc_remaps_country_key(tmp_path):
+    # A GR (ISO) row; the app's canonical convention is EL. With a normalizer
+    # that maps GR→EL, the key is stored under the canonical code.
+    f = tmp_path / "geo.txt"
+    row = ["GR", "10431", "Athina", "", "", "", "", "", "", "37.98", "23.72", "4"]
+    f.write_text("\t".join(row) + "\n", encoding="utf-8")
+
+    def norm(c):
+        return "EL" if c.strip().upper() == "GR" else c.strip().upper()
+
+    coords = gc.load_geonames_coords([f], normalize_cc=norm)
+    assert ("EL", "10431") in coords
+    assert ("GR", "10431") not in coords
