@@ -98,3 +98,34 @@ def test_evaluate_normalizes_query_country_for_coord_lookup():
     buckets = {(r["country"], r["postcode"]): r["bucket"] for r in recs}
     assert buckets[("GR", "10431")] == "rescue"  # GR reconciled to EL coord
     assert buckets[("EL", "10431")] == "rescue"
+
+
+def _write_csv(path, header, rows):
+    import csv as _csv
+
+    with open(path, "w", newline="") as fh:
+        w = _csv.writer(fh)
+        w.writerow(header)
+        w.writerows(rows)
+
+
+def test_read_query_rows_accepts_query_log_headers(tmp_path):
+    p = tmp_path / "q.csv"
+    _write_csv(p, ["COUNTRY", "POST_CODE"], [["DE", "10115"], ["fr", " 75001 "]])
+    assert list(ev._read_query_rows(str(p))) == [("DE", "10115"), ("fr", "75001")]
+
+
+def test_read_query_rows_accepts_estimate_data_headers(tmp_path):
+    # tercet_missing_codes.csv uses COUNTRY_CODE / POSTAL_CODE.
+    p = tmp_path / "d.csv"
+    _write_csv(p, ["COUNTRY_CODE", "POSTAL_CODE", "ESTIMATED_NUTS3"], [["AL", "1001", "AL011"]])
+    assert list(ev._read_query_rows(str(p))) == [("AL", "1001")]
+
+
+def test_read_query_rows_missing_column_raises_clear_error(tmp_path):
+    import pytest
+
+    p = tmp_path / "bad.csv"
+    _write_csv(p, ["NATION", "ZIP"], [["DE", "10115"]])
+    with pytest.raises(ValueError, match="missing a country column"):
+        list(ev._read_query_rows(str(p)))

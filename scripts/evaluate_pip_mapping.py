@@ -107,11 +107,28 @@ def format_report(summary: dict) -> str:
     return "\n".join(lines)
 
 
+# Accept the query-log headers (COUNTRY/POST_CODE) and the repo's estimate/data
+# headers (COUNTRY_CODE/POSTAL_CODE), plus common variants.
+_COUNTRY_ALIASES = ("COUNTRY", "COUNTRY_CODE", "CC")
+_POSTCODE_ALIASES = ("POST_CODE", "POSTAL_CODE", "POSTCODE")
+
+
+def _pick_column(cols: dict[str, str], aliases: tuple[str, ...], kind: str) -> str:
+    for alias in aliases:
+        if alias in cols:
+            return cols[alias]
+    raise ValueError(
+        f"input CSV is missing a {kind} column: expected one of "
+        f"{', '.join(aliases)}; found {', '.join(cols) or '(no header row)'}"
+    )
+
+
 def _read_query_rows(path: str) -> Iterator[tuple[str, str]]:
     with open(path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         cols = {c.upper(): c for c in reader.fieldnames or []}
-        cc_col, pc_col = cols["COUNTRY"], cols["POST_CODE"]
+        cc_col = _pick_column(cols, _COUNTRY_ALIASES, "country")
+        pc_col = _pick_column(cols, _POSTCODE_ALIASES, "postal-code")
         for row in reader:
             yield row[cc_col].strip(), row[pc_col].strip()
 
