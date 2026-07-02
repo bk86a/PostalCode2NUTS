@@ -40,6 +40,14 @@ MOCK_ESTIMATES = {
         "nuts2_confidence": 0.95,
         "nuts1_confidence": 0.98,
     },
+    ("AL", "1001"): {
+        "nuts3": "AL022",
+        "nuts2": "AL02",
+        "nuts1": "AL0",
+        "nuts3_confidence": 0.90,
+        "nuts2_confidence": 0.95,
+        "nuts1_confidence": 0.98,
+    },
 }
 
 MOCK_NUTS_NAMES = {
@@ -65,6 +73,9 @@ MOCK_NUTS_NAMES = {
     "YY11": "YY Sub-Region",
     "YY111": "YY District A",
     "YY112": "YY District B",
+    "AL0": "Shqipëria",
+    "AL02": "Qender",
+    "AL022": "Tiranë",
 }
 
 

@@ -159,3 +159,21 @@ class TestFaroeIslands:
         assert pat.match("1234") is None
         assert pat.match("ABC") is None
         assert pat.match("DK-3800") is None
+
+
+class TestAlbaniaExtraction:
+    def test_bare_four_digits(self):
+        assert extract_postal_code("AL", "1001") == "1001"
+
+    def test_with_al_dash_prefix(self):
+        assert extract_postal_code("AL", "AL-1001") == "1001"
+
+    def test_with_al_space_prefix(self):
+        assert extract_postal_code("AL", "AL 5001") == "5001"
+
+    def test_lowercase_prefix(self):
+        assert extract_postal_code("AL", "al-9721") == "9721"
+
+    def test_three_digit_not_matched_as_four(self):
+        # Too short: regex requires exactly 4 digits; must NOT become a 4-digit code.
+        assert extract_postal_code("AL", "100") != "1000"
