@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     cache_max_age: int = _defaults.get("cache_max_age", 3600)
     startup_timeout: int = 300
     docs_enabled: bool = True
+    photon_url: str = ""
+    photon_timeout_seconds: float = 5.0
+    nuts_geojson_url: str = (
+        "https://gisco-services.ec.europa.eu/distribution/v2/nuts/download/ref-nuts-2024-01m.geojson.zip"
+    )
+    nuts_geojson_path: str = ""
+    resolve_confidence_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    docs_url: str = "/documentation"
     cors_origins: str = "*"
     access_log_file: str = ""
     access_log_max_mb: int = 10
