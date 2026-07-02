@@ -181,7 +181,9 @@ def main() -> int:
         out_dir.mkdir(exist_ok=True)
         out_path = out_dir / "failures.csv"
         with out_path.open("w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=["country", "postcode", "extracted", "bucket", "nuts3", "detail"])
+            w = csv.DictWriter(
+                f, fieldnames=["country", "postcode", "extracted", "bucket", "nuts3", "detail"]
+            )
             w.writeheader()
             w.writerows(failures)
         print(f"\n  → {len(failures):,} non-exact rows written to {out_path}", file=sys.stderr)
