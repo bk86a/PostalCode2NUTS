@@ -36,22 +36,52 @@ os.environ.setdefault("PC2NUTS_TRUSTED_TOKENS", "")
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from app.data_loader import load_data, lookup, normalize_country  # noqa: E402
-from app.postal_patterns import POSTAL_PATTERNS, extract_postal_code  # noqa: E402
+from app.data_loader import (  # noqa: E402
+    _single_nuts3,
+    load_data,
+    lookup,
+    normalize_country,
+)
+from app.postal_patterns import (  # noqa: E402
+    _COMPILED,
+    _preprocess,
+    POSTAL_PATTERNS,
+    extract_postal_code,
+)
+
+
+def _regex_matches(cc_norm: str, raw_pc: str) -> bool:
+    """True if the country's regex actually matches the (preprocessed) input.
+
+    extract_postal_code() falls back to the normalized input when the regex does
+    not match, so its (non-empty) return can't be used to detect a regex failure.
+    We replicate its match step (preprocess → regex) to get a real yes/no.
+    """
+    pattern = _COMPILED.get(cc_norm)
+    if pattern is None:
+        return False
+    cleaned = _preprocess(raw_pc.strip(), POSTAL_PATTERNS.get(cc_norm))
+    return pattern.match(cleaned.upper()) is not None
 
 
 def _bucket(result: dict | None, raw_pc: str, country: str) -> str:
     """Map a lookup() result to a bucket name."""
-    if country not in POSTAL_PATTERNS and normalize_country(country) not in POSTAL_PATTERNS:
+    cc_norm = normalize_country(country)
+    if country not in POSTAL_PATTERNS and cc_norm not in POSTAL_PATTERNS:
         return "unsupported"
 
-    extracted = extract_postal_code(normalize_country(country), raw_pc)
-    if not extracted:
+    if not _regex_matches(cc_norm, raw_pc):
         return "regex_fail"
 
     if result is None:
         return "not_found"
-    return result.get("match_type", "unknown")
+
+    match_type = result.get("match_type", "unknown")
+    # Tier 5 single-NUTS3 fallback also reports match_type=="estimated"; split it
+    # out from genuine Tier 2 curated estimates so the fallback bucket is reachable.
+    if match_type == "estimated" and cc_norm in _single_nuts3:
+        return "estimated_fallback"
+    return match_type
 
 
 def _confidence_band(c: float | None) -> str:
@@ -77,7 +107,7 @@ def main() -> int:
     print("Loading service data...", file=sys.stderr, flush=True)
     t0 = time.monotonic()
     load_data()
-    print(f"  ready in {time.monotonic()-t0:.1f}s", file=sys.stderr)
+    print(f"  ready in {time.monotonic() - t0:.1f}s", file=sys.stderr)
 
     bucket_counts: Counter[str] = Counter()
     per_country_buckets: dict[str, Counter[str]] = defaultdict(Counter)
@@ -99,11 +129,16 @@ def main() -> int:
                 bucket = "error"
                 per_country_buckets[country][bucket] += 1
                 bucket_counts[bucket] += 1
-                failures.append({
-                    "country": country, "postcode": postcode_raw,
-                    "bucket": bucket, "detail": f"{type(exc).__name__}: {exc}",
-                    "extracted": "", "nuts3": "",
-                })
+                failures.append(
+                    {
+                        "country": country,
+                        "postcode": postcode_raw,
+                        "bucket": bucket,
+                        "detail": f"{type(exc).__name__}: {exc}",
+                        "extracted": "",
+                        "nuts3": "",
+                    }
+                )
                 continue
 
             bucket = _bucket(result, postcode_raw, country)
@@ -119,17 +154,21 @@ def main() -> int:
             if bucket != "exact":
                 cc_norm = normalize_country(country)
                 extracted = extract_postal_code(cc_norm, postcode_raw) if cc_norm in POSTAL_PATTERNS else ""
-                failures.append({
-                    "country": country, "postcode": postcode_raw,
-                    "bucket": bucket, "extracted": extracted,
-                    "nuts3": (result or {}).get("nuts3", ""),
-                    "detail": "",
-                })
+                failures.append(
+                    {
+                        "country": country,
+                        "postcode": postcode_raw,
+                        "bucket": bucket,
+                        "extracted": extracted,
+                        "nuts3": (result or {}).get("nuts3", ""),
+                        "detail": "",
+                    }
+                )
             if total % 25_000 == 0:
-                print(f"  {total:,} rows processed ({time.monotonic()-t0:.1f}s)", file=sys.stderr)
+                print(f"  {total:,} rows processed ({time.monotonic() - t0:.1f}s)", file=sys.stderr)
 
     elapsed = time.monotonic() - t0
-    print(f"Done — {total:,} rows in {elapsed:.1f}s ({total/elapsed:.0f}/s)", file=sys.stderr)
+    print(f"Done — {total:,} rows in {elapsed:.1f}s ({total / elapsed:.0f}/s)", file=sys.stderr)
 
     # --- stdout summary ---
     print()
@@ -139,12 +178,21 @@ def main() -> int:
     print()
     print("| Bucket | Count | % |")
     print("|---|---:|---:|")
-    bucket_order = ["exact", "estimated", "approximate", "estimated_fallback",
-                    "not_found", "regex_fail", "unsupported", "error", "unknown"]
+    bucket_order = [
+        "exact",
+        "estimated",
+        "approximate",
+        "estimated_fallback",
+        "not_found",
+        "regex_fail",
+        "unsupported",
+        "error",
+        "unknown",
+    ]
     for b in bucket_order:
         n = bucket_counts.get(b, 0)
         if n:
-            print(f"| {b} | {n:,} | {n/total*100:.1f}% |")
+            print(f"| {b} | {n:,} | {n / total * 100:.1f}% |")
 
     print()
     print("### Confidence band (NUTS3 level)")
@@ -155,7 +203,7 @@ def main() -> int:
     for band in band_order:
         n = confidence_bands.get(band, 0)
         if n:
-            print(f"| {band} | {n:,} | {n/total*100:.1f}% |")
+            print(f"| {band} | {n:,} | {n / total * 100:.1f}% |")
 
     print()
     print("### Per-country bucket distribution")
@@ -165,15 +213,18 @@ def main() -> int:
     for cc in sorted(per_country_buckets, key=lambda c: -sum(per_country_buckets[c].values())):
         b = per_country_buckets[cc]
         cc_total = sum(b.values())
-        other = cc_total - sum(b.get(k, 0) for k in
-                               ["exact", "estimated", "approximate", "not_found", "regex_fail"])
-        print(f"| {cc} | {cc_total:,} | "
-              f"{b.get('exact', 0):,} ({b.get('exact', 0)/cc_total*100:.0f}%) | "
-              f"{b.get('estimated', 0):,} | "
-              f"{b.get('approximate', 0):,} | "
-              f"{b.get('not_found', 0):,} | "
-              f"{b.get('regex_fail', 0):,} | "
-              f"{other:,} |")
+        other = cc_total - sum(
+            b.get(k, 0) for k in ["exact", "estimated", "approximate", "not_found", "regex_fail"]
+        )
+        print(
+            f"| {cc} | {cc_total:,} | "
+            f"{b.get('exact', 0):,} ({b.get('exact', 0) / cc_total * 100:.0f}%) | "
+            f"{b.get('estimated', 0):,} | "
+            f"{b.get('approximate', 0):,} | "
+            f"{b.get('not_found', 0):,} | "
+            f"{b.get('regex_fail', 0):,} | "
+            f"{other:,} |"
+        )
 
     # --- failures CSV (private) ---
     if failures:
