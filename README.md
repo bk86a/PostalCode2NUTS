@@ -2,7 +2,7 @@
 
 FastAPI microservice that maps postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) for EU, EFTA, and EU candidate countries using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
 
-Returns NUTS levels 1, 2, and 3 for any postal code across 35 countries, with confidence scores indicating how the result was determined.
+Returns NUTS levels 1, 2, and 3 for any postal code across 36 countries, with confidence scores indicating how the result was determined.
 
 ## Coverage
 
@@ -14,10 +14,12 @@ Austria (AT), Belgium (BE), Bulgaria (BG), Croatia (HR), Cyprus (CY), Czechia (C
 **EFTA** (4 countries):
 Iceland (IS), Liechtenstein (LI), Norway (NO), Switzerland (CH)
 
-**EU candidate countries** (4):
-North Macedonia (MK), Montenegro (ME), Serbia (RS), Türkiye (TR)
+**EU candidate countries** (5):
+Albania (AL), North Macedonia (MK), Montenegro (ME), Serbia (RS), Türkiye (TR)
 
 > **Montenegro** is treated by Eurostat as a single nationwide unit at every NUTS level (`ME0` / `ME00` / `ME000`), and GISCO does not currently publish a TERCET file for it. Lookups for ME are served by the single-NUTS3 fallback (Tier 5) configured via `single_nuts3_fallback` in `app/settings.json`, returning `ME000` for any valid 5-digit code starting with `8`.
+
+> **Albania** has a full NUTS hierarchy (`AL0`; `AL01` / `AL02` / `AL03`; 12 NUTS3 counties `AL011`–`AL035`) but Eurostat publishes no GISCO TERCET file for it. Coverage is provided through the Tier-2 estimates layer: each of ~489 Albanian 4-digit postal codes is mapped to its NUTS3 county (qark) via GeoNames' admin1 tagging, which corresponds 1:1 to the NUTS3 regions. Lookups return `match_type="estimated"` with `high` confidence — see [Estimates](#estimates).
 
 **Other territories** (1):
 Faroe Islands (FO) — not part of NUTS; synthetic result.
@@ -171,7 +173,7 @@ Returns service status and data statistics.
   "total_nuts_names": 2190,
   "nuts_version": "2024",
   "extra_sources": 0,
-  "patterns_version": "1.0",
+  "patterns_version": "1.2",
   "data_stale": false,
   "last_updated": "2025-01-15T12:00:00+00:00"
 }
@@ -603,15 +605,15 @@ These labels map to numerical confidence scores per NUTS level. Coarser levels r
 
 ### Current coverage
 
-The estimates file contains **7,019 entries** across 32 countries, with the following confidence distribution:
+The estimates file contains **7,632 entries** across 33 countries, with the following confidence distribution:
 
 | Confidence | Count | Share |
 |------------|-------|-------|
-| high       | 5,257 | 74.9% |
-| medium     | 1,371 | 19.5% |
-| low        |   391 |  5.6% |
+| high       | 5,746 | 75.3% |
+| medium     | 1,439 | 18.9% |
+| low        |   447 |  5.9% |
 
-Countries with the most estimates: TR (1,778), LT (1,171), FR (526), DE (500), EL (383), CZ (359), RO (355).
+Countries with the most estimates: TR (1,778), LT (1,231), FR (526), DE (500), AL (489), EL (387), CZ (361), RO (358).
 
 ### Revalidation
 
