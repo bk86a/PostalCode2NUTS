@@ -33,14 +33,33 @@ from app.data_loader import (
     lookup,
     normalize_country,
 )
-from app.models import ErrorResponse, HealthResponse, NUTSResult, PatternResponse
+from app.models import (
+    ErrorResponse,
+    HealthResponse,
+    NUTSResult,
+    PatternResponse,
+    ResolveResponse,
+)
+from app.nuts_polygons import load_nuts_pip
+from app.photon_client import PhotonClient
 from app.postal_patterns import PATTERNS_META, POSTAL_PATTERNS
+from app.resolver import resolve as _resolve
+import httpx as _httpx
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# httpx logs full outbound request URLs (including query strings) at INFO.
+# /resolve sends street/city to the Photon geocoder as query params, so at
+# INFO level httpx would leak that PII into our logs — quiet it to WARNING.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+_nuts_pip = None  # app.nuts_pip.NutsPip once polygons load
+_photon_client = None  # app.photon_client.PhotonClient when PC2NUTS_PHOTON_URL set
+_geo_http: _httpx.Client | None = None
 
 # Access logger — separate from app logger.
 # Propagates to the root logger so pytest caplog can capture records.
@@ -97,6 +116,26 @@ async def lifespan(app: FastAPI):
         logger.info("Extra data sources configured: %d", extra)
     if get_data_stale():
         logger.warning("Serving STALE data — TERCET refresh failed, using expired cache")
+
+    # ── NUTS polygons + geocoder for /resolve (#resolve-endpoint) ───────────
+    global _nuts_pip, _photon_client, _geo_http
+    try:
+        _nuts_pip = load_nuts_pip(
+            url=settings.nuts_geojson_url,
+            path=settings.nuts_geojson_path,
+            cache_dir=settings.data_dir,
+            client=_httpx.Client(),
+        )
+        logger.info("NUTS polygons loaded — /resolve PIP ready.")
+    except Exception:
+        logger.exception("NUTS polygon load failed — /resolve will serve postal-only")
+        _nuts_pip = None
+    if _config.settings.photon_url:
+        _geo_http = _httpx.Client()
+        _photon_client = PhotonClient(
+            _config.settings.photon_url, _geo_http, _config.settings.photon_timeout_seconds
+        )
+        logger.info("Photon geocoder configured.")
 
     # ── Token DB refresh (#61) ──────────────────────────────────────────────
     # Use _config.settings (module-level reference) so that test reloads of the
@@ -169,6 +208,9 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
+    if _geo_http is not None:
+        _geo_http.close()
+
 
 app = FastAPI(
     title="PostalCode2NUTS",
@@ -178,7 +220,7 @@ app = FastAPI(
     ),
     version=__version__,
     lifespan=lifespan,
-    docs_url="/docs" if settings.docs_enabled else None,
+    docs_url=settings.docs_url if settings.docs_enabled else None,
     redoc_url="/redoc" if settings.docs_enabled else None,
 )
 app.state.limiter = limiter
@@ -324,6 +366,52 @@ def get_pattern(
 
 
 @app.get(
+    "/resolve",
+    response_model=ResolveResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Unsupported country"},
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
+    },
+    summary="Resolve NUTS with a geocoding fallback for weak postal results",
+)
+@limiter.limit(settings.rate_limit, exempt_when=is_trusted_request)
+def resolve_endpoint(
+    request: Request,
+    response: Response,
+    country: str = Query(
+        ...,
+        min_length=2,
+        max_length=2,
+        pattern=r"^[A-Za-z]{2}$",
+        examples=["BE", "DE"],
+    ),
+    postal_code: str = Query(..., max_length=20, examples=["3080", "10115"]),
+    street: str | None = Query(default=None, max_length=200),
+    city: str | None = Query(default=None, max_length=120),
+):
+    cc = normalize_country(country)
+    if cc not in get_loaded_countries():
+        raise HTTPException(status_code=400, detail=f"Country '{cc}' is not supported.")
+    geocode_fn = _photon_client.geocode if _photon_client is not None else None
+    if _nuts_pip is None:
+        geocode_fn = None  # PIP unavailable → cannot resolve a coordinate
+    result = _resolve(
+        cc,
+        postal_code,
+        street,
+        city,
+        lookup_fn=lookup,
+        geocode_fn=geocode_fn,
+        pip=_nuts_pip,
+        name_fn=lambda code: get_nuts_names().get(code),
+        threshold=settings.resolve_confidence_threshold,
+    )
+    # /resolve carries PII → do not cache.
+    response.headers["Cache-Control"] = "no-store"
+    return ResolveResponse(**result)
+
+
+@app.get(
     "/",
     summary="Service entry point",
     include_in_schema=False,
@@ -374,6 +462,8 @@ def health(response: Response):
         last_updated=get_data_loaded_at(),
         token_db_stale=token_db_stale,
         estimates_refresh_stale=_get_estimates_refresh_stale(),
+        geocoder_configured=bool(_config.settings.photon_url),
+        pip_ready=_nuts_pip is not None,
     )
 
 

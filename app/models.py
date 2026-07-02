@@ -44,6 +44,8 @@ class HealthResponse(BaseModel):
     )
     token_db_stale: bool | None = None
     estimates_refresh_stale: bool | None = None
+    geocoder_configured: bool = Field(default=False, description="True if PC2NUTS_PHOTON_URL is set")
+    pip_ready: bool = Field(default=False, description="True if NUTS polygons loaded for /resolve")
 
 
 class GeocodeInfo(BaseModel):
