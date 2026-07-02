@@ -5,9 +5,9 @@ For each (country, postcode) in a query set:
   * coord   = GeoNames centroid for that (country, postcode)
   * pip     = NutsPip.lookup(*coord)       — polygon assignment
 
-Each pair is classified into one bucket. This module holds the pure evaluation
-core (classify / evaluate / summarize); the runnable entrypoint is added in a
-later step. Offline analysis tool — NOT imported by the served app.
+Each pair is classified into one bucket. This module holds the evaluation
+core (classify / evaluate / summarize) and the runnable main() entrypoint.
+Offline analysis tool — NOT imported by the served app.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import csv
 import os
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Protocol
 
@@ -101,7 +101,7 @@ def format_report(summary: dict) -> str:
     return "\n".join(lines)
 
 
-def _read_query_rows(path: str):
+def _read_query_rows(path: str) -> Iterator[tuple[str, str]]:
     with open(path, encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         cols = {c.upper(): c for c in reader.fieldnames or []}
@@ -119,7 +119,7 @@ def main() -> None:
 
     queries_file = os.environ["PC2NUTS_QUERIES_FILE"]
     geojson = os.environ["PC2NUTS_NUTS_GEOJSON"]
-    geonames_files = os.environ["PC2NUTS_GEONAMES_FILES"].split(os.pathsep)
+    geonames_files = [p for p in os.environ["PC2NUTS_GEONAMES_FILES"].split(os.pathsep) if p]
 
     print("Loading NUTS polygons…", file=sys.stderr)
     oracle = NutsPip(load_nuts3_features(geojson))
