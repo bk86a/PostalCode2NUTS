@@ -36,8 +36,8 @@ def test_uppercases_country_and_normalizes_pc(tmp_path):
     f = tmp_path / "geo.txt"
     f.write_text(SAMPLE + "\n", encoding="utf-8")
     coords = gc.load_geonames_coords([f])
-    assert ("DE", "60311") in coords          # lowercase 'de' → 'DE'
-    assert ("NL", "1011AB") in coords          # space stripped from postcode
+    assert ("DE", "60311") in coords  # lowercase 'de' → 'DE'
+    assert ("NL", "1011AB") in coords  # space stripped from postcode
 
 
 def test_rows_without_coordinates_are_skipped(tmp_path):

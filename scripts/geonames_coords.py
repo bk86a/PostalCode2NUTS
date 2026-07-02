@@ -8,6 +8,7 @@ GeoNames postal dump format (tab-separated, download.geonames.org/export/zip/):
 Multiple rows may share a (country, postcode); their coordinates are averaged
 into one centroid. Offline analysis tool — NOT imported by the served app.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -39,7 +40,4 @@ def load_geonames_coords(
                 acc[0] += float(lat_s)
                 acc[1] += float(lon_s)
                 acc[2] += 1.0
-    return {
-        key: (s[0] / s[2], s[1] / s[2])
-        for key, s in sums.items()
-    }
+    return {key: (s[0] / s[2], s[1] / s[2]) for key, s in sums.items()}

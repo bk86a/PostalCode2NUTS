@@ -49,14 +49,12 @@ def test_load_nuts3_features_filters_to_level_3(tmp_path):
             {
                 "type": "Feature",
                 "properties": {"NUTS_ID": "AB", "LEVL_CODE": 0},
-                "geometry": {"type": "Polygon",
-                             "coordinates": [[[0, 0], [2, 0], [2, 1], [0, 1], [0, 0]]]},
+                "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [2, 0], [2, 1], [0, 1], [0, 0]]]},
             },
             {
                 "type": "Feature",
                 "properties": {"NUTS_ID": "AB100", "LEVL_CODE": 3},
-                "geometry": {"type": "Polygon",
-                             "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+                "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
             },
         ],
     }

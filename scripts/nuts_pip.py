@@ -7,6 +7,7 @@ are hierarchical, so levels 0–2 are prefixes of the matched level-3 id.
 Offline analysis tool — NOT imported by the served app. Requires `shapely`
 (see requirements-dev.txt).
 """
+
 from __future__ import annotations
 
 import json
@@ -25,10 +26,7 @@ def load_nuts3_features(geojson_path: str | Path) -> list[tuple[str, BaseGeometr
     path = Path(geojson_path)
     if path.suffix == ".zip":
         with zipfile.ZipFile(path) as zf:
-            name = next(
-                n for n in zf.namelist()
-                if "4326" in n and "LEVL_3" in n and n.endswith(".geojson")
-            )
+            name = next(n for n in zf.namelist() if "4326" in n and "LEVL_3" in n and n.endswith(".geojson"))
             with zf.open(name) as fh:
                 data = json.load(fh)
     else:
