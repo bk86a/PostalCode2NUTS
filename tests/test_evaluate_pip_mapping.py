@@ -70,3 +70,14 @@ def test_summarize_crosstabs_by_tier():
     assert summary["by_tier"]["exact"]["agree"] == 1
     assert summary["by_tier"]["exact"]["disagree"] == 1
     assert summary["by_tier"]["not_found"]["rescue"] == 1
+
+
+def test_format_report_includes_overall_and_tiers():
+    summary = {
+        "overall": {"agree": 8, "disagree": 2, "rescue": 5, "no_coord": 3},
+        "by_tier": {"exact": {"agree": 8, "disagree": 2}, "not_found": {"rescue": 5}},
+    }
+    report = ev.format_report(summary)
+    assert "agree" in report and "8" in report
+    assert "exact" in report
+    assert "not_found" in report
