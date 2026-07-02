@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-07-02
+
+### Changed
+
+- **Dependency bumps** via Dependabot:
+  - `fastapi` >=0.138.0 → >=0.139.0 (#115)
+  - `ruff` >=0.15.19 → >=0.15.20 (#114, dev)
+- **Lockfile regeneration** floated a single production pin: `fastapi`
+  0.138.0 → 0.139.0 (no transitive pins shifted). Dependabot edits only
+  `requirements.txt`, so the bump reaches production — which builds from
+  `requirements.lock` — by regenerating the lockfile.
+
 ## [0.20.1] - 2026-06-29
 
 ### Fixed
