@@ -228,3 +228,25 @@ class TestEstimateOnlyCountry:
         assert result["nuts3"] == "AL022"
         assert result["nuts1"] == "AL0"
         assert result["nuts3_name"] == "Tiranë"
+
+
+class TestBundledAlbaniaData:
+    VALID_AL_NUTS3 = {
+        "AL011", "AL012", "AL013", "AL014", "AL015", "AL021",
+        "AL022", "AL031", "AL032", "AL033", "AL034", "AL035",
+    }
+
+    def test_albania_rows_present_and_valid(self):
+        from pathlib import Path
+
+        from app.data_loader import parse_estimates_from_text
+
+        text = Path("tercet_missing_codes.csv").read_text(encoding="utf-8")
+        parsed, _ = parse_estimates_from_text(text)
+        al = {pc: est for (cc, pc), est in parsed.items() if cc == "AL"}
+        assert len(al) >= 480
+        for pc, est in al.items():
+            assert pc.isdigit() and len(pc) == 4
+            assert est["nuts3"] in self.VALID_AL_NUTS3
+            assert est["nuts2"] == est["nuts3"][:4]
+            assert est["nuts1"] == "AL0"
