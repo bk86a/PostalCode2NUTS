@@ -13,6 +13,8 @@ later step. Offline analysis tool — NOT imported by the served app.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Callable, Iterable
+from typing import Protocol
 
 from geonames_coords import _normalize_pc
 
@@ -34,7 +36,18 @@ def classify(
     return "disagree"
 
 
-def evaluate(rows, coords, oracle, lookup_fn) -> list[dict]:
+class _Oracle(Protocol):
+    """Duck-typed oracle with a lookup method."""
+
+    def lookup(self, lat: float, lon: float) -> dict | None: ...
+
+
+def evaluate(
+    rows: Iterable[tuple[str, str]],
+    coords: dict[tuple[str, str], tuple[float, float]],
+    oracle: _Oracle,
+    lookup_fn: Callable[[str, str], dict | None],
+) -> list[dict]:
     """Run the comparison over an iterable of (country, postcode) rows."""
     records: list[dict] = []
     for country, postcode in rows:
