@@ -92,3 +92,27 @@ def test_resolve_does_not_log_address(client, caplog):
             params={"country": "BE", "postal_code": "3080", "street": "SecretStreet", "city": "SecretCity"},
         )
     assert "SecretStreet" not in caplog.text and "SecretCity" not in caplog.text
+
+
+def test_resolve_422_does_not_echo_overlong_street(client):
+    sentinel = "LEAKYSTREET" * 30
+    r = client.get(
+        "/resolve",
+        params={"country": "BE", "postal_code": "3080", "street": sentinel},
+    )
+    assert r.status_code == 422
+    assert sentinel not in r.text
+
+
+def test_lookup_422_body_unaffected(client):
+    # Missing required `country` param — no street/city loc, so the
+    # validation-error handler must leave the body byte-for-byte as FastAPI's
+    # default would produce it (nothing stripped, no Cache-Control header).
+    r = client.get("/lookup", params={"postal_code": "10115"})
+    assert r.status_code == 422
+    body = r.json()
+    errors = body["detail"]
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ["query", "country"]
+    assert "input" in errors[0]
+    assert "Cache-Control" not in r.headers

@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi.errors import RateLimitExceeded
@@ -120,12 +122,13 @@ async def lifespan(app: FastAPI):
     # ── NUTS polygons + geocoder for /resolve (#resolve-endpoint) ───────────
     global _nuts_pip, _photon_client, _geo_http
     try:
-        _nuts_pip = load_nuts_pip(
-            url=settings.nuts_geojson_url,
-            path=settings.nuts_geojson_path,
-            cache_dir=settings.data_dir,
-            client=_httpx.Client(),
-        )
+        with _httpx.Client() as _dl_client:
+            _nuts_pip = load_nuts_pip(
+                url=settings.nuts_geojson_url,
+                path=settings.nuts_geojson_path,
+                cache_dir=settings.data_dir,
+                client=_dl_client,
+            )
         logger.info("NUTS polygons loaded — /resolve PIP ready.")
     except Exception:
         logger.exception("NUTS polygon load failed — /resolve will serve postal-only")
@@ -248,6 +251,33 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
 
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+
+def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return 422 like FastAPI's default handler, but strip the raw `input`
+    from any error whose loc ends in `street`/`city` — /resolve accepts free-text
+    street/city and FastAPI's default handler would otherwise echo an
+    over-long value verbatim into the response body (PII leak)."""
+    redacted = False
+    errors = []
+    for err in exc.errors():
+        item = dict(err)
+        loc = item.get("loc", ())
+        if loc and loc[-1] in ("street", "city") and "input" in item:
+            item.pop("input", None)
+            redacted = True
+        errors.append(item)
+    headers = {"Cache-Control": "no-store"} if redacted else None
+    try:
+        return JSONResponse(status_code=422, content={"detail": errors}, headers=headers)
+    except TypeError:
+        # exc.errors() items may contain non-JSON-serializable values (e.g. a
+        # `ctx` dict holding a raw ValueError) — coerce to string as a fallback.
+        safe_errors = jsonable_encoder(errors, custom_encoder={Exception: str})
+        return JSONResponse(status_code=422, content={"detail": safe_errors}, headers=headers)
+
+
+app.add_exception_handler(RequestValidationError, _validation_error_handler)
 
 # CORS middleware
 if settings.cors_origins:
@@ -424,7 +454,7 @@ def root(request: Request, response: Response):
         "version": __version__,
         "links": {
             "openapi": f"{base}/openapi.json",
-            "docs": f"{base}/docs" if settings.docs_enabled else None,
+            "docs": f"{base}{settings.docs_url}" if settings.docs_enabled else None,
             "redoc": f"{base}/redoc" if settings.docs_enabled else None,
             "health": f"{base}/health",
             "lookup_example": f"{base}/lookup?country=DE&postal_code=10115",
