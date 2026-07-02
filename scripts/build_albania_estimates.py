@@ -85,7 +85,10 @@ def merge_into_csv(csv_path: Path, al_rows: list[dict]) -> None:
         f"{r['ESTIMATED_NUTS2']},{r['ESTIMATED_NUTS1']},{r['CONFIDENCE']}"
         for r in al_rows
     ]
-    csv_path.write_text(newline.join([header, *al_lines, *kept]) + newline, encoding="utf-8")
+    # newline="" disables write-side translation so the detected terminator is
+    # written verbatim (else newline=None would translate the "\n" inside each
+    # "\r\n" to os.linesep on non-POSIX runners). write_text gained newline= in 3.10.
+    csv_path.write_text(newline.join([header, *al_lines, *kept]) + newline, encoding="utf-8", newline="")
 
 
 def main() -> None:
