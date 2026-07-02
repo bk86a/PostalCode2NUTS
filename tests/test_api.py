@@ -573,3 +573,18 @@ class TestAdminMemoryEndpoint:
         assert "count" in body["asyncio_tasks"]
         # thread count is at least 1 (the test thread itself)
         assert body["thread_count"] >= 1
+
+
+class TestAlbaniaEndpoint:
+    def test_albania_lookup_returns_estimated(self, client):
+        resp = client.get("/lookup", params={"postal_code": "1001", "country": "AL"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["match_type"] == "estimated"
+        assert data["nuts3"] == "AL022"
+        assert data["country_code"] == "AL"
+
+    def test_albania_lookup_with_prefix(self, client):
+        resp = client.get("/lookup", params={"postal_code": "AL-1001", "country": "AL"})
+        assert resp.status_code == 200
+        assert resp.json()["nuts3"] == "AL022"

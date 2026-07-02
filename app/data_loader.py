@@ -86,8 +86,17 @@ def get_estimates_table() -> dict[tuple[str, str], dict]:
 
 
 def get_loaded_countries() -> set[str]:
-    """Return the set of country codes that have data loaded."""
-    return {cc for cc, _ in _lookup} | set(_single_nuts3.keys()) | set(_synthetic_nuts.keys())
+    """Return the set of country codes that have data loaded.
+
+    Includes estimate-only countries (e.g. AL): countries present solely in
+    the estimates table with no TERCET file and no fallback entry.
+    """
+    return (
+        {cc for cc, _ in _lookup}
+        | {cc for cc, _ in _estimates}
+        | set(_single_nuts3.keys())
+        | set(_synthetic_nuts.keys())
+    )
 
 
 def get_data_stale() -> bool:

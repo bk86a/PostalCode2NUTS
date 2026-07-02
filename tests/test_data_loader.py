@@ -213,3 +213,18 @@ class TestParseEstimatesFromText:
         d, skipped = parse_estimates_from_text(text)
         assert len(d) == 1
         assert ("DE", "99999") in d
+
+
+class TestEstimateOnlyCountry:
+    def test_estimate_only_country_is_loaded(self, mock_data):
+        from app.data_loader import get_loaded_countries
+
+        assert "AL" in get_loaded_countries()
+
+    def test_albania_resolves_via_estimates(self, mock_data):
+        result = lookup("AL", "1001")
+        assert result is not None
+        assert result["match_type"] == "estimated"
+        assert result["nuts3"] == "AL022"
+        assert result["nuts1"] == "AL0"
+        assert result["nuts3_name"] == "Tiranë"
