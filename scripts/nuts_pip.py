@@ -26,7 +26,16 @@ def load_nuts3_features(geojson_path: str | Path) -> list[tuple[str, BaseGeometr
     path = Path(geojson_path)
     if path.suffix == ".zip":
         with zipfile.ZipFile(path) as zf:
-            name = next(n for n in zf.namelist() if "4326" in n and "LEVL_3" in n and n.endswith(".geojson"))
+            name = next(
+                (
+                    n
+                    for n in zf.namelist()
+                    if "_RG_" in n and "4326" in n and "LEVL_3" in n and n.endswith(".geojson")
+                ),
+                None,
+            )
+            if name is None:
+                raise ValueError(f"no 4326 LEVL_3 region (_RG_) GeoJSON member found in {path}")
             with zf.open(name) as fh:
                 data = json.load(fh)
     else:

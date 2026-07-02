@@ -2,8 +2,10 @@
 
 import importlib.util
 import json
+import zipfile
 from pathlib import Path
 
+import pytest
 from shapely.geometry import box
 
 _spec = importlib.util.spec_from_file_location(
@@ -62,3 +64,62 @@ def test_load_nuts3_features_filters_to_level_3(tmp_path):
     path.write_text(json.dumps(geojson))
     features = nuts_pip.load_nuts3_features(path)
     assert [nid for nid, _ in features] == ["AB100"]  # level-0 dropped
+
+
+def test_load_nuts3_features_from_zip_picks_region_not_boundary(tmp_path):
+    rg = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"NUTS_ID": "AB100", "LEVL_CODE": 3},
+                "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
+            }
+        ],
+    }
+    bn = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"NUTS_ID": "AB100", "LEVL_CODE": 3},
+                # deliberately does NOT pass through (0.5, 0.5), so a wrong
+                # (boundary) selection would make the PIP lookup below miss.
+                "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 0]]},
+            }
+        ],
+    }
+    zpath = tmp_path / "ref-nuts.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        # write BN first so a naive `next()` would wrongly pick it
+        zf.writestr("NUTS_BN_01M_2024_4326_LEVL_3.geojson", json.dumps(bn))
+        zf.writestr("NUTS_RG_01M_2024_4326_LEVL_3.geojson", json.dumps(rg))
+
+    features = nuts_pip.load_nuts3_features(zpath)
+    assert [nid for nid, _ in features] == ["AB100"]
+
+    # the geometry must be the polygon (region), not the boundary linestring
+    assert features[0][1].geom_type == "Polygon"
+
+    # and PIP must actually work: a boundary-only geometry would miss here.
+    oracle = nuts_pip.NutsPip(features)
+    assert oracle.lookup(0.5, 0.5)["nuts3"] == "AB100"
+
+
+def test_load_nuts3_features_zip_without_region_raises(tmp_path):
+    bn = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"NUTS_ID": "AB100", "LEVL_CODE": 3},
+                "geometry": {"type": "LineString", "coordinates": [[0, 0], [1, 1]]},
+            }
+        ],
+    }
+    zpath = tmp_path / "no-rg.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        zf.writestr("NUTS_BN_01M_2024_4326_LEVL_3.geojson", json.dumps(bn))
+
+    with pytest.raises(ValueError):
+        nuts_pip.load_nuts3_features(zpath)
