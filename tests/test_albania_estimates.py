@@ -54,3 +54,30 @@ def test_unmapped_qark_raises():
 def test_skips_non_four_digit():
     rows = build.rows_from_geonames([["AL", "100", "X", "Tirana", "40"]])
     assert rows == []
+
+
+def test_merge_preserves_crlf(tmp_path):
+    csv_path = tmp_path / "est.csv"
+    csv_path.write_bytes(
+        b"COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\r\n"
+        b"AT,1010,AT130,AT13,AT1,high\r\n"
+    )
+    al_rows = build.rows_from_geonames([["AL", "1001", "T", "Tirana", "40"]])
+    build.merge_into_csv(csv_path, al_rows)
+    data = csv_path.read_bytes()
+    assert b"\r\nAL,1001,AL022,AL02,AL0,high\r\n" in data
+    assert data.endswith(b"AT,1010,AT130,AT13,AT1,high\r\n")
+    assert data.count(b"\r\n") == 3
+
+
+def test_merge_preserves_lf(tmp_path):
+    csv_path = tmp_path / "est.csv"
+    csv_path.write_bytes(
+        b"COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\n"
+        b"AT,1010,AT130,AT13,AT1,high\n"
+    )
+    al_rows = build.rows_from_geonames([["AL", "1001", "T", "Tirana", "40"]])
+    build.merge_into_csv(csv_path, al_rows)
+    data = csv_path.read_bytes()
+    assert b"\r\n" not in data
+    assert b"AL,1001,AL022,AL02,AL0,high\n" in data

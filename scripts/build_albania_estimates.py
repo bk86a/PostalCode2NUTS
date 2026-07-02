@@ -66,8 +66,18 @@ def rows_from_geonames(records: list[list[str]]) -> list[dict]:
 
 
 def merge_into_csv(csv_path: Path, al_rows: list[dict]) -> None:
-    """Rewrite csv_path: header + AL rows + existing non-AL rows (original order)."""
-    lines = csv_path.read_text(encoding="utf-8").splitlines()
+    """Rewrite csv_path: header + AL rows + existing non-AL rows (original order).
+
+    Preserves the file's existing line terminator (CRLF or LF) so regenerating
+    does not churn every existing line's ending.
+    """
+    # newline="" disables universal-newline translation so we can detect the
+    # file's actual line terminator instead of always seeing "\n"
+    # (Path.read_text() has no newline= param until Python 3.13).
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        raw = f.read()
+    newline = "\r\n" if "\r\n" in raw else "\n"
+    lines = raw.splitlines()
     header = lines[0]
     kept = [ln for ln in lines[1:] if ln and not ln.startswith("AL,")]
     al_lines = [
@@ -75,7 +85,7 @@ def merge_into_csv(csv_path: Path, al_rows: list[dict]) -> None:
         f"{r['ESTIMATED_NUTS2']},{r['ESTIMATED_NUTS1']},{r['CONFIDENCE']}"
         for r in al_rows
     ]
-    csv_path.write_text("\n".join([header, *al_lines, *kept]) + "\n", encoding="utf-8")
+    csv_path.write_text(newline.join([header, *al_lines, *kept]) + newline, encoding="utf-8")
 
 
 def main() -> None:
