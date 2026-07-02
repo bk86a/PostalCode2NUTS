@@ -57,12 +57,18 @@ def evaluate(
     coords: dict[tuple[str, str], tuple[float, float]],
     oracle: _Oracle,
     lookup_fn: Callable[[str, str], dict | None],
+    normalize_cc: Callable[[str], str] = str.upper,
 ) -> list[dict]:
-    """Run the comparison over an iterable of (country, postcode) rows."""
+    """Run the comparison over an iterable of (country, postcode) rows.
+
+    normalize_cc canonicalizes the query country code to match how coords are
+    keyed (e.g. app.data_loader.normalize_country maps GR→EL). lookup_fn is
+    expected to normalize country codes itself.
+    """
     records: list[dict] = []
     for country, postcode in rows:
         current = lookup_fn(country, postcode)
-        coord = coords.get((country.upper(), _normalize_pc(postcode)))
+        coord = coords.get((normalize_cc(country), _normalize_pc(postcode)))
         pip = oracle.lookup(*coord) if coord else None
         records.append(
             {
@@ -115,7 +121,7 @@ def main() -> None:
     os.environ.setdefault("PC2NUTS_TOKEN_DB_URL", "")
     os.environ.setdefault("PC2NUTS_TRUSTED_TOKENS", "")
 
-    from app.data_loader import load_data, lookup
+    from app.data_loader import load_data, lookup, normalize_country
 
     queries_file = os.environ["PC2NUTS_QUERIES_FILE"]
     geojson = os.environ["PC2NUTS_NUTS_GEOJSON"]
@@ -124,12 +130,12 @@ def main() -> None:
     print("Loading NUTS polygons…", file=sys.stderr)
     oracle = NutsPip(load_nuts3_features(geojson))
     print("Loading GeoNames centroids…", file=sys.stderr)
-    coords = load_geonames_coords([Path(p) for p in geonames_files])
+    coords = load_geonames_coords([Path(p) for p in geonames_files], normalize_cc=normalize_country)
     print("Loading TERCET data…", file=sys.stderr)
     load_data()
 
     rows = list(_read_query_rows(queries_file))
-    records = evaluate(rows, coords, oracle, lookup)
+    records = evaluate(rows, coords, oracle, lookup, normalize_cc=normalize_country)
     summary = summarize(records)
 
     # Aggregate, code-free summary → committable docs/ file.

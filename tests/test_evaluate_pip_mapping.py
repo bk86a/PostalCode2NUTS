@@ -81,3 +81,20 @@ def test_format_report_includes_overall_and_tiers():
     assert "agree" in report and "8" in report
     assert "exact" in report
     assert "not_found" in report
+
+
+def test_evaluate_normalizes_query_country_for_coord_lookup():
+    # coords keyed under canonical EL; queries may arrive as GR (ISO) or EL.
+    oracle = NutsPip([("EL300", box(0.0, 0.0, 1.0, 1.0))])
+    coords = {("EL", "10431"): (0.5, 0.5)}
+
+    def norm(c):
+        return "EL" if c.strip().upper() == "GR" else c.strip().upper()
+
+    def lk(country, postcode):
+        return None  # TERCET miss → bucket becomes 'rescue' when coord resolves
+
+    recs = ev.evaluate([("GR", "10431"), ("EL", "10431")], coords, oracle, lk, normalize_cc=norm)
+    buckets = {(r["country"], r["postcode"]): r["bucket"] for r in recs}
+    assert buckets[("GR", "10431")] == "rescue"  # GR reconciled to EL coord
+    assert buckets[("EL", "10431")] == "rescue"
