@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`patterns_version` bumped to 1.2** (`app/postal_patterns.json` `_meta`):
+  catch-up bump covering the Faroe Islands (#55) and Albania (#54) entries,
+  both of which were added without updating `_meta`, which had been stuck at
+  `1.1` / `2026-04-29` since Montenegro (#53). Additive-only — no existing
+  pattern was altered. Exposed via `/health` `patterns_version`.
+
 ## [0.21.0] - 2026-07-02
 
 ### Added
