@@ -22,6 +22,13 @@ class TestLookupEndpoint:
         assert resp.status_code == 200
         assert resp.json()["code_system"] == "NUTS"
 
+    def test_lookup_accepts_gb_alias(self, client):
+        resp_uk = client.get("/lookup", params={"country": "UK", "postal_code": "SW1A 2AA"})
+        resp_gb = client.get("/lookup", params={"country": "GB", "postal_code": "SW1A 2AA"})
+        assert resp_uk.status_code == 200
+        assert resp_gb.status_code == 200
+        assert resp_uk.json() == resp_gb.json()
+
     def test_400_unsupported_country(self, client):
         resp = client.get("/lookup", params={"postal_code": "12345", "country": "ZZ"})
         assert resp.status_code == 400

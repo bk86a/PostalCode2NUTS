@@ -46,6 +46,15 @@ class TestNormalizeCountry:
     def test_el_stays_el(self):
         assert normalize_country("EL") == "EL"
 
+    def test_gb_to_uk(self):
+        assert normalize_country("GB") == "UK"
+
+    def test_gb_lowercase(self):
+        assert normalize_country("gb") == "UK"
+
+    def test_uk_stays_uk(self):
+        assert normalize_country("UK") == "UK"
+
 
 # ── lookup tests (all 5 tiers) ──────────────────────────────────────────────
 

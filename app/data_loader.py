@@ -82,9 +82,17 @@ def normalize_postal_code(code: str) -> str:
 
 
 def normalize_country(country_code: str) -> str:
-    """Normalize a country code: uppercase + map GR→EL (ISO vs GISCO convention)."""
+    """Normalize a country code: uppercase + map non-canonical aliases.
+
+    GR → EL  (ISO vs GISCO convention)
+    GB → UK  (ISO vs NSPL/internal convention)
+    """
     cc = country_code.strip().upper()
-    return "EL" if cc == "GR" else cc
+    if cc == "GR":
+        return "EL"
+    if cc == "GB":
+        return "UK"
+    return cc
 
 
 def get_lookup_table() -> dict[tuple[str, str], str]:
