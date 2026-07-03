@@ -1034,9 +1034,10 @@ def _matches_pattern(cc: str, raw: str) -> bool:
 def lookup(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
-    Six-tier fall-through:
+    Tiered fall-through:
     1. Exact TERCET match → confidence 1.0
     2. Pre-computed estimate → stored confidence per level
+    2b. Albania block map → district-block NUTS3, match_type='estimated' (#118)
     3. Runtime prefix-based estimation → calculated confidence
     4. Country-level majority vote → unanimous NUTS1/2, dominant NUTS3 (e.g. MT)
     5. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
