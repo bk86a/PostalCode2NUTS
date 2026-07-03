@@ -14,3 +14,7 @@ local-data/
 
 # Git worktrees for in-flight feature branches
 .worktrees/
+
+# Private planning / SDD artifacts — infra context + operator token; never commit or push
+docs/superpowers/
+.superpowers/
