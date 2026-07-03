@@ -57,6 +57,10 @@ _country_fallback: dict[str, dict] = {}
 # NUTS region names: nuts_id -> name_latn
 _nuts_names: dict[str, str] = {}
 
+# Outward-code index for lookup Tier 3.5 (UK): (country_code, outward) ->
+# (nuts3, agreement_ratio). Built from _lookup by majority vote at load time.
+_outward_lookup: dict[tuple[str, str], tuple[str, float]] = {}
+
 # Staleness tracking
 _data_stale: bool = False
 _data_loaded_at: str = ""
@@ -825,6 +829,29 @@ def _build_prefix_index() -> None:
         )
 
 
+def _build_outward_index(country_code: str) -> None:
+    """Populate _outward_lookup for one country by majority vote per outward code.
+
+    Outward = the full normalised postcode minus its last three characters (UK
+    convention). Codes shorter than four characters are skipped (no meaningful
+    split). Used by lookup Tier 3.5 for outward-only or otherwise-unmatched input.
+    """
+    groups: dict[str, list[str]] = {}
+    for (cc, code), nuts3 in _lookup.items():
+        if cc != country_code or len(code) < 4:
+            continue
+        outward = code[:-3]
+        groups.setdefault(outward, []).append(nuts3)
+
+    for outward, nuts3_list in groups.items():
+        counts = Counter(nuts3_list)
+        winner, count = counts.most_common(1)[0]
+        agreement = count / len(nuts3_list)
+        _outward_lookup[(country_code, outward)] = (winner, agreement)
+    if groups:
+        logger.info("Built outward index for %s: %d outward codes", country_code, len(groups))
+
+
 def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
     """Runtime estimation via longest prefix match + majority vote.
 
@@ -996,6 +1023,7 @@ def load_data() -> None:
         _lookup.clear()
         _estimates.clear()
         _nuts_names.clear()
+        _outward_lookup.clear()
         _data_stale = False
         _extra_source_count = len(settings.extra_source_urls)
 
@@ -1017,6 +1045,7 @@ def load_data() -> None:
             _revalidate_estimates()
             _load_nuts_names_from_db(db)
             _build_prefix_index()
+            _build_outward_index("UK")
             return
 
         _lookup.clear()
@@ -1109,6 +1138,7 @@ def load_data() -> None:
             logger.warning("TERCET refresh failed — serving stale cache")
 
         _build_prefix_index()
+        _build_outward_index("UK")
 
 
 def _build_result(match_type: str, nuts3: str, nuts1: str = "", nuts2: str = "", **confidence) -> dict:

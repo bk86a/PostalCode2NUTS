@@ -1,6 +1,7 @@
 """Tests for data_loader.py — normalize functions and lookup tiers."""
 
 import httpx
+import pytest
 
 from app import data_loader
 from app.data_loader import lookup, normalize_country, normalize_postal_code
@@ -371,6 +372,31 @@ class TestLoadNSPL:
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
         assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
+
+
+class TestBuildOutwardIndex:
+    def test_majority_vote(self, monkeypatch):
+        monkeypatch.setattr(
+            data_loader,
+            "_lookup",
+            {
+                ("UK", "SW1A2AA"): "TLI32",
+                ("UK", "SW1A1AA"): "TLI32",
+                ("UK", "SW1A0AA"): "TLI31",  # minority
+                ("UK", "M11AA"): "TLD45",
+                ("UK", "M11AB"): "TLD45",
+            },
+        )
+        monkeypatch.setattr(data_loader, "_outward_lookup", {})
+        data_loader._build_outward_index("UK")
+        assert data_loader._outward_lookup[("UK", "SW1A")] == ("TLI32", pytest.approx(2 / 3))
+        assert data_loader._outward_lookup[("UK", "M1")] == ("TLD45", pytest.approx(1.0))
+
+    def test_skips_short_codes(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {("UK", "AB1"): "TLC11"})
+        monkeypatch.setattr(data_loader, "_outward_lookup", {})
+        data_loader._build_outward_index("UK")
+        assert data_loader._outward_lookup == {}
 
 
 class TestConditionalGet:
