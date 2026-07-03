@@ -76,10 +76,17 @@ def test_weak_pip_outside():
 
 
 def test_weak_geocode_ok():
-    r = _run(WEAK, pip_res={"nuts0": "DE", "nuts1": "DE1", "nuts2": "DE11", "nuts3": "DE111"})
+    r = _run(WEAK, pip_res={"nuts0": "BE", "nuts1": "BE2", "nuts2": "BE24", "nuts3": "BE242"})
     assert r["resolved_via"] == "geocode" and r["geocode"]["status"] == "ok"
-    assert r["nuts3"] == "DE111" and r["nuts3_name"] == "name:DE111"
-    assert r["nuts3_confidence"] is None and r["geocode"]["nuts3"] == "DE111"
+    assert r["nuts3"] == "BE242" and r["nuts3_name"] == "name:BE242"
+    assert r["nuts3_confidence"] is None and r["geocode"]["nuts3"] == "BE242"
+
+
+def test_cross_country_pip_hit_rejected():
+    # geocode lands inside a DE polygon but the request is for BE → reject, don't return DE
+    r = _run(WEAK, pip_res={"nuts0": "DE", "nuts1": "DE1", "nuts2": "DE11", "nuts3": "DE111"})
+    assert r["geocode"]["status"] == "pip_outside"
+    assert r["resolved_via"] == "postal" and r["nuts3"] == "BE241"
 
 
 class FakePipSnap:

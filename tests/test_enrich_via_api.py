@@ -61,6 +61,7 @@ class TestAcceptGeocode:
     def test_same_country_accepted(self):
         assert enrich.accept_geocode("AL", "AL022") is True
         assert enrich.accept_geocode("el", "EL642") is True  # case-insensitive
+        assert enrich.accept_geocode("GR", "EL642") is True  # ISO GR remaps to NUTS EL
 
     def test_cross_border_rejected(self):
         # the failure modes observed in the estimated-rows sample

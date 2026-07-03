@@ -116,7 +116,7 @@ Addresses are sent to your Photon instance only; they are never logged.
 | `GET /pattern` | Get the postal code regex pattern for a country |
 | `GET /health` | Health check with data statistics |
 
-Interactive API docs are available at `/docs` (Swagger UI) and `/redoc`. To disable in production, set `PC2NUTS_DOCS_ENABLED=false`.
+Interactive API docs are available at `/documentation` (Swagger UI) and `/redoc`. To disable in production, set `PC2NUTS_DOCS_ENABLED=false`.
 
 ### `GET /lookup`
 
@@ -424,7 +424,8 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_TOKEN_DB_URL` | `""` (unset) | Connection string for the trusted-token database. Accepts both `https://…` and `libsql://…` (the latter is rewritten to `https://` automatically). Empty → DB-backed bypass disabled, falls back to env-var-only behaviour. |
 | `PC2NUTS_TOKEN_DB_AUTH_TOKEN` | `""` (unset) | Bearer JWT presented to the trusted-token database. Required when the provider enforces auth. |
 | `PC2NUTS_TOKEN_REFRESH_SECONDS` | `60` (min `1`) | How often the running service reloads the active trusted-token set from the DB. |
-| `PC2NUTS_DOCS_ENABLED` | `true` | Set to `false` to disable Swagger UI (`/docs`) and ReDoc (`/redoc`) in production. |
+| `PC2NUTS_DOCS_ENABLED` | `true` | Set to `false` to disable Swagger UI (`/documentation`) and ReDoc (`/redoc`) in production. |
+| `PC2NUTS_DOCS_URL` | `/documentation` | Path for the interactive API docs UI. |
 | `PC2NUTS_CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins. Set to a specific origin (e.g. `https://example.com`) to restrict cross-origin access. Empty string disables CORS middleware. |
 | `PC2NUTS_ACCESS_LOG_FILE` | *(empty — stdout)* | Path to access log file. When set, logs are written to this file with automatic rotation. When empty, access logs go to stderr. |
 | `PC2NUTS_ACCESS_LOG_MAX_MB` | `10` | Maximum size of each access log file in MB before rotation. |

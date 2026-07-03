@@ -18,7 +18,7 @@ def client(tmp_path, monkeypatch):
         "features": [
             {
                 "type": "Feature",
-                "properties": {"NUTS_ID": "DE111", "LEVL_CODE": 3},
+                "properties": {"NUTS_ID": "BE241", "LEVL_CODE": 3},
                 "geometry": {
                     "type": "Polygon",
                     "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
@@ -75,7 +75,7 @@ def test_resolve_weak_geocodes(client):
     assert r.status_code == 200
     body = r.json()
     assert body["resolved_via"] == "geocode"
-    assert body["nuts3"] == "DE111"
+    assert body["nuts3"] == "BE241"
     assert body["geocode"]["status"] == "ok"
 
 

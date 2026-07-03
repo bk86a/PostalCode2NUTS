@@ -66,6 +66,9 @@ def loose_extract_postal(regex: str | None, raw: str) -> str:
     return m.group(0) if m else ""
 
 
+_ISO_TO_NUTS = {"GR": "EL", "GB": "UK"}
+
+
 def accept_geocode(country: str, nuts3: str) -> bool:
     """Guard against cross-border geocode errors.
 
@@ -75,7 +78,10 @@ def accept_geocode(country: str, nuts3: str) -> bool:
     such results are discarded rather than trusted, since a NUTS3 code always begins
     with its country's two-letter code.
     """
-    return bool(nuts3) and bool(country) and nuts3.upper().startswith(country.upper())
+    if not (country and nuts3):
+        return False
+    cc = _ISO_TO_NUTS.get(country.upper(), country.upper())
+    return nuts3.upper().startswith(cc)
 
 
 def _country_regex(
