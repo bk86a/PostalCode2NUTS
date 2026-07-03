@@ -298,3 +298,21 @@ class TestNSPLColumnParsing:
         assert rows == 2
         assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
         assert data_loader._lookup[("UK", "EC1A1BB")] == "TLI32"
+
+    def test_skip_terminated_filters_doterm_rows(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        nspl_csv = (
+            "pcds,itl,doterm\n"
+            "SW1A 2AA,TLI32,\n"
+            "M1 9NS,TLD46,202312\n"  # terminated, skip
+            "EC1A 1BB,TLI32,\n"
+        )
+        rows = data_loader._parse_csv_content(nspl_csv, "UK", skip_terminated=True)
+        assert rows == 2
+        assert ("UK", "M19NS") not in data_loader._lookup
+
+    def test_skip_terminated_default_false_keeps_all_rows(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        nspl_csv = "pcds,itl,doterm\nSW1A 2AA,TLI32,\nM1 9NS,TLD46,202312\n"
+        rows = data_loader._parse_csv_content(nspl_csv, "UK")
+        assert rows == 2

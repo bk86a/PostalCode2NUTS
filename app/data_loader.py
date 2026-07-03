@@ -232,8 +232,19 @@ def _sniff_dialect(text: str) -> csv.Dialect | None:
         return None
 
 
-def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False) -> int:
-    """Parse CSV/TSV content and populate the lookup table. Returns row count."""
+def _parse_csv_content(
+    text: str,
+    country_code: str,
+    *,
+    overwrite: bool = False,
+    skip_terminated: bool = False,
+) -> int:
+    """Parse CSV/TSV content and populate the lookup table. Returns row count.
+
+    When skip_terminated is True (used for the NSPL dataset), rows with a
+    non-blank DOTERM (date of termination) column are skipped so only live
+    postcodes are loaded.
+    """
     count = 0
     skipped = 0
 
@@ -285,17 +296,28 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
             cc_col = candidate
             break
 
+    # Detect optional DOTERM column for live-only filtering (NSPL)
+    doterm_col = None
+    if skip_terminated:
+        for candidate in ("DOTERM", "DOT", "DATE_OF_TERMINATION"):
+            if candidate in fieldnames:
+                doterm_col = candidate
+                break
+
     # Map back to original-case field names from DictReader
     orig_fields = list(reader.fieldnames or [])
     pc_orig = orig_fields[fieldnames.index(pc_col)]
     nuts3_orig = orig_fields[fieldnames.index(nuts3_col)]
     cc_orig = orig_fields[fieldnames.index(cc_col)] if cc_col else None
+    doterm_orig = orig_fields[fieldnames.index(doterm_col)] if doterm_col else None
 
     if not country_code and cc_col is None:
         logger.warning("No country code available (not in URL or CSV columns), skipping file")
         return 0
 
     for row in reader:
+        if doterm_orig and row.get(doterm_orig, "").strip():
+            continue
         pc = row.get(pc_orig, "")
         nuts3 = row.get(nuts3_orig, "").strip()
         if not pc or not nuts3:
