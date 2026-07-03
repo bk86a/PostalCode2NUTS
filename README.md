@@ -738,13 +738,13 @@ These labels map to numerical confidence scores per NUTS level. Coarser levels r
 
 ### Current coverage
 
-The estimates file contains **7,632 entries** across 33 countries, with the following confidence distribution:
+The estimates file contains **7,143 entries** across 32 countries, with the following confidence distribution:
 
 | Confidence | Count | Share |
 |------------|-------|-------|
-| high       | 5,746 | 75.3% |
-| medium     | 1,439 | 18.9% |
-| low        |   447 |  5.9% |
+| high       | 5,257 | 73.6% |
+| medium     | 1,439 | 20.1% |
+| low        |   447 |  6.3% |
 
 Countries with the most estimates: TR (1,778), LT (1,231), FR (526), DE (500), EL (387), CZ (361), RO (358).
 
