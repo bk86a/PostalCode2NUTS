@@ -382,6 +382,21 @@ class TestLoadNSPL:
         client = httpx.Client(transport=httpx.MockTransport(handler))
         assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
 
+    def test_nspl_failure_does_not_block_tercet(self, tmp_path, monkeypatch):
+        """If NSPL is unreachable, previously-loaded TERCET data must still serve."""
+        monkeypatch.setattr(data_loader, "_lookup", {("AT", "1010"): "AT130"})
+
+        def handler(request):
+            raise httpx.ConnectError("ons unavailable")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        nspl_count = data_loader._load_nspl(client, "https://ons.invalid/nspl.zip", tmp_path)
+        assert nspl_count == 0
+        # AT lookup must still work (TERCET data untouched)
+        result = data_loader.lookup("AT", "1010")
+        assert result is not None
+        assert result["nuts3"] == "AT130"
+
 
 class TestUKOutwardLookup:
     def test_outward_only_input_returns_estimated(self, mock_data):
