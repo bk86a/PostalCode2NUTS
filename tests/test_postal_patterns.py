@@ -6,6 +6,7 @@ from app.postal_patterns import (
     PATTERNS_META,
     _apply_tercet_map,
     _preprocess,
+    extract_outward,
     extract_postal_code,
 )
 
@@ -208,3 +209,29 @@ class TestUKExtraction:
 def test_patterns_meta_version_bumped():
     # Adding UK is an additive coverage change; minor version bump.
     assert PATTERNS_META["version"] == "1.3"
+
+
+class TestExtractOutward:
+    @pytest.mark.parametrize(
+        "raw, expected_outward",
+        [
+            ("SW1A 2AA", "SW1A"),
+            ("sw1a2aa", "SW1A"),
+            ("M1 1AA", "M1"),
+            ("B33 8TH", "B33"),
+            ("EC1A 1BB", "EC1A"),
+            ("DN55 1PT", "DN55"),
+            ("SW1A", "SW1A"),  # outward-only input
+            ("M1", "M1"),
+        ],
+    )
+    def test_extract_outward_for_uk(self, raw, expected_outward):
+        assert extract_outward("UK", raw) == expected_outward
+
+    def test_returns_none_for_country_without_flag(self):
+        # AT does not declare outward_only; outward extraction is undefined.
+        assert extract_outward("AT", "1010") is None
+
+    def test_extract_postal_code_unaffected_by_outward_only_flag(self):
+        # Tier 1 lookup for UK must still yield the full normalised postcode.
+        assert extract_postal_code("UK", "SW1A 2AA") == "SW1A2AA"
