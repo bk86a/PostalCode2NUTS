@@ -1,6 +1,13 @@
 """Tests for postal_patterns.py — preprocessing, tercet_map, extraction."""
 
-from app.postal_patterns import _apply_tercet_map, _preprocess, extract_postal_code
+import pytest
+
+from app.postal_patterns import (
+    PATTERNS_META,
+    _apply_tercet_map,
+    _preprocess,
+    extract_postal_code,
+)
 
 
 # ── _preprocess tests ─────────────────────────────────────────────────────────
@@ -177,3 +184,27 @@ class TestAlbaniaExtraction:
     def test_three_digit_not_matched_as_four(self):
         # Too short: regex requires exactly 4 digits; must NOT become a 4-digit code.
         assert extract_postal_code("AL", "100") != "1000"
+
+
+class TestUKExtraction:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("SW1A 2AA", "SW1A2AA"),
+            ("sw1a 2aa", "SW1A2AA"),
+            ("SW1A2AA", "SW1A2AA"),
+            ("M1 1AA", "M11AA"),
+            ("B33 8TH", "B338TH"),
+            ("W1A 1HQ", "W1A1HQ"),
+            ("CR2 6XH", "CR26XH"),
+            ("DN55 1PT", "DN551PT"),
+            ("EC1A 1BB", "EC1A1BB"),
+        ],
+    )
+    def test_uk_regex_extracts_normalized_full_postcode(self, raw, expected):
+        assert extract_postal_code("UK", raw) == expected
+
+
+def test_patterns_meta_version_bumped():
+    # Adding UK is an additive coverage change; minor version bump.
+    assert PATTERNS_META["version"] == "1.3"
