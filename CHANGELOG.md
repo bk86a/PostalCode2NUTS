@@ -10,12 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Albania coverage completeness** (#118): AL postal codes now resolve via the
   official postal-code block-allocation scheme (`app/albania_blocks.py`) instead
-  of the incomplete GeoNames estimates. Every well-formed 4-digit AL code maps to
-  its NUTS3 region by district block — codes GeoNames omitted (e.g. Tirana 1055,
-  and whole districts like Gramsh 33xx / Peqin 35xx / Tepelenë 63xx / Përmet
-  64xx) no longer 404. Validated to reproduce all 489 previously-shipped codes
-  identically. Because the map is code, not data, AL coverage is now immune to
-  the `PC2NUTS_ESTIMATES_REFRESH_URL` full-replace clobber.
+  of the incomplete GeoNames estimates. A code maps to its NUTS3 region by its
+  allocated district prefix — codes GeoNames omitted (e.g. Tirana 1055, and whole
+  districts like Gramsh 33xx / Peqin 35xx / Tepelenë 63xx / Përmet 64xx) no
+  longer 404, while codes whose prefix belongs to no district (non-existent) return
+  not-found rather than a fabricated region. Validated to reproduce all 489
+  previously-shipped codes identically. Because the map is code, not data, AL
+  coverage is now immune to the `PC2NUTS_ESTIMATES_REFRESH_URL` full-replace clobber.
 
 ## [1.0.0] - 2026-07-03
 

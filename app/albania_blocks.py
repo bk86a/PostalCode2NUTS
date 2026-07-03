@@ -2,10 +2,11 @@
 
 Albania has no Eurostat TERCET file. Its postal codes are block-allocated by
 district: the first two digits identify one of ~33 postal districts, and each
-district sits in exactly one of the 12 qarks (= NUTS3). A range map keyed on the
-district-center codes resolves ANY well-formed 4-digit code to its NUTS3 by the
-block it falls into — covering the gaps GeoNames leaves (issue #118) by
-construction, at NUTS3 granularity.
+district sits in exactly one of the 12 qarks (= NUTS3). Keying on that allocated
+2-digit prefix resolves any code in a real district to its NUTS3 — covering the
+gaps GeoNames leaves (issue #118) by construction, at NUTS3 granularity — while a
+code whose prefix belongs to no district returns None rather than a fabricated
+region.
 
 Source: official Posta Shqiptare allocation, cross-checked vs. Wikipedia "Postal
 codes in Albania" and the UPU addressing PDF. The district->qark->NUTS3 mapping
@@ -17,14 +18,12 @@ tests/test_albania_golden.py).
 
 from __future__ import annotations
 
-from bisect import bisect_right
-
 SUPPORTED: frozenset[str] = frozenset({"AL"})
 
-# (district-center code, NUTS3, district name). Ascending by code. Each code is
-# the LOWER bound of that district's block; a block runs to the next code.
-# 1700 "Transit" / 1800 "EMS" are non-geographic service codes folded into
-# Tirana (AL022), matching how GeoNames tags the 17xx/18xx prefixes.
+# (district-center code, NUTS3, district name). Ascending by code. The first two
+# digits of each code are the district's allocated prefix; the last two identify
+# a postal office within it. 1700 "Transit" / 1800 "EMS" are non-geographic
+# service codes folded into Tirana (AL022), matching how GeoNames tags 17xx/18xx.
 BLOCKS: list[tuple[int, str, str]] = [
     (1000, "AL022", "Tirana"),
     (1500, "AL012", "Kruje"),
@@ -63,20 +62,18 @@ BLOCKS: list[tuple[int, str, str]] = [
     (9700, "AL035", "Sarande"),
 ]
 
-_STARTS = [b[0] for b in BLOCKS]
-_NUTS3 = [b[1] for b in BLOCKS]
+# Allocated 2-digit district prefix -> NUTS3. Each district owns a distinct
+# prefix, so this is a 1:1 map with one entry per block.
+_PREFIX_TO_NUTS3: dict[str, str] = {str(code)[:2]: nuts3 for code, nuts3, _ in BLOCKS}
 
 
 def resolve_al_block(postal_code: str) -> str | None:
     """NUTS3 code for a well-formed 4-digit AL postal code, else None.
 
-    Any code >= 1000 maps to its enclosing district block (incl. 9800-9999 ->
-    Sarande/AL035 as best-effort). Codes < 1000, wrong length, or non-numeric
-    return None.
+    A code resolves only when its first two digits are an allocated district
+    prefix; codes in unallocated prefixes (no such district) return None rather
+    than a fabricated region. Wrong length or non-numeric input also returns None.
     """
     if not (len(postal_code) == 4 and postal_code.isdigit()):
         return None
-    n = int(postal_code)
-    if n < _STARTS[0]:
-        return None
-    return _NUTS3[bisect_right(_STARTS, n) - 1]
+    return _PREFIX_TO_NUTS3.get(postal_code[:2])
