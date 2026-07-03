@@ -363,9 +363,7 @@ def _parse_csv_content(
     return count
 
 
-def _download_zip_conditional(
-    client: httpx.Client, url: str, cached_meta: dict
-) -> httpx.Response:
+def _download_zip_conditional(client: httpx.Client, url: str, cached_meta: dict) -> httpx.Response:
     """Download with conditional-GET headers; returns the raw httpx.Response.
 
     cached_meta keys: 'etag' and 'last_modified' (either may be absent). The
