@@ -1023,11 +1023,19 @@ Add the country to the appropriate group (EU, EFTA, or candidate) and add a row 
 
 No Python code changes are required.
 
-## Data source
+## Data sources & attribution
 
-[GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+**Postal code → NUTS (both tiers).** [GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Albanian estimates are derived from [GeoNames](https://www.geonames.org/) admin1 tagging, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 The [EU Open Data Portal dataset](https://data.europa.eu/data/datasets/postcodes-and-nuts-nomenclature-of-territorial-units-for-statistics) was also considered as a data source. However, its refresh cycle lags behind the GISCO TERCET flat files, so direct sourcing from GISCO was chosen for more up-to-date coverage.
+
+**Address → geocode → NUTS (Full tier only).** The optional geocoding tier relies on:
+
+- **[Photon](https://github.com/komoot/photon)** by komoot — the self-hosted geocoder, licensed [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0).
+- **OpenStreetMap** — Photon's search index is built from OpenStreetMap data, &copy; [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/). **If you deploy the Full tier, ODbL requires you to credit "© OpenStreetMap contributors" wherever you present geocoded results.**
+- **[GISCO NUTS boundaries](https://ec.europa.eu/eurostat/web/gisco/geodata/statistical-units/territorial-units-statistics)** — the reference polygons used for point-in-polygon resolution; administrative boundaries &copy; EuroGeographics, redistributed by European Union &ndash; GISCO.
+
+This attribution covers only the datasets the service consumes; the project's own code is licensed separately (see [Licence](#licence)).
 
 ## Contributing
 
