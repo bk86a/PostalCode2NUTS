@@ -35,8 +35,6 @@ class PhotonClient:
             out.append(f"{postal_code} {city}")
         if city:
             out.append(city)
-        if street and postal_code and not city:
-            out.append(f"{street}, {postal_code}")
         if postal_code:
             out.append(postal_code)
         if street and not city and not postal_code:
@@ -53,15 +51,17 @@ class PhotonClient:
             )
             resp.raise_for_status()
             data = resp.json()
-        except (httpx.HTTPError, ValueError):
+            feats = data.get("features") or []
+            if not feats:
+                return None
+            coords = (feats[0].get("geometry") or {}).get("coordinates") or []
+            if len(coords) < 2:
+                return None
+            # (lat, lon) from [lon, lat]; a non-Point feature nests coordinates,
+            # so float() would raise TypeError — caught here to honour "never raises".
+            return (float(coords[1]), float(coords[0]))
+        except (httpx.HTTPError, ValueError, TypeError, IndexError):
             return None
-        feats = data.get("features") or []
-        if not feats:
-            return None
-        coords = (feats[0].get("geometry") or {}).get("coordinates") or []
-        if len(coords) < 2:
-            return None
-        return (float(coords[1]), float(coords[0]))  # (lat, lon) from [lon, lat]
 
     def geocode(
         self, street: str | None, city: str | None, postal_code: str | None
