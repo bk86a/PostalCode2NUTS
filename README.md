@@ -26,6 +26,31 @@ Faroe Islands (FO) — not part of NUTS; synthetic result.
 
 > **Faroe Islands** is an autonomous Danish territory with no NUTS coverage and no GISCO TERCET file. Lookups for FO are served by a synthetic single-region fallback (Tier 6) configured via `synthetic_nuts_fallback` in `app/settings.json`, returning `FO0` / `FO00` / `FO000` with `match_type="approximate"` and capped confidence (`0.90` / `0.85` / `0.80`) for any well-formed 3-digit code. The code is fabricated, not derived from a real NUTS dataset — contrast Montenegro's `ME000`, which is a genuine single-region NUTS code.
 
+## Deployment tiers
+
+PostalCode2NUTS runs in one of two tiers, chosen at deploy time by a single config
+value — one codebase, one image.
+
+| | **Lite** (default) | **Full** |
+|---|---|---|
+| Selected by | `PC2NUTS_PHOTON_URL` unset | `PC2NUTS_PHOTON_URL` set |
+| Resolution | postal code → NUTS (5-tier) | postal → NUTS, then address → geocode → NUTS fallback |
+| Endpoints | `/lookup`, `/pattern`, `/health`, `/resolve`\* | same, with `/resolve` geocoding active |
+| Extra infrastructure | none | komoot Photon + NUTS-2024 polygons (~160 MB, auto-cached) |
+| Footprint | ~35 MB data | ~100× (dominated by the Photon index) |
+| Best for | high throughput, low cost, exact postal coverage | maximum coverage, messy/partial addresses |
+
+\* In Lite, `/resolve` still answers but only from the postal path; its
+`geocode.status` is `geocoder_unavailable`. `GET /health` reports `pip_ready` and
+`geocoder_configured` so you can confirm the active tier.
+
+**Why Full?** On a 900k-row real-world dataset the geocoding fallback resolves an
+extra **~8.5%** of rows that postal lookup alone cannot — and up to **~33%** in
+countries with weak postal→NUTS coverage (Netherlands, Malta, Ireland).
+
+Lite is the default and needs nothing beyond the base image. To enable Full, see
+[Full tier](#full-tier) below.
+
 ## Testing
 
 The service has been tested against **134 million real-world postal codes** from 34 countries, sourced from 8 publicly available European datasets (GeoNames, OpenAddresses, GLEIF, SIRENE, TED, OffeneRegister, FTS, and Erasmus+ ECHE). All are open data published under permissive licenses (CC BY 4.0, CC0, or Licence Ouverte v2.0).
@@ -47,6 +72,41 @@ docker run -p 8000:8000 postalcode2nuts
 ```
 
 See [Docker deployment](#docker-deployment) below for persistent volumes and production configuration.
+
+### Full tier
+
+The Full tier adds an address → coordinate → NUTS fallback for rows the postal path
+can't resolve. It needs two things beyond Lite:
+
+1. **A komoot Photon geocoder.** Photon serves an OpenStreetMap-derived index. You
+   can build/download either the full planet index (~89 GB) or a smaller
+   country-subset extract — pick what matches the countries you serve. Run it bound
+   to loopback and point the app at it:
+
+   ```bash
+   # Obtain photon.jar and an index directory (see https://github.com/komoot/photon),
+   # then serve it:
+   java -jar photon.jar serve -data-dir /path/to/photon -listen-ip 127.0.0.1 -listen-port 2322
+   ```
+
+2. **NUTS polygons.** On first Full-tier startup the app downloads the GISCO
+   NUTS-2024 (1:1M) polygons into `PC2NUTS_DATA_DIR` and caches them. To avoid the
+   download, pre-seed the file and set `PC2NUTS_NUTS_GEOJSON_PATH`.
+
+Enable Full mode by setting `PC2NUTS_PHOTON_URL`. With Docker Compose:
+
+```bash
+docker compose -f compose.yaml -f compose.full.yaml up -d
+```
+
+Confirm the tier is live:
+
+```bash
+curl -s localhost:8000/health | jq '{pip_ready, geocoder_configured}'
+# → {"pip_ready": true, "geocoder_configured": true}
+```
+
+Addresses are sent to your Photon instance only; they are never logged.
 
 ## Endpoints
 
@@ -160,6 +220,42 @@ GET /pattern?country=AT
   "example": "1010, A-1010, AT-1010"
 }
 ```
+
+### `GET /resolve`
+
+Full tier. Resolves NUTS with a geocoding fallback: it runs the postal lookup first
+and, only when that result is weak (`not_found`, or `nuts3_confidence` below
+`PC2NUTS_RESOLVE_CONFIDENCE_THRESHOLD`, default `0.85`) **and** a street/city was
+supplied, geocodes the address via Photon and maps the coordinate to a NUTS-3 region
+by point-in-polygon. A geocode that lands just outside a (generalized) polygon is
+snapped to the nearest same-country region within `PC2NUTS_PIP_SNAP_KM` (default
+`2.0` km); cross-country snapping is refused.
+
+**Query parameters:** `country` (2-letter, required), `postal_code` (required),
+`street` (optional), `city` (optional).
+
+```bash
+curl -s "localhost:8000/resolve?country=NL&postal_code=1012AB&street=Dam&city=Amsterdam"
+```
+
+**Response fields:** `country_code`, `postal_code`, `resolved_via`
+(`postal` | `geocode` | `none`), `match_type`, `nuts1..nuts3` (+ `_name`),
+`nuts3_confidence`, and a `geocode` object: `status`, `lat`, `lon`, `nuts3`,
+`snap_km`.
+
+`geocode.status` values:
+
+| status | meaning |
+|---|---|
+| `not_attempted` | postal result was strong enough; geocoding skipped |
+| `ok` | geocoded and the point fell inside a NUTS-3 region |
+| `snapped` | point was just outside; snapped to the nearest same-country region (`snap_km`) |
+| `pip_outside` | geocoded but the point is outside all NUTS regions and beyond the snap cap |
+| `no_result` | the geocoder found no coordinate |
+| `no_address` | postal result was weak but no street/city was supplied |
+| `geocoder_unavailable` | Lite tier — no geocoder configured |
+
+In Lite, `/resolve` returns the postal result with `geocode.status: geocoder_unavailable`.
 
 ### `GET /health`
 
@@ -335,6 +431,11 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ACCESS_LOG_BACKUP_COUNT` | `5` | Number of rotated access log files to keep (e.g. 5 x 10 MB = 50 MB max disk usage). |
 | `PC2NUTS_ESTIMATES_REFRESH_URL` | *(empty — feature disabled)* | When set, the worker periodically fetches this URL and replaces the in-memory estimates table. Recommended value: `https://raw.githubusercontent.com/bk86a/PostalCode2NUTS/main/tercet_missing_codes.csv`. |
 | `PC2NUTS_ESTIMATES_REFRESH_INTERVAL_SECONDS` | `86400` (24 h) | How often the periodic task fetches the URL. Set to `0` to disable the periodic loop while keeping the bootstrap fetch on startup. |
+| `PC2NUTS_PHOTON_URL` | _(unset)_ | Photon geocoder base URL. **Unset ⇒ Lite tier.** Set ⇒ Full tier. |
+| `PC2NUTS_NUTS_GEOJSON_URL` | GISCO NUTS-2024 1M zip | Source for NUTS polygons (Full tier); auto-downloaded + cached. |
+| `PC2NUTS_NUTS_GEOJSON_PATH` | _(unset)_ | Pre-seeded polygon file; skips the download when set. |
+| `PC2NUTS_RESOLVE_CONFIDENCE_THRESHOLD` | `0.85` | Geocode only when the postal `nuts3_confidence` is below this. |
+| `PC2NUTS_PIP_SNAP_KM` | `2.0` | Max distance to snap a just-outside point to the nearest same-country NUTS-3 region. `0` disables snapping. |
 
 ### Multi-worker deployment
 
