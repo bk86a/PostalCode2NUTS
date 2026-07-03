@@ -51,6 +51,7 @@ class HealthResponse(BaseModel):
 class GeocodeInfo(BaseModel):
     status: Literal[
         "ok",
+        "snapped",
         "no_result",
         "pip_outside",
         "no_address",
@@ -60,6 +61,9 @@ class GeocodeInfo(BaseModel):
     lat: float | None = None
     lon: float | None = None
     nuts3: str | None = None
+    snap_km: float | None = Field(
+        default=None, description="Distance (km) the point was snapped to the nearest NUTS-3 region"
+    )
 
 
 class ResolveResponse(BaseModel):

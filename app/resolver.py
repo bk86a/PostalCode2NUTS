@@ -22,6 +22,7 @@ def resolve(
     pip,
     name_fn: Callable[[str], str | None],
     threshold: float = 0.85,
+    snap_km: float = 0.0,
 ) -> dict:
     current = lookup_fn(country, postal_code)
     match_type = current.get("match_type") if current else "not_found"
@@ -67,9 +68,17 @@ def resolve(
 
     lat, lon = coord
     hit = pip.lookup(lat, lon)
+    geocode: dict = {"status": "ok", "lat": lat, "lon": lon}
     if hit is None:
-        return {**base, **_postal(), "geocode": {"status": "pip_outside", "lat": lat, "lon": lon}}
+        # Point fell outside every polygon — try snapping to the nearest same-country
+        # NUTS-3 region (coastline/border rescue) before giving up.
+        snapped = pip.nearest(lat, lon, snap_km, country) if snap_km and snap_km > 0 else None
+        if snapped is None:
+            return {**base, **_postal(), "geocode": {"status": "pip_outside", "lat": lat, "lon": lon}}
+        hit = snapped
+        geocode = {"status": "snapped", "lat": lat, "lon": lon, "snap_km": snapped["snap_km"]}
 
+    geocode["nuts3"] = hit["nuts3"]
     return {
         **base,
         "resolved_via": "geocode",
@@ -80,5 +89,5 @@ def resolve(
         "nuts3": hit["nuts3"],
         "nuts3_name": name_fn(hit["nuts3"]),
         "nuts3_confidence": None,
-        "geocode": {"status": "ok", "lat": lat, "lon": lon, "nuts3": hit["nuts3"]},
+        "geocode": geocode,
     }

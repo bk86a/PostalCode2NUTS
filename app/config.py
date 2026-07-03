@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     )
     nuts_geojson_path: str = ""
     resolve_confidence_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    # Max distance (km) to snap a geocoded point that fell just outside every NUTS
+    # polygon to the nearest same-country NUTS-3 region (coastline/border rescue).
+    # 0 disables snapping.
+    pip_snap_km: float = Field(default=2.0, ge=0.0)
     docs_url: str = "/documentation"
     cors_origins: str = "*"
     access_log_file: str = ""

@@ -82,6 +82,54 @@ def test_weak_geocode_ok():
     assert r["nuts3_confidence"] is None and r["geocode"]["nuts3"] == "DE111"
 
 
+class FakePipSnap:
+    """PIP whose exact lookup always misses; nearest() returns a configured snap."""
+
+    def __init__(self, snap_res):
+        self._snap = snap_res
+
+    def lookup(self, lat, lon):
+        return None
+
+    def nearest(self, lat, lon, max_km, country=None):
+        return self._snap
+
+
+def _run_snap(snap_res, snap_km):
+    return resolve(
+        "BE",
+        "3080",
+        "Rue",
+        "X",
+        lookup_fn=lambda c, p: WEAK,
+        geocode_fn=lambda s, c, p: (50.0, 4.0),
+        pip=FakePipSnap(snap_res),
+        name_fn=_names,
+        snap_km=snap_km,
+    )
+
+
+def test_snap_recovers_pip_outside():
+    r = _run_snap(
+        {"nuts0": "BE", "nuts1": "BE2", "nuts2": "BE24", "nuts3": "BE242", "snap_km": 0.8},
+        snap_km=2.0,
+    )
+    assert r["resolved_via"] == "geocode" and r["geocode"]["status"] == "snapped"
+    assert r["nuts3"] == "BE242" and r["nuts3_name"] == "name:BE242"
+    assert r["geocode"]["snap_km"] == 0.8 and r["geocode"]["nuts3"] == "BE242"
+
+
+def test_snap_miss_stays_pip_outside():
+    r = _run_snap(None, snap_km=2.0)
+    assert r["geocode"]["status"] == "pip_outside" and r["resolved_via"] == "postal"
+
+
+def test_snap_disabled_by_default_is_pip_outside():
+    # default snap_km=0 must not even call pip.nearest (FakePip has none)
+    r = _run(WEAK, pip_res=None)
+    assert r["geocode"]["status"] == "pip_outside"
+
+
 def test_not_found_no_address_is_none():
     r = _run(None, street=None, city=None)
     assert r["resolved_via"] == "none" and r["match_type"] == "not_found"
