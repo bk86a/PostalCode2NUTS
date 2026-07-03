@@ -16,6 +16,8 @@ from pathlib import Path
 
 import httpx
 
+from app.albania_blocks import SUPPORTED as AL_SUPPORTED
+from app.albania_blocks import resolve_al_block
 from app.config import settings
 
 _NUTS3_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{1,3}$")
@@ -96,6 +98,7 @@ def get_loaded_countries() -> set[str]:
         | {cc for cc, _ in _estimates}
         | set(_single_nuts3.keys())
         | set(_synthetic_nuts.keys())
+        | set(AL_SUPPORTED)
     )
 
 
@@ -1031,9 +1034,10 @@ def _matches_pattern(cc: str, raw: str) -> bool:
 def lookup(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
-    Six-tier fall-through:
+    Tiered fall-through:
     1. Exact TERCET match → confidence 1.0
     2. Pre-computed estimate → stored confidence per level
+    2b. Albania block map → district-block NUTS3, match_type='estimated' (#118)
     3. Runtime prefix-based estimation → calculated confidence
     4. Country-level majority vote → unanimous NUTS1/2, dominant NUTS3 (e.g. MT)
     5. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
@@ -1066,6 +1070,21 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
             nuts2_confidence=est["nuts2_confidence"],
             nuts3_confidence=est["nuts3_confidence"],
         )
+
+    # Tier 2b: Albania authoritative block map (#118). AL has no TERCET and no
+    # estimate rows; the official postal-district block scheme resolves any
+    # well-formed 4-digit code to its NUTS3.
+    if cc in AL_SUPPORTED:
+        al_nuts3 = resolve_al_block(extracted)
+        if al_nuts3 is not None:
+            conf = settings.confidence_map["high"]
+            return _build_result(
+                "estimated",
+                al_nuts3,
+                nuts1_confidence=conf["nuts1"],
+                nuts2_confidence=conf["nuts2"],
+                nuts3_confidence=conf["nuts3"],
+            )
 
     # Tier 3: Runtime prefix-based estimation
     approx = _estimate_by_prefix(cc, extracted)

@@ -27,7 +27,7 @@ Albania (AL), North Macedonia (MK), Montenegro (ME), Serbia (RS), Türkiye (TR)
 
 > **Montenegro** is treated by Eurostat as a single nationwide unit at every NUTS level (`ME0` / `ME00` / `ME000`), and GISCO does not currently publish a TERCET file for it. Lookups for ME are served by the single-NUTS3 fallback (Tier 5) configured via `single_nuts3_fallback` in `app/settings.json`, returning `ME000` for any valid 5-digit code starting with `8`.
 
-> **Albania** has a full NUTS hierarchy (`AL0`; `AL01` / `AL02` / `AL03`; 12 NUTS3 counties `AL011`–`AL035`) but Eurostat publishes no GISCO TERCET file for it. Coverage is provided through the Tier-2 estimates layer: each of ~489 Albanian 4-digit postal codes is mapped to its NUTS3 county (qark) via GeoNames' admin1 tagging, which corresponds 1:1 to the NUTS3 regions. Lookups return `match_type="estimated"` with `high` confidence — see [Estimates](#estimates).
+> **Albania** has a full NUTS hierarchy (`AL0`; `AL01` / `AL02` / `AL03`; 12 NUTS3 counties `AL011`–`AL035`) but Eurostat publishes no GISCO TERCET file for it. Coverage is provided by an authoritative postal-code **block resolver** (`app/albania_blocks.py`): Albanian codes are block-allocated by district — the first two digits identify one of ~33 postal districts, each belonging to one of the 12 NUTS3 qarks — so **any** well-formed 4-digit code resolves to its qark via the block it falls into. Lookups return `match_type="estimated"` with `high` confidence — see [Estimates](#estimates).
 
 **Other territories** (1):
 Faroe Islands (FO) — not part of NUTS; synthetic result.
@@ -738,15 +738,15 @@ These labels map to numerical confidence scores per NUTS level. Coarser levels r
 
 ### Current coverage
 
-The estimates file contains **7,632 entries** across 33 countries, with the following confidence distribution:
+The estimates file contains **7,143 entries** across 32 countries, with the following confidence distribution:
 
 | Confidence | Count | Share |
 |------------|-------|-------|
-| high       | 5,746 | 75.3% |
-| medium     | 1,439 | 18.9% |
-| low        |   447 |  5.9% |
+| high       | 5,257 | 73.6% |
+| medium     | 1,439 | 20.1% |
+| low        |   447 |  6.3% |
 
-Countries with the most estimates: TR (1,778), LT (1,231), FR (526), DE (500), AL (489), EL (387), CZ (361), RO (358).
+Countries with the most estimates: TR (1,778), LT (1,231), FR (526), DE (500), EL (387), CZ (361), RO (358).
 
 ### Revalidation
 
@@ -847,7 +847,7 @@ docker build -t postalcode2nuts .
 docker run -p 8000:8000 postalcode2nuts
 ```
 
-On first start the service downloads TERCET data for the 34 countries with GISCO coverage (~2-5 minutes depending on network); Montenegro (single-NUTS3 fallback) and Albania (estimates-only, bundled in `tercet_missing_codes.csv`) need no download. After that everything is cached in a SQLite database for instant restarts.
+On first start the service downloads TERCET data for the 34 countries with GISCO coverage (~2-5 minutes depending on network); Montenegro (single-NUTS3 fallback) and Albania (resolved in-code via the postal-code block map) need no download. After that everything is cached in a SQLite database for instant restarts.
 
 ### Persistent data volume
 
@@ -939,7 +939,7 @@ tests/
 ├── test_nuts_pip.py
 ├── test_auth.py
 ├── test_token_db.py
-└── ...                  # full suite also covers estimates refresh, rate limiting, Albania estimates, etc.
+└── ...                  # full suite also covers estimates refresh, rate limiting, the Albania block resolver, etc.
 scripts/
 ├── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
 └── tokens.py            # CLI: manage trusted-token DB (init/add/list/revoke)
@@ -1025,7 +1025,7 @@ No Python code changes are required.
 
 ## Data sources & attribution
 
-**Postal code → NUTS (both tiers).** [GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Albanian estimates are derived from [GeoNames](https://www.geonames.org/) admin1 tagging, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+**Postal code → NUTS (both tiers).** [GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Albanian NUTS3 assignments come from the country's official postal-code block-allocation scheme (Posta Shqiptare), cross-validated against [GeoNames](https://www.geonames.org/) admin1 tagging ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).
 
 The [EU Open Data Portal dataset](https://data.europa.eu/data/datasets/postcodes-and-nuts-nomenclature-of-territorial-units-for-statistics) was also considered as a data source. However, its refresh cycle lags behind the GISCO TERCET flat files, so direct sourcing from GISCO was chosen for more up-to-date coverage.
 
