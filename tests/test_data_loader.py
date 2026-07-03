@@ -1,5 +1,7 @@
 """Tests for data_loader.py — normalize functions and lookup tiers."""
 
+import httpx
+
 from app import data_loader
 from app.data_loader import lookup, normalize_country, normalize_postal_code
 
@@ -316,3 +318,36 @@ class TestNSPLColumnParsing:
         nspl_csv = "pcds,itl,doterm\nSW1A 2AA,TLI32,\nM1 9NS,TLD46,202312\n"
         rows = data_loader._parse_csv_content(nspl_csv, "UK")
         assert rows == 2
+
+
+class TestConditionalGet:
+    def test_sends_conditional_headers_when_etag_known(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["headers"] = dict(request.headers)
+            return httpx.Response(304)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        cached_meta = {
+            "etag": '"abc123"',
+            "last_modified": "Wed, 01 Jan 2025 00:00:00 GMT",
+        }
+        result = data_loader._download_zip_conditional(
+            client, "https://example.com/foo.zip", cached_meta
+        )
+        assert result.status_code == 304
+        assert captured["headers"]["if-none-match"] == '"abc123"'
+        assert captured["headers"]["if-modified-since"] == "Wed, 01 Jan 2025 00:00:00 GMT"
+
+    def test_omits_headers_when_meta_empty(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["headers"] = dict(request.headers)
+            return httpx.Response(200, content=b"x")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        data_loader._download_zip_conditional(client, "https://example.com/foo.zip", {})
+        assert "if-none-match" not in captured["headers"]
+        assert "if-modified-since" not in captured["headers"]

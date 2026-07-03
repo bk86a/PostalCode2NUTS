@@ -347,6 +347,23 @@ def _parse_csv_content(
     return count
 
 
+def _download_zip_conditional(
+    client: httpx.Client, url: str, cached_meta: dict
+) -> httpx.Response:
+    """Download with conditional-GET headers; returns the raw httpx.Response.
+
+    cached_meta keys: 'etag' and 'last_modified' (either may be absent). The
+    caller handles 200 (re-parse), 304 (keep cache), and error statuses. Applies
+    to both TERCET and NSPL so an unchanged upstream ZIP is not re-fetched.
+    """
+    headers = {}
+    if cached_meta.get("etag"):
+        headers["If-None-Match"] = cached_meta["etag"]
+    if cached_meta.get("last_modified"):
+        headers["If-Modified-Since"] = cached_meta["last_modified"]
+    return client.get(url, headers=headers, timeout=60, follow_redirects=True)
+
+
 def _download_zip(client: httpx.Client, url: str) -> bytes | None:
     """Download a ZIP with one retry on transient network errors.
 
