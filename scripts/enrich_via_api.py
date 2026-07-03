@@ -26,10 +26,18 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 
 OUT_FIELDS = [
-    "OID", "COUNTRY_CD", "CITY", "STREET_NAME_AND_NUMBER", "POSTAL_CODE",
-    "NUTS3_POSTAL", "POSTAL_MATCH_TYPE", "POSTAL_CONFIDENCE",
-    "NUTS3_GEOCODED", "GEOCODE_STATUS",
-    "NUTS3_FINAL", "RESOLUTION_METHOD",
+    "OID",
+    "COUNTRY_CD",
+    "CITY",
+    "STREET_NAME_AND_NUMBER",
+    "POSTAL_CODE",
+    "NUTS3_POSTAL",
+    "POSTAL_MATCH_TYPE",
+    "POSTAL_CONFIDENCE",
+    "NUTS3_GEOCODED",
+    "GEOCODE_STATUS",
+    "NUTS3_FINAL",
+    "RESOLUTION_METHOD",
 ]
 
 WEAK_THRESHOLD = 0.85
@@ -127,8 +135,9 @@ def process_row(row: dict, client: httpx.Client, base: str, headers: dict, timeo
     street = (row.get("STREET_NAME_AND_NUMBER") or "").strip()
     city = (row.get("CITY") or "").strip()
 
-    out = {k: (row.get(k) or "") for k in
-           ("OID", "COUNTRY_CD", "CITY", "STREET_NAME_AND_NUMBER", "POSTAL_CODE")}
+    out = {
+        k: (row.get(k) or "") for k in ("OID", "COUNTRY_CD", "CITY", "STREET_NAME_AND_NUMBER", "POSTAL_CODE")
+    }
     nuts3_postal = match_type = conf = ""
     nuts3_geocoded = geocode_status = ""
 
@@ -139,8 +148,9 @@ def process_row(row: dict, client: httpx.Client, base: str, headers: dict, timeo
         # Pull out the code-shaped token and retry once with it.
         cand = loose_extract_postal(_country_regex(client, base, headers, timeout, country), pc)
         if cand and cand != pc:
-            st2, body2 = _get(client, f"{base}/lookup",
-                              {"country": country, "postal_code": cand}, headers, timeout)
+            st2, body2 = _get(
+                client, f"{base}/lookup", {"country": country, "postal_code": cand}, headers, timeout
+            )
             if st2 != 422:  # accept the sanitized retry only once it clears validation
                 st, body, pc = st2, body2, cand
     if st == 200 and body:
@@ -158,16 +168,21 @@ def process_row(row: dict, client: httpx.Client, base: str, headers: dict, timeo
     # --- decide routing ---
     # "weak" now also covers residual postal errors (a malformed/rejected code) so a
     # row with a real street/city still gets a geocode attempt instead of being dropped.
-    weak = (match_type == "not_found" or match_type.startswith("error_")
-            or (conf != "" and float(conf) < WEAK_THRESHOLD))
+    weak = (
+        match_type == "not_found"
+        or match_type.startswith("error_")
+        or (conf != "" and float(conf) < WEAK_THRESHOLD)
+    )
     has_address = bool(street or city)
     routable = match_type != "unsupported"
 
     if weak and has_address and routable:
         st2, body2 = _get(
-            client, f"{base}/resolve",
+            client,
+            f"{base}/resolve",
             {"country": country, "postal_code": pc, "street": street, "city": city},
-            headers, timeout,
+            headers,
+            timeout,
         )
         if st2 == 200 and body2:
             g = body2.get("geocode") or {}
@@ -197,11 +212,17 @@ def process_row(row: dict, client: httpx.Client, base: str, headers: dict, timeo
     else:
         nuts3_final, method = "", "unresolved"
 
-    out.update({
-        "NUTS3_POSTAL": nuts3_postal, "POSTAL_MATCH_TYPE": match_type, "POSTAL_CONFIDENCE": conf,
-        "NUTS3_GEOCODED": nuts3_geocoded, "GEOCODE_STATUS": geocode_status,
-        "NUTS3_FINAL": nuts3_final, "RESOLUTION_METHOD": method,
-    })
+    out.update(
+        {
+            "NUTS3_POSTAL": nuts3_postal,
+            "POSTAL_MATCH_TYPE": match_type,
+            "POSTAL_CONFIDENCE": conf,
+            "NUTS3_GEOCODED": nuts3_geocoded,
+            "GEOCODE_STATUS": geocode_status,
+            "NUTS3_FINAL": nuts3_final,
+            "RESOLUTION_METHOD": method,
+        }
+    )
     return out
 
 
@@ -223,7 +244,7 @@ def main() -> int:
     with open(args.input, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     end = args.end if args.end is not None else len(rows)
-    chunk = rows[args.start:end]
+    chunk = rows[args.start : end]
 
     # resume: skip OIDs already present in the output
     done: set[str] = set()
@@ -233,8 +254,11 @@ def main() -> int:
     except FileNotFoundError:
         pass
     todo = [r for r in chunk if (r.get("OID") or "") not in done]
-    print(f"range [{args.start}:{end}) = {len(chunk)} rows; {len(done)} already done; {len(todo)} to do",
-          file=sys.stderr, flush=True)
+    print(
+        f"range [{args.start}:{end}) = {len(chunk)} rows; {len(done)} already done; {len(todo)} to do",
+        file=sys.stderr,
+        flush=True,
+    )
 
     write_lock = threading.Lock()
     counts: dict[str, int] = {}
@@ -249,7 +273,10 @@ def main() -> int:
             fout.flush()
 
         client = httpx.Client(
-            limits=httpx.Limits(max_connections=args.concurrency + 2, max_keepalive_connections=args.concurrency + 2)
+            limits=httpx.Limits(
+                max_connections=args.concurrency + 2,
+                max_keepalive_connections=args.concurrency + 2,
+            )
         )
 
         def work(row):
@@ -268,7 +295,9 @@ def main() -> int:
         client.close()
 
     elapsed = time.monotonic() - t0
-    print(f"DONE {processed} rows in {elapsed:.1f}s ({processed/max(elapsed,0.001):.0f}/s)", file=sys.stderr)
+    print(
+        f"DONE {processed} rows in {elapsed:.1f}s ({processed / max(elapsed, 0.001):.0f}/s)", file=sys.stderr
+    )
     print("method distribution:", file=sys.stderr)
     for m, n in sorted(counts.items(), key=lambda kv: -kv[1]):
         print(f"  {m}: {n}", file=sys.stderr)

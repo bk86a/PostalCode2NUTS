@@ -113,6 +113,9 @@ class NutsPip:
             return None
         nid = best_id
         return {
-            "nuts3": nid, "nuts2": nid[:4], "nuts1": nid[:3], "nuts0": nid[:2],
+            "nuts3": nid,
+            "nuts2": nid[:4],
+            "nuts1": nid[:3],
+            "nuts0": nid[:2],
             "snap_km": round(best_km, 3),
         }
