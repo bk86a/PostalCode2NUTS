@@ -137,6 +137,34 @@ def test_snap_disabled_by_default_is_pip_outside():
     assert r["geocode"]["status"] == "pip_outside"
 
 
+class ForeignHitPip:
+    """lookup lands inside a foreign polygon; nearest would return a same-country snap."""
+
+    def lookup(self, lat, lon):
+        return {"nuts0": "DE", "nuts1": "DE1", "nuts2": "DE11", "nuts3": "DE111"}
+
+    def nearest(self, lat, lon, max_km, country=None):
+        return {"nuts0": "BE", "nuts1": "BE2", "nuts2": "BE24", "nuts3": "BE242", "snap_km": 0.5}
+
+
+def test_cross_country_hit_not_snapped():
+    # A cross-border mis-geocode must NOT be rescued by the snap into a same-country
+    # border region — it falls straight back to postal best-effort.
+    r = resolve(
+        "BE",
+        "3080",
+        "Rue",
+        "X",
+        lookup_fn=lambda c, p: WEAK,
+        geocode_fn=lambda s, c, p: (50.0, 4.0),
+        pip=ForeignHitPip(),
+        name_fn=_names,
+        snap_km=2.0,
+    )
+    assert r["geocode"]["status"] == "pip_outside"
+    assert r["resolved_via"] == "postal" and r["nuts3"] == "BE241"
+
+
 def test_not_found_no_address_is_none():
     r = _run(None, street=None, city=None)
     assert r["resolved_via"] == "none" and r["match_type"] == "not_found"

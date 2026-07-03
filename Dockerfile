@@ -29,4 +29,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${PC2NUTS_WORKERS:-1} --proxy-headers --forwarded-allow-ips '*'"]
+# --no-access-log: uvicorn's access log writes the full request line (including
+# /resolve's street/city query params) to stdout. Disable it so address PII never
+# reaches container logs; use PC2NUTS_ACCESS_LOG_FILE for sanitized access logging.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${PC2NUTS_WORKERS:-1} --proxy-headers --forwarded-allow-ips '*' --no-access-log"]
