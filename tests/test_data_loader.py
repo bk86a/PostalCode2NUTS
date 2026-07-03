@@ -1,5 +1,9 @@
 """Tests for data_loader.py — normalize functions and lookup tiers."""
 
+import httpx
+import pytest
+
+from app import data_loader
 from app.data_loader import lookup, normalize_country, normalize_postal_code
 
 
@@ -41,6 +45,15 @@ class TestNormalizeCountry:
 
     def test_el_stays_el(self):
         assert normalize_country("EL") == "EL"
+
+    def test_gb_to_uk(self):
+        assert normalize_country("GB") == "UK"
+
+    def test_gb_lowercase(self):
+        assert normalize_country("gb") == "UK"
+
+    def test_uk_stays_uk(self):
+        assert normalize_country("UK") == "UK"
 
 
 # ── lookup tests (all 5 tiers) ──────────────────────────────────────────────
@@ -170,6 +183,7 @@ class TestLookup:
 
     def test_tier6_fo_in_loaded_countries(self, mock_data):
         from app.data_loader import get_loaded_countries
+
         assert "FO" in get_loaded_countries()
 
 
@@ -259,8 +273,18 @@ class TestAlbaniaBlockTier:
 
 class TestBundledAlbaniaData:
     VALID_AL_NUTS3 = {
-        "AL011", "AL012", "AL013", "AL014", "AL015", "AL021",
-        "AL022", "AL031", "AL032", "AL033", "AL034", "AL035",
+        "AL011",
+        "AL012",
+        "AL013",
+        "AL014",
+        "AL015",
+        "AL021",
+        "AL022",
+        "AL031",
+        "AL032",
+        "AL033",
+        "AL034",
+        "AL035",
     }
 
     def test_no_al_rows_remain_in_estimates_csv(self):
@@ -287,3 +311,272 @@ class TestBundledAlbaniaData:
             assert result["nuts3"] in self.VALID_AL_NUTS3
             assert result["nuts2"] == result["nuts3"][:4]
             assert result["nuts1"] == "AL0"
+
+
+class TestNSPLColumnParsing:
+    def test_parse_csv_recognises_nspl_columns(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        nspl_csv = "pcds,itl,doterm\nSW1A 2AA,TLI32,\nEC1A 1BB,TLI32,\n"
+        rows = data_loader._parse_csv_content(nspl_csv, "UK")
+        assert rows == 2
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+        assert data_loader._lookup[("UK", "EC1A1BB")] == "TLI32"
+
+    def test_skip_terminated_filters_doterm_rows(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        nspl_csv = (
+            "pcds,itl,doterm\n"
+            "SW1A 2AA,TLI32,\n"
+            "M1 9NS,TLD46,202312\n"  # terminated, skip
+            "EC1A 1BB,TLI32,\n"
+        )
+        rows = data_loader._parse_csv_content(nspl_csv, "UK", skip_terminated=True)
+        assert rows == 2
+        assert ("UK", "M19NS") not in data_loader._lookup
+
+    def test_skip_terminated_default_false_keeps_all_rows(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        nspl_csv = "pcds,itl,doterm\nSW1A 2AA,TLI32,\nM1 9NS,TLD46,202312\n"
+        rows = data_loader._parse_csv_content(nspl_csv, "UK")
+        assert rows == 2
+
+
+class TestLoadNSPL:
+    @staticmethod
+    def _zip_bytes(csv_text, arcname="NSPL.csv"):
+        import io as _io
+        import zipfile
+
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(arcname, csv_text)
+        return buf.getvalue()
+
+    def test_populates_lookup_from_zip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        csv_text = (
+            "pcds,itl,doterm\n"
+            "SW1A 2AA,TLI32,\n"
+            "EC1A 1BB,TLI32,\n"
+            "M1 9NS,TLD46,202312\n"  # terminated
+        )
+        content = self._zip_bytes(csv_text)
+
+        def handler(request):
+            return httpx.Response(200, content=content, headers={"ETag": '"v1"'})
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        count = data_loader._load_nspl(client, "https://example.com/NSPL.zip", tmp_path)
+        assert count == 2
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+        assert ("UK", "M19NS") not in data_loader._lookup
+
+    def test_returns_zero_when_url_unset(self, tmp_path):
+        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+        assert data_loader._load_nspl(client, "", tmp_path) == 0
+
+    def test_swallows_exceptions(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+
+        def handler(request):
+            raise httpx.ConnectError("boom")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
+
+    def test_non_zip_response_returns_zero(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+
+        def handler(request):
+            return httpx.Response(200, content=b"not a zip")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
+
+    def test_transient_failure_reuses_cached_zip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        # Seed the on-disk cache from a prior successful run.
+        (tmp_path / "nspl.zip").write_bytes(self._zip_bytes("pcds,itl,doterm\nSW1A 2AA,TLI32,\n"))
+
+        def handler(request):
+            raise httpx.ConnectError("ons down")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        count = data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path)
+        assert count == 1
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+
+    def test_nspl_failure_does_not_block_tercet(self, tmp_path, monkeypatch):
+        """If NSPL is unreachable, previously-loaded TERCET data must still serve."""
+        monkeypatch.setattr(data_loader, "_lookup", {("AT", "1010"): "AT130"})
+
+        def handler(request):
+            raise httpx.ConnectError("ons unavailable")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        nspl_count = data_loader._load_nspl(client, "https://ons.invalid/nspl.zip", tmp_path)
+        assert nspl_count == 0
+        # AT lookup must still work (TERCET data untouched)
+        result = data_loader.lookup("AT", "1010")
+        assert result is not None
+        assert result["nuts3"] == "AT130"
+
+
+class TestUKOutwardLookup:
+    def test_outward_only_input_returns_estimated(self, mock_data):
+        # "SW1A" has no inward part; resolves via the outward majority-vote tier.
+        result = lookup("UK", "SW1A")
+        assert result is not None
+        assert result["nuts3"] == "TLI32"
+        assert result["match_type"] == "estimated"
+        assert result["nuts1_confidence"] == pytest.approx(0.90)
+        assert result["nuts2_confidence"] == pytest.approx(0.80)
+        assert result["nuts3_confidence"] == pytest.approx(0.70)
+
+    def test_full_postcode_still_exact(self, mock_data):
+        result = lookup("UK", "SW1A 2AA")
+        assert result["match_type"] == "exact"
+        assert result["nuts3"] == "TLI32"
+
+    def test_unlisted_full_postcode_resolves_via_outward(self, mock_data):
+        # Valid-format UK postcode not in the data → outward "SW1A" still resolves.
+        result = lookup("UK", "SW1A 9ZZ")
+        assert result is not None
+        assert result["nuts3"] == "TLI32"
+        assert result["match_type"] == "estimated"
+
+    def test_unknown_outward_returns_none(self, mock_data):
+        assert lookup("UK", "ZZ99") is None
+
+    def test_outward_miss_does_not_fall_through_to_prefix(self, mock_data):
+        # "SW99 9ZZ" shares the "SW" prefix with SW1A… but SW99 is not a known
+        # outward; must NOT return an arbitrary prefix-based ITL3 — stop instead.
+        assert lookup("UK", "SW99 9ZZ") is None
+
+    def test_uk_result_tagged_itl(self, mock_data):
+        assert lookup("UK", "SW1A 2AA")["code_system"] == "ITL"
+        assert lookup("UK", "SW1A")["code_system"] == "ITL"
+
+    def test_non_uk_result_tagged_nuts(self, mock_data):
+        assert lookup("AT", "1010")["code_system"] == "NUTS"
+        assert lookup("DE", "10118")["code_system"] == "NUTS"
+
+
+class TestBuildOutwardIndex:
+    def test_majority_vote(self, monkeypatch):
+        monkeypatch.setattr(
+            data_loader,
+            "_lookup",
+            {
+                ("UK", "SW1A2AA"): "TLI32",
+                ("UK", "SW1A1AA"): "TLI32",
+                ("UK", "SW1A0AA"): "TLI31",  # minority
+                ("UK", "M11AA"): "TLD45",
+                ("UK", "M11AB"): "TLD45",
+            },
+        )
+        monkeypatch.setattr(data_loader, "_outward_lookup", {})
+        data_loader._build_outward_index("UK")
+        assert data_loader._outward_lookup[("UK", "SW1A")] == ("TLI32", pytest.approx(2 / 3))
+        assert data_loader._outward_lookup[("UK", "M1")] == ("TLD45", pytest.approx(1.0))
+
+    def test_skips_short_codes(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {("UK", "AB1"): "TLC11"})
+        monkeypatch.setattr(data_loader, "_outward_lookup", {})
+        data_loader._build_outward_index("UK")
+        assert data_loader._outward_lookup == {}
+
+
+class TestLoadITLNames:
+    def test_populates_nuts_names(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+
+        def handler(request):
+            body = "ITL321CD,ITL321NM\nTLI32,Tower Hamlets\nTLI31,Hackney and Newham\n"
+            return httpx.Response(200, content=body.encode())
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        count = data_loader._load_itl_names(client, ["https://example.com/itl3.csv"])
+        assert count == 2
+        assert data_loader._nuts_names["TLI32"] == "Tower Hamlets"
+
+    def test_empty_url_list_no_op(self):
+        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+        assert data_loader._load_itl_names(client, []) == 0
+
+    def test_missing_columns_skipped(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+
+        def handler(request):
+            return httpx.Response(200, content=b"foo,bar\n1,2\n")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_itl_names(client, ["https://example.com/x.csv"]) == 0
+
+    def test_http_error_swallowed(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+
+        def handler(request):
+            raise httpx.ConnectError("boom")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_itl_names(client, ["https://example.com/x.csv"]) == 0
+
+
+class TestNSPLConfigHash:
+    def test_empty_when_unconfigured(self, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        assert data_loader._nspl_config_hash() == ""
+
+    def test_changes_when_url_set(self, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        empty = data_loader._nspl_config_hash()
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "https://ons/nspl.zip", raising=False)
+        assert data_loader._nspl_config_hash() != empty
+        assert data_loader._nspl_config_hash() != ""
+
+    def test_db_invalidated_when_nspl_config_changes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        monkeypatch.setattr(data_loader, "_lookup", {("AT", "1010"): "AT130"})
+        monkeypatch.setattr(data_loader, "_estimates", {})
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+        db = tmp_path / "cache.db"
+        data_loader._save_to_db(db)
+        assert data_loader._db_is_valid(db) is True
+        # Operator now enables NSPL → cache must be considered invalid.
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "https://ons/nspl.zip", raising=False)
+        assert data_loader._db_is_valid(db) is False
+
+
+class TestConditionalGet:
+    def test_sends_conditional_headers_when_etag_known(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["headers"] = dict(request.headers)
+            return httpx.Response(304)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        cached_meta = {
+            "etag": '"abc123"',
+            "last_modified": "Wed, 01 Jan 2025 00:00:00 GMT",
+        }
+        result = data_loader._download_zip_conditional(client, "https://example.com/foo.zip", cached_meta)
+        assert result.status_code == 304
+        assert captured["headers"]["if-none-match"] == '"abc123"'
+        assert captured["headers"]["if-modified-since"] == "Wed, 01 Jan 2025 00:00:00 GMT"
+
+    def test_omits_headers_when_meta_empty(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["headers"] = dict(request.headers)
+            return httpx.Response(200, content=b"x")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        data_loader._download_zip_conditional(client, "https://example.com/foo.zip", {})
+        assert "if-none-match" not in captured["headers"]
+        assert "if-modified-since" not in captured["headers"]

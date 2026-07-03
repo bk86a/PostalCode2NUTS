@@ -24,6 +24,10 @@ _NUTS3_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{1,3}$")
 
 _MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB
 
+# The NSPL postcode CSV (~1.79M live rows) is far larger than a TERCET file; it
+# needs its own, higher extraction cap. Source is operator-configured (trusted).
+_MAX_NSPL_UNCOMPRESSED_SIZE = 1024 * 1024 * 1024  # 1 GB
+
 logger = logging.getLogger(__name__)
 
 # postal_code -> NUTS3 code, keyed by (country_code, normalized_postal_code)
@@ -53,6 +57,10 @@ _country_fallback: dict[str, dict] = {}
 # NUTS region names: nuts_id -> name_latn
 _nuts_names: dict[str, str] = {}
 
+# Outward-code index for lookup Tier 3.5 (UK): (country_code, outward) ->
+# (nuts3, agreement_ratio). Built from _lookup by majority vote at load time.
+_outward_lookup: dict[tuple[str, str], tuple[str, float]] = {}
+
 # Staleness tracking
 _data_stale: bool = False
 _data_loaded_at: str = ""
@@ -74,9 +82,17 @@ def normalize_postal_code(code: str) -> str:
 
 
 def normalize_country(country_code: str) -> str:
-    """Normalize a country code: uppercase + map GR→EL (ISO vs GISCO convention)."""
+    """Normalize a country code: uppercase + map non-canonical aliases.
+
+    GR → EL  (ISO vs GISCO convention)
+    GB → UK  (ISO vs NSPL/internal convention)
+    """
     cc = country_code.strip().upper()
-    return "EL" if cc == "GR" else cc
+    if cc == "GR":
+        return "EL"
+    if cc == "GB":
+        return "UK"
+    return cc
 
 
 def get_lookup_table() -> dict[tuple[str, str], str]:
@@ -136,6 +152,20 @@ def _extra_sources_hash() -> str:
     if not urls:
         return ""
     joined = ",".join(urls)
+    return hashlib.sha256(joined.encode()).hexdigest()[:16]
+
+
+def _nspl_config_hash() -> str:
+    """SHA-256 hash (16 hex chars) of the NSPL / ITL-names configuration.
+
+    Returns empty string when NSPL is unconfigured, so a TERCET-only deployment's
+    cache stays valid. Enabling, disabling, or changing PC2NUTS_NSPL_URL /
+    PC2NUTS_ITL_NAMES_URLS changes the hash, busting the fast-path cache so UK
+    rows are added (or dropped) on the next load instead of after TTL expiry.
+    """
+    if not settings.nspl_url and not settings.itl_names_url_list:
+        return ""
+    joined = settings.nspl_url + "|" + ",".join(settings.itl_names_url_list)
     return hashlib.sha256(joined.encode()).hexdigest()[:16]
 
 
@@ -232,8 +262,19 @@ def _sniff_dialect(text: str) -> csv.Dialect | None:
         return None
 
 
-def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False) -> int:
-    """Parse CSV/TSV content and populate the lookup table. Returns row count."""
+def _parse_csv_content(
+    text: str,
+    country_code: str,
+    *,
+    overwrite: bool = False,
+    skip_terminated: bool = False,
+) -> int:
+    """Parse CSV/TSV content and populate the lookup table. Returns row count.
+
+    When skip_terminated is True (used for the NSPL dataset), rows with a
+    non-blank DOTERM (date of termination) column are skipped so only live
+    postcodes are loaded.
+    """
     count = 0
     skipped = 0
 
@@ -247,16 +288,25 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
         reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     fieldnames = [f.strip().upper() for f in (reader.fieldnames or [])]
 
-    # Find the postal code column
+    # Find the postal code column ("PCDS" is the NSPL formatted-postcode column)
     pc_col = None
-    for candidate in ("CODE", "PC", "POSTAL_CODE", "POSTCODE", "PC_FMT"):
+    for candidate in ("CODE", "PC", "POSTAL_CODE", "POSTCODE", "PC_FMT", "PCDS"):
         if candidate in fieldnames:
             pc_col = candidate
             break
 
-    # Find the NUTS3 column — prefer current version, never fall back to old versions
+    # Find the NUTS3 column — prefer current version, never fall back to old versions.
+    # ITL* candidates cover the UK NSPL dataset (ITL3 codes are NUTS3-equivalent).
     nuts3_col = None
-    for candidate in (f"NUTS3_{settings.nuts_version}", "NUTS3", "NUTS_ID", "NUTS"):
+    for candidate in (
+        f"NUTS3_{settings.nuts_version}",
+        "NUTS3",
+        "NUTS_ID",
+        "NUTS",
+        "ITL3CD",
+        "ITL3",
+        "ITL",
+    ):
         if candidate in fieldnames:
             nuts3_col = candidate
             break
@@ -276,17 +326,28 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
             cc_col = candidate
             break
 
+    # Detect optional DOTERM column for live-only filtering (NSPL)
+    doterm_col = None
+    if skip_terminated:
+        for candidate in ("DOTERM", "DOT", "DATE_OF_TERMINATION"):
+            if candidate in fieldnames:
+                doterm_col = candidate
+                break
+
     # Map back to original-case field names from DictReader
     orig_fields = list(reader.fieldnames or [])
     pc_orig = orig_fields[fieldnames.index(pc_col)]
     nuts3_orig = orig_fields[fieldnames.index(nuts3_col)]
     cc_orig = orig_fields[fieldnames.index(cc_col)] if cc_col else None
+    doterm_orig = orig_fields[fieldnames.index(doterm_col)] if doterm_col else None
 
     if not country_code and cc_col is None:
         logger.warning("No country code available (not in URL or CSV columns), skipping file")
         return 0
 
     for row in reader:
+        if doterm_orig and row.get(doterm_orig, "").strip():
+            continue
         pc = row.get(pc_orig, "")
         nuts3 = row.get(nuts3_orig, "").strip()
         if not pc or not nuts3:
@@ -314,6 +375,21 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
     if skipped:
         logger.warning("Skipped %d rows with invalid NUTS3 codes for %s", skipped, country_code)
     return count
+
+
+def _download_zip_conditional(client: httpx.Client, url: str, cached_meta: dict) -> httpx.Response:
+    """Download with conditional-GET headers; returns the raw httpx.Response.
+
+    cached_meta keys: 'etag' and 'last_modified' (either may be absent). The
+    caller handles 200 (re-parse), 304 (keep cache), and error statuses. Applies
+    to both TERCET and NSPL so an unchanged upstream ZIP is not re-fetched.
+    """
+    headers = {}
+    if cached_meta.get("etag"):
+        headers["If-None-Match"] = cached_meta["etag"]
+    if cached_meta.get("last_modified"):
+        headers["If-Modified-Since"] = cached_meta["last_modified"]
+    return client.get(url, headers=headers, timeout=60, follow_redirects=True)
 
 
 def _download_zip(client: httpx.Client, url: str) -> bytes | None:
@@ -415,6 +491,90 @@ def _download_and_parse_zip(
     return total
 
 
+def _parse_nspl_zip(content: bytes) -> int:
+    """Parse NSPL ZIP bytes and load live UK postcode → ITL3 rows into _lookup.
+
+    Returns the number of rows added. Raises zipfile.BadZipFile for invalid input.
+    """
+    total = 0
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        for name in zf.namelist():
+            # The postcode CSV is the "NSPL*.csv" (real releases ship it under
+            # Data/); other bundled CSVs (user guide, column lookups) lack the
+            # pcds/itl columns and are ignored by _parse_csv_content anyway.
+            if not name.lower().endswith(".csv") or "nspl" not in name.lower():
+                continue
+            file_size = zf.getinfo(name).file_size
+            if file_size > _MAX_NSPL_UNCOMPRESSED_SIZE:
+                logger.warning(
+                    "Skipping %s: uncompressed size %d exceeds NSPL limit %d",
+                    name,
+                    file_size,
+                    _MAX_NSPL_UNCOMPRESSED_SIZE,
+                )
+                continue
+            raw = zf.read(name)
+            for enc in ("utf-8-sig", "utf-8", "latin-1"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            total += _parse_csv_content(text, "UK", overwrite=False, skip_terminated=True)
+    return total
+
+
+def _load_nspl(client: httpx.Client, url: str, cache_dir: Path) -> int:
+    """Fetch the NSPL ZIP and load UK postcode → ITL3 entries into _lookup.
+
+    Returns the number of rows added. Returns 0 when url is empty. An NSPL
+    failure must never block TERCET-only operation, so on a fetch/parse failure
+    the previously-cached nspl.zip is reused when present (a transient ONS outage
+    must not silently drop UK support for a configured deployment). Terminated
+    postcodes (non-blank DOTERM) are filtered out. UK registers in the loaded
+    country set automatically because its rows land in _lookup.
+    """
+    if not url:
+        return 0
+    cache_path = cache_dir / "nspl.zip"
+    try:
+        resp = _download_zip_conditional(client, url, {})
+        if resp.status_code == 304:
+            # Unchanged upstream — reload from the cached copy if we have one.
+            return _load_nspl_from_cache(cache_path)
+        resp.raise_for_status()
+        content = resp.content
+        if not zipfile.is_zipfile(io.BytesIO(content)):
+            logger.warning("NSPL response from %s is not a valid ZIP", url)
+            return _load_nspl_from_cache(cache_path)
+        try:
+            cache_path.write_bytes(content)
+        except OSError as exc:
+            logger.warning("Failed to cache NSPL ZIP: %s", exc)
+        total = _parse_nspl_zip(content)
+        logger.info("NSPL loaded: %d live UK postcodes", total)
+        return total
+    except (httpx.HTTPError, zipfile.BadZipFile, OSError) as exc:
+        logger.warning("NSPL fetch failed (%s); trying cached copy", exc)
+        return _load_nspl_from_cache(cache_path)
+
+
+def _load_nspl_from_cache(cache_path: Path) -> int:
+    """Load UK rows from a previously-cached nspl.zip. Returns 0 if unavailable."""
+    if not cache_path.is_file():
+        return 0
+    try:
+        content = cache_path.read_bytes()
+        if not zipfile.is_zipfile(io.BytesIO(content)):
+            return 0
+        total = _parse_nspl_zip(content)
+        logger.info("NSPL loaded from cache: %d live UK postcodes", total)
+        return total
+    except (zipfile.BadZipFile, OSError) as exc:
+        logger.warning("Cached NSPL ZIP unusable: %s", exc)
+        return 0
+
+
 def _db_path() -> Path:
     """Return the path for the SQLite cache DB, scoped by NUTS version."""
     return Path(settings.data_dir) / f"postalcode2nuts_NUTS-{settings.nuts_version}.db"
@@ -443,6 +603,10 @@ def _db_is_valid(db: Path) -> bool:
         stored_hash = meta.get("extra_sources_hash", "")
         if stored_hash != _extra_sources_hash():
             logger.info("Extra sources configuration changed, will rebuild")
+            return False
+        # Check if NSPL / ITL-names configuration changed (enable/disable/URL swap)
+        if meta.get("nspl_config_hash", "") != _nspl_config_hash():
+            logger.info("NSPL configuration changed, will rebuild")
             return False
         return True
     except (sqlite3.Error, KeyError, ValueError) as exc:
@@ -603,6 +767,51 @@ def _download_nuts_names(client: httpx.Client) -> int:
     return count
 
 
+def _load_itl_names(client: httpx.Client, urls: list[str]) -> int:
+    """Fetch ONS ITL "Names and Codes" CSVs and merge them into _nuts_names.
+
+    NSPL carries ITL codes but not names. Each ONS CSV pairs a code column with
+    a name column whose headers vary by release year (e.g. ITL321CD/ITL321NM at
+    level 3, ITL221CD/ITL221NM at level 2) — columns are matched by the CD/NM
+    suffix rather than exact name. Failures are logged and skipped, never raised.
+    """
+    if not urls:
+        return 0
+    total = 0
+    for url in urls:
+        try:
+            resp = client.get(url, timeout=30, follow_redirects=True)
+            resp.raise_for_status()
+            text = resp.text
+        except httpx.HTTPError as exc:
+            logger.warning("ITL names fetch failed for %s: %s", url, exc)
+            continue
+        try:
+            reader = csv.DictReader(io.StringIO(text))
+            fieldnames = [f.strip() for f in (reader.fieldnames or [])]
+            code_col = next(
+                (f for f in fieldnames if f.upper().endswith("CD") and "ITL" in f.upper()),
+                None,
+            )
+            name_col = next(
+                (f for f in fieldnames if f.upper().endswith("NM") and "ITL" in f.upper()),
+                None,
+            )
+            if not code_col or not name_col:
+                logger.warning("No ITL CD/NM columns in %s; headers=%s", url, fieldnames)
+                continue
+            for row in reader:
+                code = (row.get(code_col) or "").strip().upper()
+                name = (row.get(name_col) or "").strip()
+                if code and name:
+                    _nuts_names[code] = name
+                    total += 1
+        except csv.Error as exc:
+            logger.warning("ITL names parse failed for %s: %s", url, exc)
+    logger.info("ITL names loaded: %d entries from %d URLs", total, len(urls))
+    return total
+
+
 def _load_nuts_names_from_db(db: Path) -> bool:
     """Load NUTS region names from SQLite cache. Graceful if table is missing."""
     try:
@@ -713,6 +922,29 @@ def _build_prefix_index() -> None:
             "Country-level fallback: %s",
             ", ".join(f"{cc}→{v['nuts3']}" for cc, v in sorted(_country_fallback.items())),
         )
+
+
+def _build_outward_index(country_code: str) -> None:
+    """Populate _outward_lookup for one country by majority vote per outward code.
+
+    Outward = the full normalised postcode minus its last three characters (UK
+    convention). Codes shorter than four characters are skipped (no meaningful
+    split). Used by lookup Tier 3.5 for outward-only or otherwise-unmatched input.
+    """
+    groups: dict[str, list[str]] = {}
+    for (cc, code), nuts3 in _lookup.items():
+        if cc != country_code or len(code) < 4:
+            continue
+        outward = code[:-3]
+        groups.setdefault(outward, []).append(nuts3)
+
+    for outward, nuts3_list in groups.items():
+        counts = Counter(nuts3_list)
+        winner, count = counts.most_common(1)[0]
+        agreement = count / len(nuts3_list)
+        _outward_lookup[(country_code, outward)] = (winner, agreement)
+    if groups:
+        logger.info("Built outward index for %s: %d outward codes", country_code, len(groups))
 
 
 def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
@@ -850,6 +1082,7 @@ def _save_to_db(db: Path) -> None:
                     ("estimate_count", str(len(_estimates))),
                     ("nuts_names_count", str(len(_nuts_names))),
                     ("extra_sources_hash", _extra_sources_hash()),
+                    ("nspl_config_hash", _nspl_config_hash()),
                 ],
             )
             con.commit()
@@ -886,6 +1119,7 @@ def load_data() -> None:
         _lookup.clear()
         _estimates.clear()
         _nuts_names.clear()
+        _outward_lookup.clear()
         _data_stale = False
         _extra_source_count = len(settings.extra_source_urls)
 
@@ -907,6 +1141,7 @@ def load_data() -> None:
             _revalidate_estimates()
             _load_nuts_names_from_db(db)
             _build_prefix_index()
+            _build_outward_index("UK")
             return
 
         _lookup.clear()
@@ -959,6 +1194,16 @@ def load_data() -> None:
                 if extra_count:
                     logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
 
+            # NSPL (UK postcodes via ITL) — optional, no-op when nspl_url unset
+            if not timed_out and settings.nspl_url:
+                nspl_count = _load_nspl(client, settings.nspl_url, cache_dir)
+                if nspl_count > 0:
+                    logger.info("Loaded %d entries for UK from NSPL", nspl_count)
+
+            # ITL region names (ONS Names-and-Codes) — optional, no-op when unset
+            if not timed_out and settings.itl_names_url_list:
+                _load_itl_names(client, settings.itl_names_url_list)
+
             # NUTS region names
             if not timed_out:
                 _download_nuts_names(client)
@@ -993,6 +1238,7 @@ def load_data() -> None:
             logger.warning("TERCET refresh failed — serving stale cache")
 
         _build_prefix_index()
+        _build_outward_index("UK")
 
 
 def _build_result(match_type: str, nuts3: str, nuts1: str = "", nuts2: str = "", **confidence) -> dict:
@@ -1000,10 +1246,16 @@ def _build_result(match_type: str, nuts3: str, nuts1: str = "", nuts2: str = "",
 
     If nuts1/nuts2 are not provided, they are derived from nuts3.
     Confidence keys: nuts1_confidence, nuts2_confidence, nuts3_confidence.
+
+    code_system is derived from the code itself: ITL codes are the UK's
+    NUTS successor and uniquely carry the "TL" prefix (no NUTS country code is
+    "TL"), so every "TL…" result is tagged "ITL" and all others "NUTS".
     """
     n1 = nuts1 or nuts3[:3]
     n2 = nuts2 or nuts3[:4]
+    code_system = "ITL" if nuts3[:2] == "TL" else "NUTS"
     return {
+        "code_system": code_system,
         "match_type": match_type,
         "nuts1": n1,
         "nuts1_confidence": confidence.get("nuts1_confidence", 1.0),
@@ -1038,6 +1290,8 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     1. Exact TERCET match → confidence 1.0
     2. Pre-computed estimate → stored confidence per level
     2b. Albania block map → district-block NUTS3, match_type='estimated' (#118)
+    3.5. Outward-code lookup (UK) → majority-vote ITL3 for the outward code,
+       match_type='estimated', medium confidence (before generic prefix)
     3. Runtime prefix-based estimation → calculated confidence
     4. Country-level majority vote → unanimous NUTS1/2, dominant NUTS3 (e.g. MT)
     5. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
@@ -1046,7 +1300,7 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
 
     Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
-    from app.postal_patterns import extract_postal_code
+    from app.postal_patterns import extract_outward, extract_postal_code
 
     cc = normalize_country(country_code)
 
@@ -1085,6 +1339,31 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
                 nuts2_confidence=conf["nuts2"],
                 nuts3_confidence=conf["nuts3"],
             )
+
+    # Tier 3.5: Outward-code lookup (UK and any country flagged outward_only).
+    # Placed before generic prefix estimation because the outward code is the
+    # meaningful UK boundary: a curated majority vote over the whole outward
+    # beats an arbitrary prefix match, and it yields match_type='estimated' with
+    # medium confidence. extract_outward returns None for non-outward countries,
+    # so this tier is inert for everything except UK.
+    outward = extract_outward(cc, postal_code)
+    if outward is not None:
+        outward_hit = _outward_lookup.get((cc, outward))
+        if outward_hit is not None:
+            o_nuts3, _agreement = outward_hit
+            conf = settings.confidence_map["medium"]
+            return _build_result(
+                "estimated",
+                o_nuts3,
+                nuts1_confidence=conf["nuts1"],
+                nuts2_confidence=conf["nuts2"],
+                nuts3_confidence=conf["nuts3"],
+            )
+        # Outward is the authoritative boundary for outward_only countries. A
+        # miss means the code isn't in NSPL — stop here rather than fall through
+        # to generic prefix estimation, which would answer from an arbitrary 1–2
+        # character prefix (e.g. "SW" for an unknown SW99, mixing distinct ITL3s).
+        return None
 
     # Tier 3: Runtime prefix-based estimation
     approx = _estimate_by_prefix(cc, extracted)

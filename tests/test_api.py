@@ -17,6 +17,30 @@ class TestLookupEndpoint:
         resp = client.get("/lookup", params={"postal_code": "10115", "country": "DE"})
         assert "public" in resp.headers.get("cache-control", "")
 
+    def test_response_includes_code_system_nuts(self, client):
+        resp = client.get("/lookup", params={"postal_code": "10115", "country": "DE"})
+        assert resp.status_code == 200
+        assert resp.json()["code_system"] == "NUTS"
+
+    def test_lookup_accepts_gb_alias(self, client):
+        resp_uk = client.get("/lookup", params={"country": "UK", "postal_code": "SW1A 2AA"})
+        resp_gb = client.get("/lookup", params={"country": "GB", "postal_code": "SW1A 2AA"})
+        assert resp_uk.status_code == 200
+        assert resp_gb.status_code == 200
+        assert resp_uk.json() == resp_gb.json()
+
+    def test_uk_outward_only_input_returns_estimated(self, client):
+        resp = client.get("/lookup", params={"country": "UK", "postal_code": "SW1A"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["match_type"] == "estimated"
+        assert body["nuts3"] == "TLI32"
+
+    def test_uk_response_has_code_system_itl(self, client):
+        resp = client.get("/lookup", params={"country": "UK", "postal_code": "SW1A 2AA"})
+        assert resp.status_code == 200
+        assert resp.json()["code_system"] == "ITL"
+
     def test_400_unsupported_country(self, client):
         resp = client.get("/lookup", params={"postal_code": "12345", "country": "ZZ"})
         assert resp.status_code == 400
@@ -190,7 +214,7 @@ class TestHealthEndpoint:
         resp = client.get("/health")
         data = resp.json()
         assert "patterns_version" in data
-        assert data["patterns_version"] == "1.2"
+        assert data["patterns_version"] == "1.3"
 
     def test_includes_nuts_names(self, client):
         resp = client.get("/health")
@@ -430,9 +454,7 @@ class TestAdminRefreshEstimatesEndpoint:
         )
 
         async def fake_refresh(client=None):
-            return RefreshResult(
-                status="refreshed", previous_count=7000, new_count=7042, skipped_rows=0
-            )
+            return RefreshResult(status="refreshed", previous_count=7000, new_count=7042, skipped_rows=0)
 
         monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
 
@@ -459,9 +481,7 @@ class TestAdminRefreshEstimatesEndpoint:
         )
 
         async def fake_refresh(client=None):
-            return RefreshResult(
-                status="unchanged", previous_count=7000, new_count=7000, skipped_rows=0
-            )
+            return RefreshResult(status="unchanged", previous_count=7000, new_count=7000, skipped_rows=0)
 
         monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
 
@@ -486,9 +506,7 @@ class TestAdminRefreshEstimatesEndpoint:
         )
 
         async def fake_refresh(client=None):
-            return RefreshResult(
-                status="failed", previous_count=7000, new_count=7000, reason="http=503"
-            )
+            return RefreshResult(status="failed", previous_count=7000, new_count=7000, reason="http=503")
 
         monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
 

@@ -29,6 +29,11 @@ MOCK_LOOKUP = {
     ("YY", "1002"): "YY111",
     ("YY", "1003"): "YY111",
     ("YY", "2001"): "YY112",
+    # UK (ITL via NSPL): SW1A → TLI32 majority, EC1A → TLI32, M1 → TLD45
+    ("UK", "SW1A2AA"): "TLI32",
+    ("UK", "SW1A1AA"): "TLI32",
+    ("UK", "EC1A1BB"): "TLI32",
+    ("UK", "M11AA"): "TLD45",
 }
 
 MOCK_ESTIMATES = {
@@ -76,6 +81,12 @@ MOCK_NUTS_NAMES = {
     "AL0": "Shqipëria",
     "AL02": "Qender",
     "AL022": "Tiranë",
+    "TLI": "London",
+    "TLI3": "Inner London - East",
+    "TLI32": "Tower Hamlets and Newham",
+    "TLD": "North West (England)",
+    "TLD4": "Greater Manchester",
+    "TLD45": "Manchester",
 }
 
 
@@ -94,6 +105,7 @@ def mock_data():
     orig_single = data_loader._single_nuts3.copy()
     orig_synthetic = data_loader._synthetic_nuts.copy()
     orig_fallback = data_loader._country_fallback.copy()
+    orig_outward = data_loader._outward_lookup.copy()
 
     # Populate
     data_loader._lookup.clear()
@@ -103,6 +115,8 @@ def mock_data():
     data_loader._nuts_names.clear()
     data_loader._nuts_names.update(MOCK_NUTS_NAMES)
     data_loader._build_prefix_index()
+    data_loader._outward_lookup.clear()
+    data_loader._build_outward_index("UK")
 
     yield
 
@@ -121,6 +135,8 @@ def mock_data():
     data_loader._synthetic_nuts.update(orig_synthetic)
     data_loader._country_fallback.clear()
     data_loader._country_fallback.update(orig_fallback)
+    data_loader._outward_lookup.clear()
+    data_loader._outward_lookup.update(orig_outward)
 
 
 @pytest.fixture()

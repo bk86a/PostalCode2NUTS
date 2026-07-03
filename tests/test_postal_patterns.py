@@ -1,6 +1,14 @@
 """Tests for postal_patterns.py — preprocessing, tercet_map, extraction."""
 
-from app.postal_patterns import _apply_tercet_map, _preprocess, extract_postal_code
+import pytest
+
+from app.postal_patterns import (
+    PATTERNS_META,
+    _apply_tercet_map,
+    _preprocess,
+    extract_outward,
+    extract_postal_code,
+)
 
 
 # ── _preprocess tests ─────────────────────────────────────────────────────────
@@ -143,10 +151,12 @@ class TestExtractPostalCode:
 class TestFaroeIslands:
     def test_bare_three_digits(self):
         from app.postal_patterns import extract_postal_code
+
         assert extract_postal_code("FO", "100") == "100"
 
     def test_prefixed_variants(self):
         from app.postal_patterns import extract_postal_code
+
         assert extract_postal_code("FO", "FO-100") == "100"
         assert extract_postal_code("FO", "FO 100") == "100"
         assert extract_postal_code("FO", "FO100") == "100"
@@ -155,6 +165,7 @@ class TestFaroeIslands:
         # No regex match → falls back to normalize_postal_code(cleaned),
         # which is NOT a clean 3-digit extraction.
         from app.postal_patterns import _COMPILED
+
         pat = _COMPILED["FO"]
         assert pat.match("1234") is None
         assert pat.match("ABC") is None
@@ -177,3 +188,53 @@ class TestAlbaniaExtraction:
     def test_three_digit_not_matched_as_four(self):
         # Too short: regex requires exactly 4 digits; must NOT become a 4-digit code.
         assert extract_postal_code("AL", "100") != "1000"
+
+
+class TestUKExtraction:
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("SW1A 2AA", "SW1A2AA"),
+            ("sw1a 2aa", "SW1A2AA"),
+            ("SW1A2AA", "SW1A2AA"),
+            ("M1 1AA", "M11AA"),
+            ("B33 8TH", "B338TH"),
+            ("W1A 1HQ", "W1A1HQ"),
+            ("CR2 6XH", "CR26XH"),
+            ("DN55 1PT", "DN551PT"),
+            ("EC1A 1BB", "EC1A1BB"),
+        ],
+    )
+    def test_uk_regex_extracts_normalized_full_postcode(self, raw, expected):
+        assert extract_postal_code("UK", raw) == expected
+
+
+def test_patterns_meta_version_bumped():
+    # Adding UK is an additive coverage change; minor version bump.
+    assert PATTERNS_META["version"] == "1.3"
+
+
+class TestExtractOutward:
+    @pytest.mark.parametrize(
+        "raw, expected_outward",
+        [
+            ("SW1A 2AA", "SW1A"),
+            ("sw1a2aa", "SW1A"),
+            ("M1 1AA", "M1"),
+            ("B33 8TH", "B33"),
+            ("EC1A 1BB", "EC1A"),
+            ("DN55 1PT", "DN55"),
+            ("SW1A", "SW1A"),  # outward-only input
+            ("M1", "M1"),
+        ],
+    )
+    def test_extract_outward_for_uk(self, raw, expected_outward):
+        assert extract_outward("UK", raw) == expected_outward
+
+    def test_returns_none_for_country_without_flag(self):
+        # AT does not declare outward_only; outward extraction is undefined.
+        assert extract_outward("AT", "1010") is None
+
+    def test_extract_postal_code_unaffected_by_outward_only_flag(self):
+        # Tier 1 lookup for UK must still yield the full normalised postcode.
+        assert extract_postal_code("UK", "SW1A 2AA") == "SW1A2AA"

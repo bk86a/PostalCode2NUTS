@@ -1,5 +1,5 @@
 {
-  "_meta": { "version": "1.2", "date": "2026-07-02" },
+  "_meta": { "version": "1.3", "date": "2026-07-03" },
   "AL": {
     "regex": "^(?:AL[\\s\\-–—.]*)?([0-9]{4})$",
     "example": "1001, AL-1001, AL 1001"
@@ -182,5 +182,10 @@
     "regex": "^(?:TR[\\s\\-\u2013\u2014.]*)?(\\d{5})$",
     "example": "06100, TR-06100, TR 06100",
     "expected_digits": 5
+  },
+  "UK": {
+    "regex": "^([A-Z]{1,2}[0-9][0-9A-Z]?\\s?[0-9][A-Z]{2})$",
+    "example": "SW1A 2AA, EC1A 1BB, M1 1AA, B33 8TH",
+    "tercet_map": "outward_only"
   }
 }

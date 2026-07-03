@@ -5,9 +5,11 @@ Each country entry may contain:
   - example:         Human-readable format examples
   - tercet_map:      Optional transform to align extracted code with TERCET lookup key.
                      Supported actions:
-                       truncate:N  — keep only the first N characters
-                       prepend:XX  — prepend string XX to the extracted code
-                       keep_alpha  — keep only leading alphabetic characters
+                       truncate:N   — keep only the first N characters
+                       prepend:XX   — prepend string XX to the extracted code
+                       keep_alpha   — keep only leading alphabetic characters
+                       outward_only — marker: country supports outward-code
+                                      fallback (lookup Tier 3.5); no key transform
   - expected_digits: Expected number of digits for all-numeric postal codes.
                      Used by _preprocess() to restore leading zeros lost in Excel/CSV
                      exports (e.g. "8461" → "08461" for ES with expected_digits=5).
@@ -77,7 +79,29 @@ def _apply_tercet_map(code: str, rule: str) -> str:
     if action == "keep_alpha":
         m = re.match(r"^([A-Z]+)", code)
         return m.group(1) if m else code
+    if action == "outward_only":
+        # Marker: the country supports outward-code-only fallback (lookup Tier 3.5).
+        # It does not transform the Tier 1 key; see extract_outward().
+        return code
     return code
+
+
+def extract_outward(country_code: str, raw_input: str) -> str | None:
+    """Return the outward (district) portion for countries flagged outward_only.
+
+    For UK postcodes, the outward portion is the normalised code minus its last
+    three characters (the inward code). Input shorter than 4 chars after
+    normalisation is treated as already being an outward code (e.g. bare "SW1A").
+
+    Returns None for countries that do not declare tercet_map="outward_only".
+    """
+    entry = POSTAL_PATTERNS.get(country_code)
+    if not entry or entry.get("tercet_map") != "outward_only":
+        return None
+    normalised = normalize_postal_code(raw_input)
+    if len(normalised) <= 4:
+        return normalised
+    return normalised[:-3]
 
 
 def extract_postal_code(country_code: str, raw_input: str) -> str:

@@ -34,6 +34,16 @@ Faroe Islands (FO) — not part of NUTS; synthetic result.
 
 > **Faroe Islands** is an autonomous Danish territory with no NUTS coverage and no GISCO TERCET file. Lookups for FO are served by a synthetic single-region fallback (Tier 6) configured via `synthetic_nuts_fallback` in `app/settings.json`, returning `FO0` / `FO00` / `FO000` with `match_type="approximate"` and capped confidence (`0.90` / `0.85` / `0.80`) for any well-formed 3-digit code. The code is fabricated, not derived from a real NUTS dataset — contrast Montenegro's `ME000`, which is a genuine single-region NUTS code.
 
+### United Kingdom (ITL)
+
+The UK left the EU, so it is no longer part of NUTS. Its successor classification, **ITL (International Territorial Level)**, is published by the ONS and mapped to postcodes via the [National Statistics Postcode Lookup (NSPL)](https://geoportal.statistics.gov.uk/). When configured (see `PC2NUTS_NSPL_URL`), the service accepts UK postcodes (`country=UK`, or `country=GB` as an alias) and returns ITL1/2/3 codes in the same `nuts1/2/3` fields, with `code_system: "ITL"` to distinguish them.
+
+ITL is **not** a drop-in for NUTS-2016 UK: it diverges at L2 (41 vs 40 regions) and L3 (179 vs 174), and ONS discontinued the bidirectional NUTS↔ITL lookups in 2023. Branch on `code_system` when comparing UK results against historical NUTS-UK data.
+
+UK coverage is **optional and operator-configured** — the ~178 MB NSPL ZIP is not bundled. When `PC2NUTS_NSPL_URL` is unset (the default), UK is unsupported and returns the standard `400`. Outward-code-only input (e.g. `SW1A`) resolves to the majority ITL3 for that outward code with `estimated`/medium confidence.
+
+> **Out of scope:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL, and are not supported — lookups for those country codes return `400`.
+
 ## Deployment tiers
 
 PostalCode2NUTS runs in one of two tiers, chosen at deploy time by a single config
@@ -157,6 +167,7 @@ GET /lookup?country=AT&postal_code=A-1010
 {
   "postal_code": "A-1010",
   "country_code": "AT",
+  "code_system": "NUTS",
   "match_type": "exact",
   "nuts1": "AT1",
   "nuts1_name": "Ostösterreich",
@@ -193,10 +204,37 @@ GET /lookup?country=AT&postal_code=1012
 }
 ```
 
+**Example — UK postcode (ITL):**
+
+```
+GET /lookup?country=UK&postal_code=SW1A%202AA
+```
+
+```json
+{
+  "postal_code": "SW1A2AA",
+  "country_code": "UK",
+  "code_system": "ITL",
+  "match_type": "exact",
+  "nuts1": "TLI",
+  "nuts1_name": "London",
+  "nuts1_confidence": 1.0,
+  "nuts2": "TLI3",
+  "nuts2_name": "Inner London - East",
+  "nuts2_confidence": 1.0,
+  "nuts3": "TLI32",
+  "nuts3_name": "Tower Hamlets and Newham",
+  "nuts3_confidence": 1.0
+}
+```
+
+`country=GB` is accepted as an alias for `UK`. See [United Kingdom (ITL)](#united-kingdom-itl) for the NUTS-vs-ITL distinction.
+
 Every response includes:
 
 | Field | Description |
 |-------|-------------|
+| `code_system` | Territorial scheme of the `nuts{1,2,3}` fields: `NUTS` for EU/EFTA/candidate data, `ITL` for UK data (see [United Kingdom (ITL)](#united-kingdom-itl)) |
 | `match_type` | How the result was determined: `exact`, `estimated`, or `approximate` |
 | `nuts{1,2,3}_name` | Human-readable region name (Latin script), or `null` if unavailable |
 | `nuts{1,2,3}_confidence` | Confidence score (0.0–1.0) for each NUTS level |
@@ -432,6 +470,7 @@ User input: "Traiskirchen"
 | SI | 4 digits | SI- | `1000`, `SI-1000` |
 | SK | 3 digits + optional space + 2 digits | SK- | `81101`, `811 01`, `SK-81101` |
 | TR | 5 digits | TR- | `06100`, `TR-06100`, `34000` |
+| UK | 1–2 letters + digit + optional letter/digit + optional space + digit + 2 letters (ITL via NSPL; requires `PC2NUTS_NSPL_URL`) | GB accepted as alias | `SW1A 2AA`, `EC1A 1BB`, `M1 1AA`, `B33 8TH`, `SW1A` (outward only) |
 
 ## Configuration
 
@@ -444,6 +483,8 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
 | `PC2NUTS_ESTIMATES_CSV` | `./tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
+| `PC2NUTS_NSPL_URL` | *(empty)* | URL to the latest [NSPL](https://geoportal.statistics.gov.uk/) ZIP from the ONS Open Geography Portal. Enables UK (ITL) support; when unset, UK is unsupported. The URL changes each quarterly release, so update it accordingly. |
+| `PC2NUTS_ITL_NAMES_URLS` | *(empty)* | Comma-separated list of ONS "Names and Codes" CSV URLs (one per ITL level) that supply UK region names. Loaded after NSPL. |
 | `PC2NUTS_RATE_LIMIT` | `120/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. The default leaves comfortable headroom under the measured aggregate ceiling (~30 RPS) — see [`docs/performance.md`](docs/performance.md) for the rationale. |
 | `PC2NUTS_RATE_LIMIT_HEADERS` | `true` | When `true`, `429` responses include `Retry-After` and `X-RateLimit-Limit` / `X-RateLimit-Remaining` headers. |
 | `PC2NUTS_CACHE_MAX_AGE` | `3600` | `Cache-Control: public, max-age=<n>` (seconds) set on `/lookup`, `/pattern`, and `/` responses. |
@@ -647,6 +688,10 @@ Each estimate carries a confidence label (high / medium / low) that is mapped to
 | low    | 0.70  | 0.55  | 0.40  |
 
 Confidence is higher at coarser NUTS levels because neighbouring codes are more likely to share the same NUTS1 region than the same NUTS3 region.
+
+### UK outward-code lookup (`match_type: "estimated"`) — UK only
+
+For UK postcodes (loaded from NSPL — see [United Kingdom (ITL)](#united-kingdom-itl)), when the full postcode is not an exact match, the service looks up the **outward code** — everything before the final three characters, e.g. `SW1A` for `SW1A 2AA`. An index built at load time maps each outward code to the majority-vote ITL3 among all postcodes sharing it. This runs ahead of the generic prefix approximation below because the outward code is the meaningful UK boundary. It also handles outward-only input (`SW1A` submitted alone). Confidence uses the medium tier (NUTS1 0.90 / NUTS2 0.80 / NUTS3 0.70), since one outward code can straddle two adjacent ITL3 regions in dense urban areas.
 
 ### Tier 3: Runtime approximation (`match_type: "approximate"`)
 
@@ -1010,7 +1055,7 @@ Optional `tercet_map` field for countries where the TERCET key differs from the 
 }
 ```
 
-Supported `tercet_map` actions: `truncate:N`, `prepend:XX`, `keep_alpha`.
+Supported `tercet_map` actions: `truncate:N`, `prepend:XX`, `keep_alpha`, `outward_only` (marks a country for outward-code fallback, as used by UK).
 
 ### 3. `README.md` — update coverage section
 
@@ -1023,9 +1068,13 @@ Add the country to the appropriate group (EU, EFTA, or candidate) and add a row 
 
 No Python code changes are required.
 
+> **Non-GISCO sources** (currently only the UK via NSPL) are different: they require a dedicated loader path and configuration (a source ZIP URL and any names files), not just a JSON edit — and must **not** be added to `settings.json` `countries`, or the GISCO loader would waste requests guessing non-existent TERCET URLs. See `_load_nspl` and `_load_itl_names` in `app/data_loader.py` for the NSPL precedent.
+
 ## Data sources & attribution
 
 **Postal code → NUTS (both tiers).** [GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Albanian NUTS3 assignments come from the country's official postal-code block-allocation scheme (Posta Shqiptare), cross-validated against [GeoNames](https://www.geonames.org/) admin1 tagging ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).
+
+**UK postal code → ITL (optional).** [ONS National Statistics Postcode Lookup (NSPL)](https://geoportal.statistics.gov.uk/) and the ONS ITL "Names and Codes" files, &copy; Crown copyright and database right, licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/). Contains OS data &copy; Crown copyright and database right. Loaded only when `PC2NUTS_NSPL_URL` is configured.
 
 The [EU Open Data Portal dataset](https://data.europa.eu/data/datasets/postcodes-and-nuts-nomenclature-of-territorial-units-for-statistics) was also considered as a data source. However, its refresh cycle lags behind the GISCO TERCET flat files, so direct sourcing from GISCO was chosen for more up-to-date coverage.
 
