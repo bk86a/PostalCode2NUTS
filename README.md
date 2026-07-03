@@ -130,7 +130,9 @@ Addresses are sent to your Photon instance only; they are never logged.
 |-----------|-------------|
 | `GET /lookup` | Look up NUTS 1/2/3 codes for a postal code + country |
 | `GET /pattern` | Get the postal code regex pattern for a country |
-| `GET /health` | Health check with data statistics |
+| `GET /resolve` | Resolve NUTS with a geocoding fallback for weak postal results (Full tier) |
+| `GET /health` | Health check with data statistics, including which tier is active |
+| `GET /` | Service entry point — links to docs, health, and example requests |
 
 Interactive API docs are available at `/documentation` (Swagger UI) and `/redoc`. To disable in production, set `PC2NUTS_DOCS_ENABLED=false`.
 
@@ -287,7 +289,11 @@ Returns service status and data statistics.
   "extra_sources": 0,
   "patterns_version": "1.2",
   "data_stale": false,
-  "last_updated": "2025-01-15T12:00:00+00:00"
+  "last_updated": "2025-01-15T12:00:00+00:00",
+  "token_db_stale": null,
+  "estimates_refresh_stale": null,
+  "geocoder_configured": false,
+  "pip_ready": false
 }
 ```
 
@@ -299,6 +305,10 @@ Returns service status and data statistics.
 | `patterns_version` | Version of the `postal_patterns.json` file |
 | `data_stale` | `true` if serving expired cache after a failed TERCET refresh |
 | `last_updated` | ISO 8601 timestamp of when TERCET data was last successfully loaded |
+| `token_db_stale` | `true` if the DB-backed trusted-token registry failed its last refresh; `null` if `PC2NUTS_TOKEN_DB_URL` is unset |
+| `estimates_refresh_stale` | `true` if the last periodic estimates refresh failed; `null` if `PC2NUTS_ESTIMATES_REFRESH_URL` is unset |
+| `geocoder_configured` | `true` if `PC2NUTS_PHOTON_URL` is set (Full tier active) |
+| `pip_ready` | `true` if NUTS polygons are loaded, i.e. point-in-polygon resolution is available for `/resolve` |
 
 ## Error handling
 
@@ -306,9 +316,9 @@ The API uses standard HTTP status codes with human-readable error messages:
 
 | Status | Meaning | When |
 |--------|---------|------|
-| **200** | Success | Lookup found, pattern returned, health OK |
+| **200** | Success | Lookup found, pattern returned, health OK, or resolve completed (even when unresolved — see `resolved_via: "none"`) |
 | **400** | Bad request | Country code is not supported (lists available countries) |
-| **404** | Not found | Postal code not found (shows expected format), or no pattern for country |
+| **404** | Not found | Postal code not found (shows expected format), or no pattern for country. `/resolve` never 404s. |
 | **422** | Validation error | Parameter format invalid (e.g. country code not 2 letters, contains digits) |
 | **429** | Too many requests | Rate limit exceeded (configurable via `PC2NUTS_RATE_LIMIT`) |
 
@@ -435,6 +445,8 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ESTIMATES_CSV` | `./tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
 | `PC2NUTS_RATE_LIMIT` | `120/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. The default leaves comfortable headroom under the measured aggregate ceiling (~30 RPS) — see [`docs/performance.md`](docs/performance.md) for the rationale. |
+| `PC2NUTS_RATE_LIMIT_HEADERS` | `true` | When `true`, `429` responses include `Retry-After` and `X-RateLimit-Limit` / `X-RateLimit-Remaining` headers. |
+| `PC2NUTS_CACHE_MAX_AGE` | `3600` | `Cache-Control: public, max-age=<n>` (seconds) set on `/lookup`, `/pattern`, and `/` responses. |
 | `PC2NUTS_STARTUP_TIMEOUT` | `300` | Maximum seconds allowed for initial data loading. If exceeded, the service starts with whatever data was loaded and sets `data_stale: true`. |
 | `PC2NUTS_TRUSTED_TOKENS` | `""` (empty — bypass disabled) | Comma-separated list of opaque tokens that bypass the per-IP rate limit when sent via `Authorization: Bearer <token>`. Continues to work as a union with the DB-backed registry below; set this only as a disaster-recovery fallback or for env-var-only deployments. See [Authentication & rate-limit bypass](#authentication--rate-limit-bypass) for the operator runbook. |
 | `PC2NUTS_TOKEN_DB_URL` | `""` (unset) | Connection string for the trusted-token database. Accepts both `https://…` and `libsql://…` (the latter is rewritten to `https://` automatically). Empty → DB-backed bypass disabled, falls back to env-var-only behaviour. |
@@ -449,6 +461,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ESTIMATES_REFRESH_URL` | *(empty — feature disabled)* | When set, the worker periodically fetches this URL and replaces the in-memory estimates table. Recommended value: `https://raw.githubusercontent.com/bk86a/PostalCode2NUTS/main/tercet_missing_codes.csv`. |
 | `PC2NUTS_ESTIMATES_REFRESH_INTERVAL_SECONDS` | `86400` (24 h) | How often the periodic task fetches the URL. Set to `0` to disable the periodic loop while keeping the bootstrap fetch on startup. |
 | `PC2NUTS_PHOTON_URL` | _(unset)_ | Photon geocoder base URL. **Unset ⇒ Lite tier.** Set ⇒ Full tier. |
+| `PC2NUTS_PHOTON_TIMEOUT_SECONDS` | `5.0` | Request timeout (seconds) for calls to the Photon geocoder (Full tier). |
 | `PC2NUTS_NUTS_GEOJSON_URL` | GISCO NUTS-2024 1M zip | Source for NUTS polygons (Full tier); auto-downloaded + cached. |
 | `PC2NUTS_NUTS_GEOJSON_PATH` | _(unset)_ | Pre-seeded polygon file; skips the download when set. |
 | `PC2NUTS_RESOLVE_CONFIDENCE_THRESHOLD` | `0.85` | Geocode only when the postal `nuts3_confidence` is below this. |
@@ -609,6 +622,8 @@ If only the DB env vars are unset (`PC2NUTS_TRUSTED_TOKENS` still set), behaviou
 - Revocation latency is bounded by container restart time (~30 s).
 
 ## Five-tier lookup
+
+This section describes the **postal-code → NUTS resolution path** — the sole mechanism behind `GET /lookup`, and the first stage that `GET /resolve` always tries before falling back to geocoding. It is identical in both the Lite and Full tiers.
 
 The service resolves postal codes using a five-tier fall-through strategy. Each tier adds coverage for codes not found by the tier above, and every result includes a `match_type` and per-level confidence scores so consumers can decide how much to trust the result.
 
@@ -832,7 +847,7 @@ docker build -t postalcode2nuts .
 docker run -p 8000:8000 postalcode2nuts
 ```
 
-On first start the service downloads TERCET data for the 34 countries with GISCO coverage (~2-5 minutes depending on network); Montenegro is served via the single-NUTS3 fallback and needs no download. After that everything is cached in a SQLite database for instant restarts.
+On first start the service downloads TERCET data for the 34 countries with GISCO coverage (~2-5 minutes depending on network); Montenegro (single-NUTS3 fallback) and Albania (estimates-only, bundled in `tercet_missing_codes.csv`) need no download. After that everything is cached in a SQLite database for instant restarts.
 
 ### Persistent data volume
 
@@ -898,20 +913,36 @@ For the simplest setup (single worker, no Redis, no persistence) drop both the `
 
 ```
 app/
-├── main.py              # FastAPI app, endpoints (/lookup, /pattern, /health)
+├── main.py              # FastAPI app, endpoints (/lookup, /pattern, /resolve, /health, /)
 ├── config.py            # Settings (env vars, country list, NUTS version derived from URL)
 ├── settings.json        # Countries, confidence map, approximate thresholds
 ├── data_loader.py       # TERCET download, parsing, SQLite cache, five-tier lookup
 ├── models.py            # Pydantic response models
 ├── postal_patterns.py   # Pattern loading, preprocessing + extract_postal_code()
-└── postal_patterns.json # Per-country regex patterns, examples, expected_digits
+├── postal_patterns.json # Per-country regex patterns, examples, expected_digits
+├── resolver.py          # /resolve cascade: postal lookup, then geocode fallback (Full tier)
+├── photon_client.py     # Photon geocoder HTTP client (Full tier)
+├── nuts_polygons.py     # Download/cache GISCO NUTS polygons (Full tier)
+├── nuts_pip.py          # Point-in-polygon NUTS-3 resolution (Full tier)
+├── auth.py              # Trusted-token rate-limit bypass middleware
+├── token_db.py          # DB-backed trusted-token registry client (libsql/Hrana)
+├── estimates_refresh.py # Periodic remote refresh of the estimates table
+└── limiter.py           # slowapi rate-limit setup
 tests/
 ├── conftest.py          # Shared fixtures with mock TERCET data
 ├── test_postal_patterns.py
 ├── test_data_loader.py
-└── test_api.py
+├── test_api.py
+├── test_resolve_endpoint.py
+├── test_resolver.py
+├── test_photon_client.py
+├── test_nuts_pip.py
+├── test_auth.py
+├── test_token_db.py
+└── ...                  # full suite also covers estimates refresh, rate limiting, Albania estimates, etc.
 scripts/
-└── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
+├── import_estimates.py  # CLI: import pre-computed estimates into SQLite DB
+└── tokens.py            # CLI: manage trusted-token DB (init/add/list/revoke)
 tercet_missing_codes.csv # Pre-computed NUTS estimates for codes missing from TERCET
 Makefile                 # Standard targets: lint, format, test, run, docker-build
 ```
