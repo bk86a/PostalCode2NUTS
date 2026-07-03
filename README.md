@@ -4,6 +4,8 @@ FastAPI microservice that maps postal codes to [NUTS codes](https://ec.europa.eu
 
 Returns NUTS levels 1, 2, and 3 for any postal code across 36 countries, with confidence scores indicating how the result was determined.
 
+Runs in two tiers, selected at deploy time: a low-cost **Lite** tier (postal code → NUTS only) and an optional **Full** tier that adds an address → geocode → NUTS fallback — self-hosted [Photon](https://github.com/komoot/photon) geocoding plus NUTS polygons — for the rows postal lookup alone can't resolve. See [Deployment tiers](#deployment-tiers).
+
 ## Coverage
 
 Based on GISCO TERCET correspondence tables. The NUTS version is determined automatically from the configured TERCET base URL (default: NUTS-2024).
@@ -92,6 +94,14 @@ can't resolve. It needs two things beyond Lite:
 2. **NUTS polygons.** On first Full-tier startup the app downloads the GISCO
    NUTS-2024 (1:1M) polygons into `PC2NUTS_DATA_DIR` and caches them. To avoid the
    download, pre-seed the file and set `PC2NUTS_NUTS_GEOJSON_PATH`.
+
+> **Hardware & space (Full tier).** Budget disk for the Photon index — roughly
+> **90 GB** extracted for the full planet, or a few hundred MB to a few GB for a
+> country-subset extract — plus **~160 MB** for the cached NUTS polygons. Photon
+> memory-maps its index, so throughput scales with available RAM: a single-country
+> index runs comfortably on a small VM, while the full planet is happiest with an
+> SSD and **~8–16 GB RAM**. The Lite tier needs none of this — just the ~35 MB
+> SQLite dataset.
 
 Enable Full mode by setting `PC2NUTS_PHOTON_URL`. With Docker Compose:
 
@@ -873,7 +883,7 @@ For the simplest setup (single worker, no Redis, no persistence) drop both the `
 | Dependencies | Pinned via `requirements.lock` |
 | Estimates CSV | Included (`tercet_missing_codes.csv`) |
 | Entrypoint | `/usr/local/bin/docker-entrypoint.sh` (chowns `/app/data`, drops privileges) |
-| uvicorn flags | `--proxy-headers --forwarded-allow-ips '*'` (any TLS-terminating proxy works) |
+| uvicorn flags | `--proxy-headers --forwarded-allow-ips '*' --no-access-log` (proxy headers for any TLS-terminating proxy; access log disabled so `/resolve` street/city query params never reach stdout — use `PC2NUTS_ACCESS_LOG_FILE` for sanitized access logging) |
 | Health check | Built-in (`/health`, 30s interval, 120s start period) |
 | Port | 8000 |
 | Volume | `/app/data` (SQLite cache + downloaded ZIPs) |

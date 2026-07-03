@@ -6,13 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Fixed
+## [1.0.0] - 2026-07-03
 
+### Added
+
+- **`GET /resolve` — address → geocode → NUTS cascade (Full tier).** When the
+  postal result is weak (`not_found`, or `nuts3_confidence` below
+  `PC2NUTS_RESOLVE_CONFIDENCE_THRESHOLD`) and a street/city is supplied, the
+  address is geocoded via a self-hosted komoot
+  [Photon](https://github.com/komoot/photon) instance and the coordinate mapped
+  to a NUTS-3 region by point-in-polygon over GISCO NUTS-2024 polygons. Includes
+  a country-guarded nearest-polygon **snap** for coastline/border points
+  (`PC2NUTS_PIP_SNAP_KM`) and **postal-code sanitization** that recovers a valid
+  code from a messy `POSTAL_CODE` field before falling back to geocoding.
+- **Lite / Full deployment tiers**, selected at deploy time by
+  `PC2NUTS_PHOTON_URL` (unset → Lite, postal-only; set → Full). New
+  `compose.full.yaml` override; `/health` reports `pip_ready` and
+  `geocoder_configured`. New config: `PC2NUTS_PHOTON_URL`,
+  `PC2NUTS_NUTS_GEOJSON_URL` / `_PATH`, `PC2NUTS_RESOLVE_CONFIDENCE_THRESHOLD`,
+  `PC2NUTS_PIP_SNAP_KM`.
+
+### Changed
+
+- **NUTS polygons load only in the Full tier** (gated on `PC2NUTS_PHOTON_URL`),
+  so Lite deployments no longer download or hold the ~160 MB polygon set.
+- **uvicorn access log disabled by default** (`--no-access-log`) so `/resolve`
+  street/city query parameters never reach stdout; use `PC2NUTS_ACCESS_LOG_FILE`
+  for sanitized access logging.
 - **`patterns_version` bumped to 1.2** (`app/postal_patterns.json` `_meta`):
   catch-up bump covering the Faroe Islands (#55) and Albania (#54) entries,
   both of which were added without updating `_meta`, which had been stuck at
   `1.1` / `2026-04-29` since Montenegro (#53). Additive-only — no existing
   pattern was altered. Exposed via `/health` `patterns_version`.
+
+### Fixed
+
+- **Cross-border geocode guard on `/resolve`**: a mis-geocode that lands inside
+  a neighboring country's polygon no longer returns a wrong-country NUTS — it
+  falls back to the postal best-effort result instead of being trusted or
+  snapped into a same-country border region.
 
 ## [0.21.0] - 2026-07-02
 

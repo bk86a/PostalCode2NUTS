@@ -69,7 +69,10 @@ def resolve(
     lat, lon = coord
     hit = pip.lookup(lat, lon)
     if hit is not None and not hit["nuts3"].startswith(country):
-        hit = None  # cross-border geocode — Photon mislocated the address; treat as a PIP miss
+        # Inside a NEIGHBORING country's polygon — Photon mislocated the address. Don't
+        # trust it, and don't snap (snapping would rescue a known-bad point into a
+        # same-country border region). Fall back to postal best-effort.
+        return {**base, **_postal(), "geocode": {"status": "pip_outside", "lat": lat, "lon": lon}}
     geocode: dict = {"status": "ok", "lat": lat, "lon": lon}
     if hit is None:
         # Point fell outside every polygon — try snapping to the nearest same-country
