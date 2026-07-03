@@ -1192,6 +1192,8 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     1. Exact TERCET match → confidence 1.0
     2. Pre-computed estimate → stored confidence per level
     2b. Albania block map → district-block NUTS3, match_type='estimated' (#118)
+    3.5. Outward-code lookup (UK) → majority-vote ITL3 for the outward code,
+       match_type='estimated', medium confidence (before generic prefix)
     3. Runtime prefix-based estimation → calculated confidence
     4. Country-level majority vote → unanimous NUTS1/2, dominant NUTS3 (e.g. MT)
     5. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
@@ -1200,7 +1202,7 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
 
     Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
-    from app.postal_patterns import extract_postal_code
+    from app.postal_patterns import extract_outward, extract_postal_code
 
     cc = normalize_country(country_code)
 
@@ -1235,6 +1237,26 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
             return _build_result(
                 "estimated",
                 al_nuts3,
+                nuts1_confidence=conf["nuts1"],
+                nuts2_confidence=conf["nuts2"],
+                nuts3_confidence=conf["nuts3"],
+            )
+
+    # Tier 3.5: Outward-code lookup (UK and any country flagged outward_only).
+    # Placed before generic prefix estimation because the outward code is the
+    # meaningful UK boundary: a curated majority vote over the whole outward
+    # beats an arbitrary prefix match, and it yields match_type='estimated' with
+    # medium confidence. extract_outward returns None for non-outward countries,
+    # so this tier is inert for everything except UK.
+    outward = extract_outward(cc, postal_code)
+    if outward is not None:
+        outward_hit = _outward_lookup.get((cc, outward))
+        if outward_hit is not None:
+            o_nuts3, _agreement = outward_hit
+            conf = settings.confidence_map["medium"]
+            return _build_result(
+                "estimated",
+                o_nuts3,
                 nuts1_confidence=conf["nuts1"],
                 nuts2_confidence=conf["nuts2"],
                 nuts3_confidence=conf["nuts3"],

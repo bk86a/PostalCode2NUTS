@@ -383,6 +383,33 @@ class TestLoadNSPL:
         assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
 
 
+class TestUKOutwardLookup:
+    def test_outward_only_input_returns_estimated(self, mock_data):
+        # "SW1A" has no inward part; resolves via the outward majority-vote tier.
+        result = lookup("UK", "SW1A")
+        assert result is not None
+        assert result["nuts3"] == "TLI32"
+        assert result["match_type"] == "estimated"
+        assert result["nuts1_confidence"] == pytest.approx(0.90)
+        assert result["nuts2_confidence"] == pytest.approx(0.80)
+        assert result["nuts3_confidence"] == pytest.approx(0.70)
+
+    def test_full_postcode_still_exact(self, mock_data):
+        result = lookup("UK", "SW1A 2AA")
+        assert result["match_type"] == "exact"
+        assert result["nuts3"] == "TLI32"
+
+    def test_unlisted_full_postcode_resolves_via_outward(self, mock_data):
+        # Valid-format UK postcode not in the data → outward "SW1A" still resolves.
+        result = lookup("UK", "SW1A 9ZZ")
+        assert result is not None
+        assert result["nuts3"] == "TLI32"
+        assert result["match_type"] == "estimated"
+
+    def test_unknown_outward_returns_none(self, mock_data):
+        assert lookup("UK", "ZZ99") is None
+
+
 class TestBuildOutwardIndex:
     def test_majority_vote(self, monkeypatch):
         monkeypatch.setattr(
