@@ -320,6 +320,59 @@ class TestNSPLColumnParsing:
         assert rows == 2
 
 
+class TestLoadNSPL:
+    @staticmethod
+    def _zip_bytes(csv_text, arcname="NSPL.csv"):
+        import io as _io
+        import zipfile
+
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(arcname, csv_text)
+        return buf.getvalue()
+
+    def test_populates_lookup_from_zip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        csv_text = (
+            "pcds,itl,doterm\n"
+            "SW1A 2AA,TLI32,\n"
+            "EC1A 1BB,TLI32,\n"
+            "M1 9NS,TLD46,202312\n"  # terminated
+        )
+        content = self._zip_bytes(csv_text)
+
+        def handler(request):
+            return httpx.Response(200, content=content, headers={"ETag": '"v1"'})
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        count = data_loader._load_nspl(client, "https://example.com/NSPL.zip", tmp_path)
+        assert count == 2
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+        assert ("UK", "M19NS") not in data_loader._lookup
+
+    def test_returns_zero_when_url_unset(self, tmp_path):
+        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+        assert data_loader._load_nspl(client, "", tmp_path) == 0
+
+    def test_swallows_exceptions(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+
+        def handler(request):
+            raise httpx.ConnectError("boom")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
+
+    def test_non_zip_response_returns_zero(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+
+        def handler(request):
+            return httpx.Response(200, content=b"not a zip")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
+
+
 class TestConditionalGet:
     def test_sends_conditional_headers_when_etag_known(self):
         captured = {}

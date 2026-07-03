@@ -24,6 +24,10 @@ _NUTS3_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{1,3}$")
 
 _MAX_UNCOMPRESSED_SIZE = 100 * 1024 * 1024  # 100 MB
 
+# The NSPL postcode CSV (~1.79M live rows) is far larger than a TERCET file; it
+# needs its own, higher extraction cap. Source is operator-configured (trusted).
+_MAX_NSPL_UNCOMPRESSED_SIZE = 1024 * 1024 * 1024  # 1 GB
+
 logger = logging.getLogger(__name__)
 
 # postal_code -> NUTS3 code, keyed by (country_code, normalized_postal_code)
@@ -461,6 +465,64 @@ def _download_and_parse_zip(
     except zipfile.BadZipFile:
         logger.warning("Bad ZIP file from %s", url)
     return total
+
+
+def _load_nspl(client: httpx.Client, url: str, cache_dir: Path) -> int:
+    """Fetch the NSPL ZIP and load UK postcode → ITL3 entries into _lookup.
+
+    Returns the number of rows added. Returns 0 when url is empty or any error
+    occurs — an NSPL failure must never block TERCET-only operation. Terminated
+    postcodes (non-blank DOTERM) are filtered out. UK is registered in the loaded
+    country set automatically because its rows land in _lookup.
+    """
+    if not url:
+        return 0
+    cache_path = cache_dir / "nspl.zip"
+    try:
+        resp = _download_zip_conditional(client, url, {})
+        if resp.status_code == 304:
+            # Unchanged upstream — nothing to (re)load this run.
+            return 0
+        resp.raise_for_status()
+        content = resp.content
+        if not zipfile.is_zipfile(io.BytesIO(content)):
+            logger.warning("NSPL response from %s is not a valid ZIP, skipping", url)
+            return 0
+        try:
+            cache_path.write_bytes(content)
+        except OSError as exc:
+            logger.warning("Failed to cache NSPL ZIP: %s", exc)
+
+        total = 0
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            for name in zf.namelist():
+                # The postcode CSV is the "NSPL*.csv" (real releases ship it under
+                # Data/); other bundled CSVs (user guide, column lookups) lack the
+                # pcds/itl columns and are ignored by _parse_csv_content anyway.
+                if not name.lower().endswith(".csv") or "nspl" not in name.lower():
+                    continue
+                file_size = zf.getinfo(name).file_size
+                if file_size > _MAX_NSPL_UNCOMPRESSED_SIZE:
+                    logger.warning(
+                        "Skipping %s: uncompressed size %d exceeds NSPL limit %d",
+                        name,
+                        file_size,
+                        _MAX_NSPL_UNCOMPRESSED_SIZE,
+                    )
+                    continue
+                raw = zf.read(name)
+                for enc in ("utf-8-sig", "utf-8", "latin-1"):
+                    try:
+                        text = raw.decode(enc)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                total += _parse_csv_content(text, "UK", overwrite=False, skip_terminated=True)
+        logger.info("NSPL loaded: %d live UK postcodes", total)
+        return total
+    except (httpx.HTTPError, zipfile.BadZipFile, OSError) as exc:
+        logger.warning("NSPL load failed: %s", exc)
+        return 0
 
 
 def _db_path() -> Path:
@@ -1006,6 +1068,12 @@ def load_data() -> None:
                 extra_count = _load_extra_sources(client, cache_dir, deadline=deadline)
                 if extra_count:
                     logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
+
+            # NSPL (UK postcodes via ITL) — optional, no-op when nspl_url unset
+            if not timed_out and settings.nspl_url:
+                nspl_count = _load_nspl(client, settings.nspl_url, cache_dir)
+                if nspl_count > 0:
+                    logger.info("Loaded %d entries for UK from NSPL", nspl_count)
 
             # NUTS region names
             if not timed_out:
