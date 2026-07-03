@@ -263,17 +263,27 @@ class TestBundledAlbaniaData:
         "AL022", "AL031", "AL032", "AL033", "AL034", "AL035",
     }
 
-    def test_albania_rows_present_and_valid(self):
+    def test_no_al_rows_remain_in_estimates_csv(self):
         from pathlib import Path
 
         from app.data_loader import parse_estimates_from_text
 
         text = Path("tercet_missing_codes.csv").read_text(encoding="utf-8")
         parsed, _ = parse_estimates_from_text(text)
-        al = {pc: est for (cc, pc), est in parsed.items() if cc == "AL"}
-        assert len(al) >= 480
-        for pc, est in al.items():
-            assert pc.isdigit() and len(pc) == 4
-            assert est["nuts3"] in self.VALID_AL_NUTS3
-            assert est["nuts2"] == est["nuts3"][:4]
-            assert est["nuts1"] == "AL0"
+        assert not any(cc == "AL" for cc, _ in parsed), "AL now resolves via the block map, not estimates"
+
+    def test_block_map_covers_all_twelve_nuts3(self):
+        from app.albania_blocks import BLOCKS
+
+        assert {nuts3 for _, nuts3, _ in BLOCKS} == self.VALID_AL_NUTS3
+
+    def test_sample_codes_resolve_estimated(self):
+        from app.data_loader import lookup
+
+        for pc in ("1001", "1055", "5001", "9401", "3550"):
+            result = lookup("AL", pc)
+            assert result is not None
+            assert result["match_type"] == "estimated"
+            assert result["nuts3"] in self.VALID_AL_NUTS3
+            assert result["nuts2"] == result["nuts3"][:4]
+            assert result["nuts1"] == "AL0"
