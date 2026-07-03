@@ -6,6 +6,12 @@ Returns NUTS levels 1, 2, and 3 for any postal code across 36 countries, with co
 
 Runs in two tiers, selected at deploy time: a low-cost **Lite** tier (postal code → NUTS only) and an optional **Full** tier that adds an address → geocode → NUTS fallback — self-hosted [Photon](https://github.com/komoot/photon) geocoding plus NUTS polygons — for the rows postal lookup alone can't resolve. See [Deployment tiers](#deployment-tiers).
 
+> **Try it live** (rate-limited public instance, Full tier): interactive docs at **<https://api.datatoolset.eu/PostalCode2NUTS/documentation>**. Quick check:
+>
+> ```bash
+> curl 'https://api.datatoolset.eu/PostalCode2NUTS/lookup?country=DE&postal_code=10115'
+> ```
+
 ## Coverage
 
 Based on GISCO TERCET correspondence tables. The NUTS version is determined automatically from the configured TERCET base URL (default: NUTS-2024).
