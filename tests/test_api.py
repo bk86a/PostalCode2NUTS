@@ -36,6 +36,11 @@ class TestLookupEndpoint:
         assert body["match_type"] == "estimated"
         assert body["nuts3"] == "TLI32"
 
+    def test_uk_response_has_code_system_itl(self, client):
+        resp = client.get("/lookup", params={"country": "UK", "postal_code": "SW1A 2AA"})
+        assert resp.status_code == 200
+        assert resp.json()["code_system"] == "ITL"
+
     def test_400_unsupported_country(self, client):
         resp = client.get("/lookup", params={"postal_code": "12345", "country": "ZZ"})
         assert resp.status_code == 400

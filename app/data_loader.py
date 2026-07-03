@@ -1154,10 +1154,16 @@ def _build_result(match_type: str, nuts3: str, nuts1: str = "", nuts2: str = "",
 
     If nuts1/nuts2 are not provided, they are derived from nuts3.
     Confidence keys: nuts1_confidence, nuts2_confidence, nuts3_confidence.
+
+    code_system is derived from the code itself: ITL codes are the UK's
+    NUTS successor and uniquely carry the "TL" prefix (no NUTS country code is
+    "TL"), so every "TL…" result is tagged "ITL" and all others "NUTS".
     """
     n1 = nuts1 or nuts3[:3]
     n2 = nuts2 or nuts3[:4]
+    code_system = "ITL" if nuts3[:2] == "TL" else "NUTS"
     return {
+        "code_system": code_system,
         "match_type": match_type,
         "nuts1": n1,
         "nuts1_confidence": confidence.get("nuts1_confidence", 1.0),

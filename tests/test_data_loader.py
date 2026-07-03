@@ -409,6 +409,14 @@ class TestUKOutwardLookup:
     def test_unknown_outward_returns_none(self, mock_data):
         assert lookup("UK", "ZZ99") is None
 
+    def test_uk_result_tagged_itl(self, mock_data):
+        assert lookup("UK", "SW1A 2AA")["code_system"] == "ITL"
+        assert lookup("UK", "SW1A")["code_system"] == "ITL"
+
+    def test_non_uk_result_tagged_nuts(self, mock_data):
+        assert lookup("AT", "1010")["code_system"] == "NUTS"
+        assert lookup("DE", "10118")["code_system"] == "NUTS"
+
 
 class TestBuildOutwardIndex:
     def test_majority_vote(self, monkeypatch):
