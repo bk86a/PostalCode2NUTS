@@ -166,7 +166,7 @@ def process_row(row: dict, client: httpx.Client, base: str, headers: dict, timeo
         if st2 == 200 and body2:
             g = body2.get("geocode") or {}
             geocode_status = g.get("status") or ""
-            if geocode_status == "ok":
+            if geocode_status in ("ok", "snapped"):  # snapped = nearest-polygon rescue
                 cand = g.get("nuts3") or ""
                 if accept_geocode(country, cand):
                     nuts3_geocoded = cand

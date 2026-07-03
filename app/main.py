@@ -435,6 +435,7 @@ def resolve_endpoint(
         pip=_nuts_pip,
         name_fn=lambda code: get_nuts_names().get(code),
         threshold=settings.resolve_confidence_threshold,
+        snap_km=settings.pip_snap_km,
     )
     # /resolve carries PII → do not cache.
     response.headers["Cache-Control"] = "no-store"
