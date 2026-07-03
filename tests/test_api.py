@@ -17,6 +17,11 @@ class TestLookupEndpoint:
         resp = client.get("/lookup", params={"postal_code": "10115", "country": "DE"})
         assert "public" in resp.headers.get("cache-control", "")
 
+    def test_response_includes_code_system_nuts(self, client):
+        resp = client.get("/lookup", params={"postal_code": "10115", "country": "DE"})
+        assert resp.status_code == 200
+        assert resp.json()["code_system"] == "NUTS"
+
     def test_400_unsupported_country(self, client):
         resp = client.get("/lookup", params={"postal_code": "12345", "country": "ZZ"})
         assert resp.status_code == 400

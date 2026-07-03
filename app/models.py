@@ -6,6 +6,13 @@ from pydantic import BaseModel, Field
 class NUTSResult(BaseModel):
     postal_code: str = Field(description="The queried postal code (normalized)")
     country_code: str = Field(description="ISO 3166-1 alpha-2 country code")
+    code_system: Literal["NUTS", "ITL"] = Field(
+        default="NUTS",
+        description=(
+            "Territorial coding scheme of the nuts1/2/3 fields. 'NUTS' for GISCO-sourced "
+            "EU/EFTA/candidate data; 'ITL' for UK data from the ONS NSPL."
+        ),
+    )
     match_type: Literal["exact", "estimated", "approximate"] = Field(
         description="How the result was determined"
     )
