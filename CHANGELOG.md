@@ -6,8 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-03
+
 ### Added
 
+- **United Kingdom (ITL) support** (#7): the service can now resolve UK postcodes
+  to [ITL](https://www.ons.gov.uk/methodology/geography/ukgeographies/eurostat)
+  (International Territorial Level) codes — the UK's post-Brexit successor to
+  NUTS. Sourced from the ONS [National Statistics Postcode Lookup
+  (NSPL)](https://geoportal.statistics.gov.uk/), loaded only when
+  `PC2NUTS_NSPL_URL` is configured (the ~178 MB dataset is not bundled). UK is
+  treated as a parallel data channel: it reuses the same in-memory lookup, SQLite
+  cache, and waterfall as TERCET, and an NSPL failure never blocks TERCET serving.
+  - New response field **`code_system`** (`"NUTS"` | `"ITL"`) on `/lookup`
+    (additive, non-breaking) marks which scheme the `nuts1/2/3` fields carry.
+    ITL diverges from NUTS-2016 UK at L2/L3, so consumers should branch on it.
+  - **`country=GB` accepted** as an alias for `UK` (like `GR → EL`).
+  - **Outward-code lookup**: outward-only input (e.g. `SW1A`) or an unlisted
+    full postcode resolves to the majority-vote ITL3 for that outward code with
+    `match_type="estimated"` and medium confidence.
+  - New config: `PC2NUTS_NSPL_URL`, `PC2NUTS_ITL_NAMES_URLS`. `patterns_version`
+    bumped to `1.3`. Crown Dependencies (JE/GG/IM) and Gibraltar (GI) are out of
+    scope and return `400`.
 - **Albania coverage completeness** (#118): AL postal codes now resolve via the
   official postal-code block-allocation scheme (`app/albania_blocks.py`) instead
   of the incomplete GeoNames estimates. A code maps to its NUTS3 region by its
