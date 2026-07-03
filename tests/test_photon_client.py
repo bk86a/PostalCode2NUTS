@@ -62,6 +62,32 @@ def test_never_combines_street_and_postcode():
     assert all(not ("Museumpark 25" in q and "3000 AE" in q) for q in seen)
 
 
+def test_never_combines_street_and_postcode_without_city():
+    # The no-city path (reachable via the offline enrich path) must also never
+    # put street and postcode in one query — Photon returns nothing for that pair.
+    seen = []
+
+    def handler(req):
+        seen.append(req.url.params["q"])
+        return httpx.Response(200, json={"features": []})
+
+    pc = PhotonClient("http://photon", _client(handler))
+    pc.geocode("Museumpark 25", "", "3000 AE")
+    assert seen, "expected at least one query"
+    assert all(not ("Museumpark 25" in q and "3000 AE" in q) for q in seen)
+
+
+def test_non_point_geometry_returns_none():
+    # A non-Point feature has nested coordinates (e.g. [[lon,lat],...]); parsing
+    # coords[1] as a float would raise TypeError. The contract is "never raises".
+    def handler(req):
+        geom = {"type": "LineString", "coordinates": [[4.5, 50.8], [4.6, 50.9]]}
+        return httpx.Response(200, json={"features": [{"geometry": geom}]})
+
+    pc = PhotonClient("http://photon", _client(handler))
+    assert pc.geocode("Markt", "Tervuren", "3080") is None
+
+
 def test_all_queries_empty_returns_none():
     pc = PhotonClient("http://photon", _client(lambda r: httpx.Response(200, json={"features": []})))
     assert pc.geocode("X", "Y", "0000") is None

@@ -123,13 +123,13 @@ async def lifespan(app: FastAPI):
     # PIP is only useful with a geocoder to produce coordinates, so the ~160 MB
     # polygon load is skipped entirely in the Lite tier (no PC2NUTS_PHOTON_URL).
     global _nuts_pip, _photon_client, _geo_http
-    if settings.photon_url:
+    if _config.settings.photon_url:
         try:
             with _httpx.Client() as _dl_client:
                 _nuts_pip = load_nuts_pip(
-                    url=settings.nuts_geojson_url,
-                    path=settings.nuts_geojson_path,
-                    cache_dir=settings.data_dir,
+                    url=_config.settings.nuts_geojson_url,
+                    path=_config.settings.nuts_geojson_path,
+                    cache_dir=_config.settings.data_dir,
                     client=_dl_client,
                 )
             logger.info("NUTS polygons loaded — /resolve PIP ready.")
