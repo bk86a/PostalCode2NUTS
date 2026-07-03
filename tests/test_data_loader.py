@@ -443,6 +443,42 @@ class TestBuildOutwardIndex:
         assert data_loader._outward_lookup == {}
 
 
+class TestLoadITLNames:
+    def test_populates_nuts_names(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+
+        def handler(request):
+            body = "ITL321CD,ITL321NM\nTLI32,Tower Hamlets\nTLI31,Hackney and Newham\n"
+            return httpx.Response(200, content=body.encode())
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        count = data_loader._load_itl_names(client, ["https://example.com/itl3.csv"])
+        assert count == 2
+        assert data_loader._nuts_names["TLI32"] == "Tower Hamlets"
+
+    def test_empty_url_list_no_op(self):
+        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
+        assert data_loader._load_itl_names(client, []) == 0
+
+    def test_missing_columns_skipped(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+
+        def handler(request):
+            return httpx.Response(200, content=b"foo,bar\n1,2\n")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_itl_names(client, ["https://example.com/x.csv"]) == 0
+
+    def test_http_error_swallowed(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+
+        def handler(request):
+            raise httpx.ConnectError("boom")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert data_loader._load_itl_names(client, ["https://example.com/x.csv"]) == 0
+
+
 class TestConditionalGet:
     def test_sends_conditional_headers_when_etag_known(self):
         captured = {}

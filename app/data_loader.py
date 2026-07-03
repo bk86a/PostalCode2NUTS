@@ -725,6 +725,51 @@ def _download_nuts_names(client: httpx.Client) -> int:
     return count
 
 
+def _load_itl_names(client: httpx.Client, urls: list[str]) -> int:
+    """Fetch ONS ITL "Names and Codes" CSVs and merge them into _nuts_names.
+
+    NSPL carries ITL codes but not names. Each ONS CSV pairs a code column with
+    a name column whose headers vary by release year (e.g. ITL321CD/ITL321NM at
+    level 3, ITL221CD/ITL221NM at level 2) — columns are matched by the CD/NM
+    suffix rather than exact name. Failures are logged and skipped, never raised.
+    """
+    if not urls:
+        return 0
+    total = 0
+    for url in urls:
+        try:
+            resp = client.get(url, timeout=30, follow_redirects=True)
+            resp.raise_for_status()
+            text = resp.text
+        except httpx.HTTPError as exc:
+            logger.warning("ITL names fetch failed for %s: %s", url, exc)
+            continue
+        try:
+            reader = csv.DictReader(io.StringIO(text))
+            fieldnames = [f.strip() for f in (reader.fieldnames or [])]
+            code_col = next(
+                (f for f in fieldnames if f.upper().endswith("CD") and "ITL" in f.upper()),
+                None,
+            )
+            name_col = next(
+                (f for f in fieldnames if f.upper().endswith("NM") and "ITL" in f.upper()),
+                None,
+            )
+            if not code_col or not name_col:
+                logger.warning("No ITL CD/NM columns in %s; headers=%s", url, fieldnames)
+                continue
+            for row in reader:
+                code = (row.get(code_col) or "").strip().upper()
+                name = (row.get(name_col) or "").strip()
+                if code and name:
+                    _nuts_names[code] = name
+                    total += 1
+        except csv.Error as exc:
+            logger.warning("ITL names parse failed for %s: %s", url, exc)
+    logger.info("ITL names loaded: %d entries from %d URLs", total, len(urls))
+    return total
+
+
 def _load_nuts_names_from_db(db: Path) -> bool:
     """Load NUTS region names from SQLite cache. Graceful if table is missing."""
     try:
@@ -1111,6 +1156,10 @@ def load_data() -> None:
                 nspl_count = _load_nspl(client, settings.nspl_url, cache_dir)
                 if nspl_count > 0:
                     logger.info("Loaded %d entries for UK from NSPL", nspl_count)
+
+            # ITL region names (ONS Names-and-Codes) — optional, no-op when unset
+            if not timed_out and settings.itl_names_url_list:
+                _load_itl_names(client, settings.itl_names_url_list)
 
             # NUTS region names
             if not timed_out:
