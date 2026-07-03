@@ -1,0 +1,39 @@
+# Full-tier override: enables the /resolve geocoding cascade on top of compose.yaml.
+#
+#   docker compose -f compose.yaml -f compose.full.yaml up -d
+#
+# The Full tier needs a komoot Photon geocoder reachable at PC2NUTS_PHOTON_URL.
+# Because a Photon index is large (a country-subset extract up to the ~89 GB
+# planet), most operators run Photon as a separate host service and point the app
+# at it — that is the default wiring below (host.docker.internal:2322). See the
+# "Full tier" section of the README for how to obtain an index and run Photon.
+#
+# On startup the app auto-downloads the GISCO NUTS-2024 polygons (~160 MB) into
+# /app/data and caches them; set PC2NUTS_NUTS_GEOJSON_PATH instead to use a
+# pre-seeded file in the mounted volume and avoid the download.
+
+services:
+  api:
+    environment:
+      PC2NUTS_PHOTON_URL: "http://host.docker.internal:2322"
+      # PC2NUTS_NUTS_GEOJSON_PATH: "/app/data/ref-nuts-2024-01m.geojson.zip"  # pre-seeded, optional
+      # PC2NUTS_RESOLVE_CONFIDENCE_THRESHOLD: "0.85"  # geocode only when postal is weaker than this
+      # PC2NUTS_PIP_SNAP_KM: "2.0"                     # snap coastline points to nearest same-country region
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ---------------------------------------------------------------------------
+  # OPTIONAL: run Photon inside compose instead of as a host service. You must
+  # supply the index data in the `photon-data` volume first (see README). Then
+  # set PC2NUTS_PHOTON_URL above to "http://photon:2322".
+  #
+  # photon:
+  #   image: <komoot-photon-image>   # pin a specific Photon distribution; see README
+  #   command: ["serve", "-listen-ip", "0.0.0.0", "-listen-port", "2322"]
+  #   volumes:
+  #     - photon-data:/photon/photon_data
+  #   restart: unless-stopped
+  # ---------------------------------------------------------------------------
+
+# volumes:
+#   photon-data:

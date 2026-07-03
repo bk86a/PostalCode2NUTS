@@ -44,3 +44,40 @@ class HealthResponse(BaseModel):
     )
     token_db_stale: bool | None = None
     estimates_refresh_stale: bool | None = None
+    geocoder_configured: bool = Field(default=False, description="True if PC2NUTS_PHOTON_URL is set")
+    pip_ready: bool = Field(default=False, description="True if NUTS polygons loaded for /resolve")
+
+
+class GeocodeInfo(BaseModel):
+    status: Literal[
+        "ok",
+        "snapped",
+        "no_result",
+        "pip_outside",
+        "no_address",
+        "not_attempted",
+        "geocoder_unavailable",
+    ] = Field(description="What the geocode fallback did")
+    lat: float | None = None
+    lon: float | None = None
+    nuts3: str | None = None
+    snap_km: float | None = Field(
+        default=None, description="Distance (km) the point was snapped to the nearest NUTS-3 region"
+    )
+
+
+class ResolveResponse(BaseModel):
+    country_code: str
+    postal_code: str
+    resolved_via: Literal["postal", "geocode", "none"] = Field(
+        description="Which path produced the returned NUTS"
+    )
+    match_type: str | None = Field(description="Postal-path match type")
+    nuts1: str | None = None
+    nuts1_name: str | None = None
+    nuts2: str | None = None
+    nuts2_name: str | None = None
+    nuts3: str | None = None
+    nuts3_name: str | None = None
+    nuts3_confidence: float | None = None
+    geocode: GeocodeInfo
