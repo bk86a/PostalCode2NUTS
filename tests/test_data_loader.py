@@ -1,5 +1,6 @@
 """Tests for data_loader.py — normalize functions and lookup tiers."""
 
+from app import data_loader
 from app.data_loader import lookup, normalize_country, normalize_postal_code
 
 
@@ -287,3 +288,13 @@ class TestBundledAlbaniaData:
             assert result["nuts3"] in self.VALID_AL_NUTS3
             assert result["nuts2"] == result["nuts3"][:4]
             assert result["nuts1"] == "AL0"
+
+
+class TestNSPLColumnParsing:
+    def test_parse_csv_recognises_nspl_columns(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        nspl_csv = "pcds,itl,doterm\nSW1A 2AA,TLI32,\nEC1A 1BB,TLI32,\n"
+        rows = data_loader._parse_csv_content(nspl_csv, "UK")
+        assert rows == 2
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+        assert data_loader._lookup[("UK", "EC1A1BB")] == "TLI32"

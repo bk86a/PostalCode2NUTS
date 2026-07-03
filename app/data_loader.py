@@ -247,16 +247,25 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
         reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     fieldnames = [f.strip().upper() for f in (reader.fieldnames or [])]
 
-    # Find the postal code column
+    # Find the postal code column ("PCDS" is the NSPL formatted-postcode column)
     pc_col = None
-    for candidate in ("CODE", "PC", "POSTAL_CODE", "POSTCODE", "PC_FMT"):
+    for candidate in ("CODE", "PC", "POSTAL_CODE", "POSTCODE", "PC_FMT", "PCDS"):
         if candidate in fieldnames:
             pc_col = candidate
             break
 
-    # Find the NUTS3 column — prefer current version, never fall back to old versions
+    # Find the NUTS3 column — prefer current version, never fall back to old versions.
+    # ITL* candidates cover the UK NSPL dataset (ITL3 codes are NUTS3-equivalent).
     nuts3_col = None
-    for candidate in (f"NUTS3_{settings.nuts_version}", "NUTS3", "NUTS_ID", "NUTS"):
+    for candidate in (
+        f"NUTS3_{settings.nuts_version}",
+        "NUTS3",
+        "NUTS_ID",
+        "NUTS",
+        "ITL3CD",
+        "ITL3",
+        "ITL",
+    ):
         if candidate in fieldnames:
             nuts3_col = candidate
             break
