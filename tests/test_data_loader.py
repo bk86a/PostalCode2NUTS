@@ -183,6 +183,7 @@ class TestLookup:
 
     def test_tier6_fo_in_loaded_countries(self, mock_data):
         from app.data_loader import get_loaded_countries
+
         assert "FO" in get_loaded_countries()
 
 
@@ -272,8 +273,18 @@ class TestAlbaniaBlockTier:
 
 class TestBundledAlbaniaData:
     VALID_AL_NUTS3 = {
-        "AL011", "AL012", "AL013", "AL014", "AL015", "AL021",
-        "AL022", "AL031", "AL032", "AL033", "AL034", "AL035",
+        "AL011",
+        "AL012",
+        "AL013",
+        "AL014",
+        "AL015",
+        "AL021",
+        "AL022",
+        "AL031",
+        "AL032",
+        "AL033",
+        "AL034",
+        "AL035",
     }
 
     def test_no_al_rows_remain_in_estimates_csv(self):
@@ -382,6 +393,19 @@ class TestLoadNSPL:
         client = httpx.Client(transport=httpx.MockTransport(handler))
         assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
 
+    def test_transient_failure_reuses_cached_zip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        # Seed the on-disk cache from a prior successful run.
+        (tmp_path / "nspl.zip").write_bytes(self._zip_bytes("pcds,itl,doterm\nSW1A 2AA,TLI32,\n"))
+
+        def handler(request):
+            raise httpx.ConnectError("ons down")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        count = data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path)
+        assert count == 1
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+
     def test_nspl_failure_does_not_block_tercet(self, tmp_path, monkeypatch):
         """If NSPL is unreachable, previously-loaded TERCET data must still serve."""
         monkeypatch.setattr(data_loader, "_lookup", {("AT", "1010"): "AT130"})
@@ -423,6 +447,11 @@ class TestUKOutwardLookup:
 
     def test_unknown_outward_returns_none(self, mock_data):
         assert lookup("UK", "ZZ99") is None
+
+    def test_outward_miss_does_not_fall_through_to_prefix(self, mock_data):
+        # "SW99 9ZZ" shares the "SW" prefix with SW1A… but SW99 is not a known
+        # outward; must NOT return an arbitrary prefix-based ITL3 — stop instead.
+        assert lookup("UK", "SW99 9ZZ") is None
 
     def test_uk_result_tagged_itl(self, mock_data):
         assert lookup("UK", "SW1A 2AA")["code_system"] == "ITL"
@@ -494,6 +523,34 @@ class TestLoadITLNames:
         assert data_loader._load_itl_names(client, ["https://example.com/x.csv"]) == 0
 
 
+class TestNSPLConfigHash:
+    def test_empty_when_unconfigured(self, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        assert data_loader._nspl_config_hash() == ""
+
+    def test_changes_when_url_set(self, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        empty = data_loader._nspl_config_hash()
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "https://ons/nspl.zip", raising=False)
+        assert data_loader._nspl_config_hash() != empty
+        assert data_loader._nspl_config_hash() != ""
+
+    def test_db_invalidated_when_nspl_config_changes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        monkeypatch.setattr(data_loader, "_lookup", {("AT", "1010"): "AT130"})
+        monkeypatch.setattr(data_loader, "_estimates", {})
+        monkeypatch.setattr(data_loader, "_nuts_names", {})
+        db = tmp_path / "cache.db"
+        data_loader._save_to_db(db)
+        assert data_loader._db_is_valid(db) is True
+        # Operator now enables NSPL → cache must be considered invalid.
+        monkeypatch.setattr(data_loader.settings, "nspl_url", "https://ons/nspl.zip", raising=False)
+        assert data_loader._db_is_valid(db) is False
+
+
 class TestConditionalGet:
     def test_sends_conditional_headers_when_etag_known(self):
         captured = {}
@@ -507,9 +564,7 @@ class TestConditionalGet:
             "etag": '"abc123"',
             "last_modified": "Wed, 01 Jan 2025 00:00:00 GMT",
         }
-        result = data_loader._download_zip_conditional(
-            client, "https://example.com/foo.zip", cached_meta
-        )
+        result = data_loader._download_zip_conditional(client, "https://example.com/foo.zip", cached_meta)
         assert result.status_code == 304
         assert captured["headers"]["if-none-match"] == '"abc123"'
         assert captured["headers"]["if-modified-since"] == "Wed, 01 Jan 2025 00:00:00 GMT"

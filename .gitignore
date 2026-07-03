@@ -18,3 +18,6 @@ local-data/
 # Private planning / SDD artifacts — infra context + operator token; never commit or push
 docs/superpowers/
 .superpowers/
+
+# Local SQLite cache artifacts
+postalcode2nuts_NUTS-*.db

@@ -155,6 +155,20 @@ def _extra_sources_hash() -> str:
     return hashlib.sha256(joined.encode()).hexdigest()[:16]
 
 
+def _nspl_config_hash() -> str:
+    """SHA-256 hash (16 hex chars) of the NSPL / ITL-names configuration.
+
+    Returns empty string when NSPL is unconfigured, so a TERCET-only deployment's
+    cache stays valid. Enabling, disabling, or changing PC2NUTS_NSPL_URL /
+    PC2NUTS_ITL_NAMES_URLS changes the hash, busting the fast-path cache so UK
+    rows are added (or dropped) on the next load instead of after TTL expiry.
+    """
+    if not settings.nspl_url and not settings.itl_names_url_list:
+        return ""
+    joined = settings.nspl_url + "|" + ",".join(settings.itl_names_url_list)
+    return hashlib.sha256(joined.encode()).hexdigest()[:16]
+
+
 def _load_extra_sources(client: httpx.Client, cache_dir: Path, *, deadline: float = 0) -> int:
     """Download and parse extra data source ZIPs. Returns total entries written."""
     global _extra_source_count
@@ -477,12 +491,47 @@ def _download_and_parse_zip(
     return total
 
 
+def _parse_nspl_zip(content: bytes) -> int:
+    """Parse NSPL ZIP bytes and load live UK postcode → ITL3 rows into _lookup.
+
+    Returns the number of rows added. Raises zipfile.BadZipFile for invalid input.
+    """
+    total = 0
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        for name in zf.namelist():
+            # The postcode CSV is the "NSPL*.csv" (real releases ship it under
+            # Data/); other bundled CSVs (user guide, column lookups) lack the
+            # pcds/itl columns and are ignored by _parse_csv_content anyway.
+            if not name.lower().endswith(".csv") or "nspl" not in name.lower():
+                continue
+            file_size = zf.getinfo(name).file_size
+            if file_size > _MAX_NSPL_UNCOMPRESSED_SIZE:
+                logger.warning(
+                    "Skipping %s: uncompressed size %d exceeds NSPL limit %d",
+                    name,
+                    file_size,
+                    _MAX_NSPL_UNCOMPRESSED_SIZE,
+                )
+                continue
+            raw = zf.read(name)
+            for enc in ("utf-8-sig", "utf-8", "latin-1"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            total += _parse_csv_content(text, "UK", overwrite=False, skip_terminated=True)
+    return total
+
+
 def _load_nspl(client: httpx.Client, url: str, cache_dir: Path) -> int:
     """Fetch the NSPL ZIP and load UK postcode → ITL3 entries into _lookup.
 
-    Returns the number of rows added. Returns 0 when url is empty or any error
-    occurs — an NSPL failure must never block TERCET-only operation. Terminated
-    postcodes (non-blank DOTERM) are filtered out. UK is registered in the loaded
+    Returns the number of rows added. Returns 0 when url is empty. An NSPL
+    failure must never block TERCET-only operation, so on a fetch/parse failure
+    the previously-cached nspl.zip is reused when present (a transient ONS outage
+    must not silently drop UK support for a configured deployment). Terminated
+    postcodes (non-blank DOTERM) are filtered out. UK registers in the loaded
     country set automatically because its rows land in _lookup.
     """
     if not url:
@@ -491,47 +540,38 @@ def _load_nspl(client: httpx.Client, url: str, cache_dir: Path) -> int:
     try:
         resp = _download_zip_conditional(client, url, {})
         if resp.status_code == 304:
-            # Unchanged upstream — nothing to (re)load this run.
-            return 0
+            # Unchanged upstream — reload from the cached copy if we have one.
+            return _load_nspl_from_cache(cache_path)
         resp.raise_for_status()
         content = resp.content
         if not zipfile.is_zipfile(io.BytesIO(content)):
-            logger.warning("NSPL response from %s is not a valid ZIP, skipping", url)
-            return 0
+            logger.warning("NSPL response from %s is not a valid ZIP", url)
+            return _load_nspl_from_cache(cache_path)
         try:
             cache_path.write_bytes(content)
         except OSError as exc:
             logger.warning("Failed to cache NSPL ZIP: %s", exc)
-
-        total = 0
-        with zipfile.ZipFile(io.BytesIO(content)) as zf:
-            for name in zf.namelist():
-                # The postcode CSV is the "NSPL*.csv" (real releases ship it under
-                # Data/); other bundled CSVs (user guide, column lookups) lack the
-                # pcds/itl columns and are ignored by _parse_csv_content anyway.
-                if not name.lower().endswith(".csv") or "nspl" not in name.lower():
-                    continue
-                file_size = zf.getinfo(name).file_size
-                if file_size > _MAX_NSPL_UNCOMPRESSED_SIZE:
-                    logger.warning(
-                        "Skipping %s: uncompressed size %d exceeds NSPL limit %d",
-                        name,
-                        file_size,
-                        _MAX_NSPL_UNCOMPRESSED_SIZE,
-                    )
-                    continue
-                raw = zf.read(name)
-                for enc in ("utf-8-sig", "utf-8", "latin-1"):
-                    try:
-                        text = raw.decode(enc)
-                        break
-                    except UnicodeDecodeError:
-                        continue
-                total += _parse_csv_content(text, "UK", overwrite=False, skip_terminated=True)
+        total = _parse_nspl_zip(content)
         logger.info("NSPL loaded: %d live UK postcodes", total)
         return total
     except (httpx.HTTPError, zipfile.BadZipFile, OSError) as exc:
-        logger.warning("NSPL load failed: %s", exc)
+        logger.warning("NSPL fetch failed (%s); trying cached copy", exc)
+        return _load_nspl_from_cache(cache_path)
+
+
+def _load_nspl_from_cache(cache_path: Path) -> int:
+    """Load UK rows from a previously-cached nspl.zip. Returns 0 if unavailable."""
+    if not cache_path.is_file():
+        return 0
+    try:
+        content = cache_path.read_bytes()
+        if not zipfile.is_zipfile(io.BytesIO(content)):
+            return 0
+        total = _parse_nspl_zip(content)
+        logger.info("NSPL loaded from cache: %d live UK postcodes", total)
+        return total
+    except (zipfile.BadZipFile, OSError) as exc:
+        logger.warning("Cached NSPL ZIP unusable: %s", exc)
         return 0
 
 
@@ -563,6 +603,10 @@ def _db_is_valid(db: Path) -> bool:
         stored_hash = meta.get("extra_sources_hash", "")
         if stored_hash != _extra_sources_hash():
             logger.info("Extra sources configuration changed, will rebuild")
+            return False
+        # Check if NSPL / ITL-names configuration changed (enable/disable/URL swap)
+        if meta.get("nspl_config_hash", "") != _nspl_config_hash():
+            logger.info("NSPL configuration changed, will rebuild")
             return False
         return True
     except (sqlite3.Error, KeyError, ValueError) as exc:
@@ -1038,6 +1082,7 @@ def _save_to_db(db: Path) -> None:
                     ("estimate_count", str(len(_estimates))),
                     ("nuts_names_count", str(len(_nuts_names))),
                     ("extra_sources_hash", _extra_sources_hash()),
+                    ("nspl_config_hash", _nspl_config_hash()),
                 ],
             )
             con.commit()
@@ -1314,6 +1359,11 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
                 nuts2_confidence=conf["nuts2"],
                 nuts3_confidence=conf["nuts3"],
             )
+        # Outward is the authoritative boundary for outward_only countries. A
+        # miss means the code isn't in NSPL — stop here rather than fall through
+        # to generic prefix estimation, which would answer from an arbitrary 1–2
+        # character prefix (e.g. "SW" for an unknown SW99, mixing distinct ITL3s).
+        return None
 
     # Tier 3: Runtime prefix-based estimation
     approx = _estimate_by_prefix(cc, extracted)

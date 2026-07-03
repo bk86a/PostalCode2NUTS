@@ -454,9 +454,7 @@ class TestAdminRefreshEstimatesEndpoint:
         )
 
         async def fake_refresh(client=None):
-            return RefreshResult(
-                status="refreshed", previous_count=7000, new_count=7042, skipped_rows=0
-            )
+            return RefreshResult(status="refreshed", previous_count=7000, new_count=7042, skipped_rows=0)
 
         monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
 
@@ -483,9 +481,7 @@ class TestAdminRefreshEstimatesEndpoint:
         )
 
         async def fake_refresh(client=None):
-            return RefreshResult(
-                status="unchanged", previous_count=7000, new_count=7000, skipped_rows=0
-            )
+            return RefreshResult(status="unchanged", previous_count=7000, new_count=7000, skipped_rows=0)
 
         monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
 
@@ -510,9 +506,7 @@ class TestAdminRefreshEstimatesEndpoint:
         )
 
         async def fake_refresh(client=None):
-            return RefreshResult(
-                status="failed", previous_count=7000, new_count=7000, reason="http=503"
-            )
+            return RefreshResult(status="failed", previous_count=7000, new_count=7000, reason="http=503")
 
         monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
 
