@@ -230,6 +230,33 @@ class TestEstimateOnlyCountry:
         assert result["nuts3_name"] == "Tiranë"
 
 
+class TestAlbaniaBlockTier:
+    def test_gap_code_resolves_via_block(self, mock_data):
+        # 1055 is absent from the GeoNames estimates (the #118 gap) but the
+        # block tier resolves it to the Tirana qark.
+        from app.data_loader import lookup
+
+        result = lookup("AL", "1055")
+        assert result is not None
+        assert result["match_type"] == "estimated"
+        assert result["nuts3"] == "AL022"
+        assert result["nuts1"] == "AL0"
+        assert result["nuts3_confidence"] == 0.9
+
+    def test_district_geonames_omits_resolves(self, mock_data):
+        from app.data_loader import lookup
+
+        # Peqin (35xx) — GeoNames has no such codes at all.
+        result = lookup("AL", "3550")
+        assert result is not None
+        assert result["nuts3"] == "AL021"
+
+    def test_al_stays_in_loaded_countries(self):
+        from app.data_loader import get_loaded_countries
+
+        assert "AL" in get_loaded_countries()
+
+
 class TestBundledAlbaniaData:
     VALID_AL_NUTS3 = {
         "AL011", "AL012", "AL013", "AL014", "AL015", "AL021",
