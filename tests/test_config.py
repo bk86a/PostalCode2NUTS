@@ -69,19 +69,16 @@ class TestNSPLSettings:
     def test_nspl_url_defaults_empty(self):
         assert Settings().nspl_url == ""
 
-    def test_itl_names_urls_defaults_empty(self):
-        assert Settings().itl_names_urls == ""
-
-    def test_itl_names_url_list_parses_csv(self):
-        s = Settings(itl_names_urls="https://a/x.csv, https://b/y.csv ,")
-        assert s.itl_names_url_list == ["https://a/x.csv", "https://b/y.csv"]
-
-    def test_itl_names_url_list_empty_when_unset(self):
-        assert Settings().itl_names_url_list == []
+    def test_uk_itl_lookup_url_defaults_empty(self):
+        assert Settings().uk_itl_lookup_url == ""
 
     def test_nspl_url_from_env(self, monkeypatch):
         monkeypatch.setenv("PC2NUTS_NSPL_URL", "https://ons/nspl.zip")
         assert Settings().nspl_url == "https://ons/nspl.zip"
+
+    def test_uk_itl_lookup_url_from_env(self, monkeypatch):
+        monkeypatch.setenv("PC2NUTS_UK_ITL_LOOKUP_URL", "https://ons/lad-itl.csv")
+        assert Settings().uk_itl_lookup_url == "https://ons/lad-itl.csv"
 
     def test_uk_not_in_settings_countries(self):
         """Regression guard: UK must not appear in the GISCO country list —
