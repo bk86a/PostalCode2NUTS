@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-04
+
+### Fixed
+
+- **UK/ITL resolution now works against the real NSPL dataset** (#7). 1.1.0
+  assumed NSPL's `itl` column held Eurostat `TL…` codes (e.g. `TLI32`); the real
+  column (`itl25cd`) holds ONS **GSS entity codes** (e.g. `S30000026`), so UK
+  loaded **0 rows**. UK is now resolved **postcode → LAD (NSPL `lad25cd`) → ITL3**
+  through the ONS LAD→ITL lookup, **bundled** as `app/uk_lad_itl.csv`, yielding
+  clean `TL…` codes (`TLC31` → `TLC3` → `TLC`) plus region names. Verified to load
+  ~1.79M live UK postcodes against NSPL May 2026.
+  - New override `PC2NUTS_UK_ITL_LOOKUP_URL` for a refreshed LAD→ITL export when
+    ONS bumps the ITL vintage; **replaces** `PC2NUTS_ITL_NAMES_URLS` (removed —
+    names now come from the bundled map). Crown Dependencies (JE/GG/IM) and
+    Gibraltar (GI) remain out of scope (their NSPL rows have no ITL LAD and are
+    skipped).
+
 ## [1.1.0] - 2026-07-03
 
 ### Added

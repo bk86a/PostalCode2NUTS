@@ -484,7 +484,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ESTIMATES_CSV` | `./tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
 | `PC2NUTS_NSPL_URL` | *(empty)* | URL to the latest [NSPL](https://geoportal.statistics.gov.uk/) ZIP from the ONS Open Geography Portal. Enables UK (ITL) support; when unset, UK is unsupported. The URL changes each quarterly release, so update it accordingly. |
-| `PC2NUTS_ITL_NAMES_URLS` | *(empty)* | Comma-separated list of ONS "Names and Codes" CSV URLs (one per ITL level) that supply UK region names. Loaded after NSPL. |
+| `PC2NUTS_UK_ITL_LOOKUP_URL` | *(empty — use bundled)* | Override for the bundled ONS LAD→ITL map (`app/uk_lad_itl.csv`). Point at a refreshed export in the same shape when ONS bumps the ITL vintage; empty uses the bundled map. |
 | `PC2NUTS_RATE_LIMIT` | `120/minute` | Rate limit for `/lookup` and `/pattern` endpoints. Uses [slowapi](https://github.com/laurentS/slowapi) syntax (e.g. `100/minute`, `5/second`). `/health` is exempt. The default leaves comfortable headroom under the measured aggregate ceiling (~30 RPS) — see [`docs/performance.md`](docs/performance.md) for the rationale. |
 | `PC2NUTS_RATE_LIMIT_HEADERS` | `true` | When `true`, `429` responses include `Retry-After` and `X-RateLimit-Limit` / `X-RateLimit-Remaining` headers. |
 | `PC2NUTS_CACHE_MAX_AGE` | `3600` | `Cache-Control: public, max-age=<n>` (seconds) set on `/lookup`, `/pattern`, and `/` responses. |
@@ -1068,13 +1068,13 @@ Add the country to the appropriate group (EU, EFTA, or candidate) and add a row 
 
 No Python code changes are required.
 
-> **Non-GISCO sources** (currently only the UK via NSPL) are different: they require a dedicated loader path and configuration (a source ZIP URL and any names files), not just a JSON edit — and must **not** be added to `settings.json` `countries`, or the GISCO loader would waste requests guessing non-existent TERCET URLs. See `_load_nspl` and `_load_itl_names` in `app/data_loader.py` for the NSPL precedent.
+> **Non-GISCO sources** (currently only the UK via NSPL) are different: they require a dedicated loader path and configuration (a source ZIP URL), not just a JSON edit — and must **not** be added to `settings.json` `countries`, or the GISCO loader would waste requests guessing non-existent TERCET URLs. See `_load_nspl` and `_load_uk_itl_bridge` in `app/data_loader.py` for the NSPL precedent.
 
 ## Data sources & attribution
 
 **Postal code → NUTS (both tiers).** [GISCO TERCET flat files](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) ([download](https://gisco-services.ec.europa.eu/tercet/flat-files)), &copy; European Union &ndash; GISCO, licensed [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Albanian NUTS3 assignments come from the country's official postal-code block-allocation scheme (Posta Shqiptare), cross-validated against [GeoNames](https://www.geonames.org/) admin1 tagging ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).
 
-**UK postal code → ITL (optional).** [ONS National Statistics Postcode Lookup (NSPL)](https://geoportal.statistics.gov.uk/) and the ONS ITL "Names and Codes" files, &copy; Crown copyright and database right, licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/). Contains OS data &copy; Crown copyright and database right. Loaded only when `PC2NUTS_NSPL_URL` is configured.
+**UK postal code → ITL (optional).** [ONS National Statistics Postcode Lookup (NSPL)](https://geoportal.statistics.gov.uk/) and the ONS LAD→ITL lookup (bundled as `app/uk_lad_itl.csv`), &copy; Crown copyright and database right, licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/). Contains OS data &copy; Crown copyright and database right. NSPL is loaded only when `PC2NUTS_NSPL_URL` is configured; a postcode is resolved to its ITL3 (`TL…`) code via its Local Authority District (NSPL `lad25cd`) through the ONS LAD→ITL map.
 
 The [EU Open Data Portal dataset](https://data.europa.eu/data/datasets/postcodes-and-nuts-nomenclature-of-territorial-units-for-statistics) was also considered as a data source. However, its refresh cycle lags behind the GISCO TERCET flat files, so direct sourcing from GISCO was chosen for more up-to-date coverage.
 
