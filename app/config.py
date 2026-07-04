@@ -33,7 +33,10 @@ class Settings(BaseSettings):
     docs_enabled: bool = True
     # NSPL (UK postcode → ITL3) — optional, no-op when unset (TERCET-only deployment)
     nspl_url: str = _defaults.get("nspl_url", "")
-    itl_names_urls: str = ""
+    # Override for the bundled LAD→ITL bridge (app/uk_lad_itl.csv). Point at a
+    # refreshed ONS export in the same shape when the ITL vintage changes; empty
+    # → use the bundled map.
+    uk_itl_lookup_url: str = ""
     photon_url: str = ""
     photon_timeout_seconds: float = 5.0
     nuts_geojson_url: str = (
@@ -72,13 +75,6 @@ class Settings(BaseSettings):
         if not self.extra_sources.strip():
             return []
         return [u.strip() for u in self.extra_sources.split(",") if u.strip()]
-
-    @property
-    def itl_names_url_list(self) -> list[str]:
-        """Parse PC2NUTS_ITL_NAMES_URLS comma-separated string into a URL list."""
-        if not self.itl_names_urls.strip():
-            return []
-        return [u.strip() for u in self.itl_names_urls.split(",") if u.strip()]
 
     @property
     def trusted_tokens(self) -> frozenset[str]:

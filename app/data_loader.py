@@ -156,16 +156,16 @@ def _extra_sources_hash() -> str:
 
 
 def _nspl_config_hash() -> str:
-    """SHA-256 hash (16 hex chars) of the NSPL / ITL-names configuration.
+    """SHA-256 hash (16 hex chars) of the UK/NSPL configuration.
 
     Returns empty string when NSPL is unconfigured, so a TERCET-only deployment's
     cache stays valid. Enabling, disabling, or changing PC2NUTS_NSPL_URL /
-    PC2NUTS_ITL_NAMES_URLS changes the hash, busting the fast-path cache so UK
+    PC2NUTS_UK_ITL_LOOKUP_URL changes the hash, busting the fast-path cache so UK
     rows are added (or dropped) on the next load instead of after TTL expiry.
     """
-    if not settings.nspl_url and not settings.itl_names_url_list:
+    if not settings.nspl_url and not settings.uk_itl_lookup_url:
         return ""
-    joined = settings.nspl_url + "|" + ",".join(settings.itl_names_url_list)
+    joined = settings.nspl_url + "|" + settings.uk_itl_lookup_url
     return hashlib.sha256(joined.encode()).hexdigest()[:16]
 
 
@@ -262,19 +262,8 @@ def _sniff_dialect(text: str) -> csv.Dialect | None:
         return None
 
 
-def _parse_csv_content(
-    text: str,
-    country_code: str,
-    *,
-    overwrite: bool = False,
-    skip_terminated: bool = False,
-) -> int:
-    """Parse CSV/TSV content and populate the lookup table. Returns row count.
-
-    When skip_terminated is True (used for the NSPL dataset), rows with a
-    non-blank DOTERM (date of termination) column are skipped so only live
-    postcodes are loaded.
-    """
+def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False) -> int:
+    """Parse CSV/TSV content and populate the lookup table. Returns row count."""
     count = 0
     skipped = 0
 
@@ -288,25 +277,16 @@ def _parse_csv_content(
         reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     fieldnames = [f.strip().upper() for f in (reader.fieldnames or [])]
 
-    # Find the postal code column ("PCDS" is the NSPL formatted-postcode column)
+    # Find the postal code column
     pc_col = None
-    for candidate in ("CODE", "PC", "POSTAL_CODE", "POSTCODE", "PC_FMT", "PCDS"):
+    for candidate in ("CODE", "PC", "POSTAL_CODE", "POSTCODE", "PC_FMT"):
         if candidate in fieldnames:
             pc_col = candidate
             break
 
-    # Find the NUTS3 column — prefer current version, never fall back to old versions.
-    # ITL* candidates cover the UK NSPL dataset (ITL3 codes are NUTS3-equivalent).
+    # Find the NUTS3 column — prefer current version, never fall back to old versions
     nuts3_col = None
-    for candidate in (
-        f"NUTS3_{settings.nuts_version}",
-        "NUTS3",
-        "NUTS_ID",
-        "NUTS",
-        "ITL3CD",
-        "ITL3",
-        "ITL",
-    ):
+    for candidate in (f"NUTS3_{settings.nuts_version}", "NUTS3", "NUTS_ID", "NUTS"):
         if candidate in fieldnames:
             nuts3_col = candidate
             break
@@ -326,28 +306,17 @@ def _parse_csv_content(
             cc_col = candidate
             break
 
-    # Detect optional DOTERM column for live-only filtering (NSPL)
-    doterm_col = None
-    if skip_terminated:
-        for candidate in ("DOTERM", "DOT", "DATE_OF_TERMINATION"):
-            if candidate in fieldnames:
-                doterm_col = candidate
-                break
-
     # Map back to original-case field names from DictReader
     orig_fields = list(reader.fieldnames or [])
     pc_orig = orig_fields[fieldnames.index(pc_col)]
     nuts3_orig = orig_fields[fieldnames.index(nuts3_col)]
     cc_orig = orig_fields[fieldnames.index(cc_col)] if cc_col else None
-    doterm_orig = orig_fields[fieldnames.index(doterm_col)] if doterm_col else None
 
     if not country_code and cc_col is None:
         logger.warning("No country code available (not in URL or CSV columns), skipping file")
         return 0
 
     for row in reader:
-        if doterm_orig and row.get(doterm_orig, "").strip():
-            continue
         pc = row.get(pc_orig, "")
         nuts3 = row.get(nuts3_orig, "").strip()
         if not pc or not nuts3:
@@ -491,7 +460,48 @@ def _download_and_parse_zip(
     return total
 
 
-def _parse_nspl_zip(content: bytes) -> int:
+def _parse_nspl_csv(text: str, lad_to_itl3: dict[str, str]) -> int:
+    """Parse one NSPL CSV: postcode (pcds) + LAD (lad25cd) → ITL3 TL code.
+
+    NSPL's own ``itl`` column holds ONS GSS entity codes, not the Eurostat ``TL``
+    codes we emit — so we resolve via the LAD instead: each live postcode's LAD is
+    translated to its ITL3 code through ``lad_to_itl3`` (see app.uk_itl). Only live
+    postcodes (blank DOTERM) are kept; rows whose LAD is unmapped are skipped.
+    Returns the number of rows added to _lookup.
+    """
+    reader = csv.DictReader(io.StringIO(text))
+    fieldnames = [f.strip().upper() for f in (reader.fieldnames or [])]
+    orig = list(reader.fieldnames or [])
+
+    def find(candidates: tuple[str, ...]) -> str | None:
+        for c in candidates:
+            if c in fieldnames:
+                return orig[fieldnames.index(c)]
+        return None
+
+    pc_col = find(("PCDS", "PCD8", "PCD7"))
+    lad_col = find(("LAD25CD", "LAD24CD", "LAD23CD", "LAD21CD", "OSLAUA"))
+    doterm_col = find(("DOTERM",))
+    if not pc_col or not lad_col:
+        return 0
+
+    count = 0
+    for row in reader:
+        if doterm_col and (row.get(doterm_col) or "").strip():
+            continue
+        pc = row.get(pc_col, "")
+        lad = (row.get(lad_col) or "").strip().upper()
+        itl3 = lad_to_itl3.get(lad)
+        if not pc or not itl3:
+            continue
+        key = ("UK", normalize_postal_code(pc))
+        if key not in _lookup:
+            _lookup[key] = itl3
+            count += 1
+    return count
+
+
+def _parse_nspl_zip(content: bytes, lad_to_itl3: dict[str, str]) -> int:
     """Parse NSPL ZIP bytes and load live UK postcode → ITL3 rows into _lookup.
 
     Returns the number of rows added. Raises zipfile.BadZipFile for invalid input.
@@ -499,9 +509,9 @@ def _parse_nspl_zip(content: bytes) -> int:
     total = 0
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
         for name in zf.namelist():
-            # The postcode CSV is the "NSPL*.csv" (real releases ship it under
-            # Data/); other bundled CSVs (user guide, column lookups) lack the
-            # pcds/itl columns and are ignored by _parse_csv_content anyway.
+            # NSPL ships the postcode data as per-area "NSPL*.csv" files under
+            # Data/multi_csv/; other bundled CSVs (user guide, code lookups) lack
+            # the pcds/lad columns and _parse_nspl_csv returns 0 for them.
             if not name.lower().endswith(".csv") or "nspl" not in name.lower():
                 continue
             file_size = zf.getinfo(name).file_size
@@ -520,11 +530,11 @@ def _parse_nspl_zip(content: bytes) -> int:
                     break
                 except UnicodeDecodeError:
                     continue
-            total += _parse_csv_content(text, "UK", overwrite=False, skip_terminated=True)
+            total += _parse_nspl_csv(text, lad_to_itl3)
     return total
 
 
-def _load_nspl(client: httpx.Client, url: str, cache_dir: Path) -> int:
+def _load_nspl(client: httpx.Client, url: str, cache_dir: Path, lad_to_itl3: dict[str, str]) -> int:
     """Fetch the NSPL ZIP and load UK postcode → ITL3 entries into _lookup.
 
     Returns the number of rows added. Returns 0 when url is empty. An NSPL
@@ -541,25 +551,25 @@ def _load_nspl(client: httpx.Client, url: str, cache_dir: Path) -> int:
         resp = _download_zip_conditional(client, url, {})
         if resp.status_code == 304:
             # Unchanged upstream — reload from the cached copy if we have one.
-            return _load_nspl_from_cache(cache_path)
+            return _load_nspl_from_cache(cache_path, lad_to_itl3)
         resp.raise_for_status()
         content = resp.content
         if not zipfile.is_zipfile(io.BytesIO(content)):
             logger.warning("NSPL response from %s is not a valid ZIP", url)
-            return _load_nspl_from_cache(cache_path)
+            return _load_nspl_from_cache(cache_path, lad_to_itl3)
         try:
             cache_path.write_bytes(content)
         except OSError as exc:
             logger.warning("Failed to cache NSPL ZIP: %s", exc)
-        total = _parse_nspl_zip(content)
+        total = _parse_nspl_zip(content, lad_to_itl3)
         logger.info("NSPL loaded: %d live UK postcodes", total)
         return total
     except (httpx.HTTPError, zipfile.BadZipFile, OSError) as exc:
         logger.warning("NSPL fetch failed (%s); trying cached copy", exc)
-        return _load_nspl_from_cache(cache_path)
+        return _load_nspl_from_cache(cache_path, lad_to_itl3)
 
 
-def _load_nspl_from_cache(cache_path: Path) -> int:
+def _load_nspl_from_cache(cache_path: Path, lad_to_itl3: dict[str, str]) -> int:
     """Load UK rows from a previously-cached nspl.zip. Returns 0 if unavailable."""
     if not cache_path.is_file():
         return 0
@@ -567,7 +577,7 @@ def _load_nspl_from_cache(cache_path: Path) -> int:
         content = cache_path.read_bytes()
         if not zipfile.is_zipfile(io.BytesIO(content)):
             return 0
-        total = _parse_nspl_zip(content)
+        total = _parse_nspl_zip(content, lad_to_itl3)
         logger.info("NSPL loaded from cache: %d live UK postcodes", total)
         return total
     except (zipfile.BadZipFile, OSError) as exc:
@@ -767,49 +777,33 @@ def _download_nuts_names(client: httpx.Client) -> int:
     return count
 
 
-def _load_itl_names(client: httpx.Client, urls: list[str]) -> int:
-    """Fetch ONS ITL "Names and Codes" CSVs and merge them into _nuts_names.
+def _load_uk_itl_bridge(client: httpx.Client) -> dict[str, str]:
+    """Load the LAD→ITL3 bridge and merge ITL region names into _nuts_names.
 
-    NSPL carries ITL codes but not names. Each ONS CSV pairs a code column with
-    a name column whose headers vary by release year (e.g. ITL321CD/ITL321NM at
-    level 3, ITL221CD/ITL221NM at level 2) — columns are matched by the CD/NM
-    suffix rather than exact name. Failures are logged and skipped, never raised.
+    Uses the bundled ONS map (app/uk_lad_itl.csv) by default; if
+    PC2NUTS_UK_ITL_LOOKUP_URL is set, fetches a refreshed export in the same
+    shape and falls back to the bundle on any error. Returns the LAD→ITL3 map
+    (empty only if both bundle and override are unusable).
     """
-    if not urls:
-        return 0
-    total = 0
-    for url in urls:
+    from app import uk_itl
+
+    lad_to_itl3: dict[str, str] = {}
+    itl_names: dict[str, str] = {}
+    url = settings.uk_itl_lookup_url
+    if url:
         try:
             resp = client.get(url, timeout=30, follow_redirects=True)
             resp.raise_for_status()
-            text = resp.text
-        except httpx.HTTPError as exc:
-            logger.warning("ITL names fetch failed for %s: %s", url, exc)
-            continue
-        try:
-            reader = csv.DictReader(io.StringIO(text))
-            fieldnames = [f.strip() for f in (reader.fieldnames or [])]
-            code_col = next(
-                (f for f in fieldnames if f.upper().endswith("CD") and "ITL" in f.upper()),
-                None,
-            )
-            name_col = next(
-                (f for f in fieldnames if f.upper().endswith("NM") and "ITL" in f.upper()),
-                None,
-            )
-            if not code_col or not name_col:
-                logger.warning("No ITL CD/NM columns in %s; headers=%s", url, fieldnames)
-                continue
-            for row in reader:
-                code = (row.get(code_col) or "").strip().upper()
-                name = (row.get(name_col) or "").strip()
-                if code and name:
-                    _nuts_names[code] = name
-                    total += 1
-        except csv.Error as exc:
-            logger.warning("ITL names parse failed for %s: %s", url, exc)
-    logger.info("ITL names loaded: %d entries from %d URLs", total, len(urls))
-    return total
+            lad_to_itl3, itl_names = uk_itl.parse_lad_itl(resp.text)
+        except (httpx.HTTPError, csv.Error) as exc:
+            logger.warning("UK ITL lookup override failed (%s); using bundled map", exc)
+    if not lad_to_itl3:
+        lad_to_itl3, itl_names = uk_itl.load_bundled()
+    # ITL region names join into the shared NUTS names table (TL codes resolve
+    # via the same _resolve_names path; truncation gives ITL2/ITL1).
+    _nuts_names.update(itl_names)
+    logger.info("UK ITL bridge: %d LADs, %d ITL names", len(lad_to_itl3), len(itl_names))
+    return lad_to_itl3
 
 
 def _load_nuts_names_from_db(db: Path) -> bool:
@@ -1194,15 +1188,12 @@ def load_data() -> None:
                 if extra_count:
                     logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
 
-            # NSPL (UK postcodes via ITL) — optional, no-op when nspl_url unset
+            # NSPL (UK postcodes → ITL via the LAD bridge) — no-op when nspl_url unset
             if not timed_out and settings.nspl_url:
-                nspl_count = _load_nspl(client, settings.nspl_url, cache_dir)
+                lad_to_itl3 = _load_uk_itl_bridge(client)
+                nspl_count = _load_nspl(client, settings.nspl_url, cache_dir, lad_to_itl3)
                 if nspl_count > 0:
                     logger.info("Loaded %d entries for UK from NSPL", nspl_count)
-
-            # ITL region names (ONS Names-and-Codes) — optional, no-op when unset
-            if not timed_out and settings.itl_names_url_list:
-                _load_itl_names(client, settings.itl_names_url_list)
 
             # NUTS region names
             if not timed_out:

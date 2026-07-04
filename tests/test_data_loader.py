@@ -313,37 +313,12 @@ class TestBundledAlbaniaData:
             assert result["nuts1"] == "AL0"
 
 
-class TestNSPLColumnParsing:
-    def test_parse_csv_recognises_nspl_columns(self, monkeypatch):
-        monkeypatch.setattr(data_loader, "_lookup", {})
-        nspl_csv = "pcds,itl,doterm\nSW1A 2AA,TLI32,\nEC1A 1BB,TLI32,\n"
-        rows = data_loader._parse_csv_content(nspl_csv, "UK")
-        assert rows == 2
-        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
-        assert data_loader._lookup[("UK", "EC1A1BB")] == "TLI32"
-
-    def test_skip_terminated_filters_doterm_rows(self, monkeypatch):
-        monkeypatch.setattr(data_loader, "_lookup", {})
-        nspl_csv = (
-            "pcds,itl,doterm\n"
-            "SW1A 2AA,TLI32,\n"
-            "M1 9NS,TLD46,202312\n"  # terminated, skip
-            "EC1A 1BB,TLI32,\n"
-        )
-        rows = data_loader._parse_csv_content(nspl_csv, "UK", skip_terminated=True)
-        assert rows == 2
-        assert ("UK", "M19NS") not in data_loader._lookup
-
-    def test_skip_terminated_default_false_keeps_all_rows(self, monkeypatch):
-        monkeypatch.setattr(data_loader, "_lookup", {})
-        nspl_csv = "pcds,itl,doterm\nSW1A 2AA,TLI32,\nM1 9NS,TLD46,202312\n"
-        rows = data_loader._parse_csv_content(nspl_csv, "UK")
-        assert rows == 2
-
-
 class TestLoadNSPL:
+    # LAD (GSS) → ITL3 (TL) bridge, mirroring app/uk_lad_itl.csv shape.
+    LAD_MAP = {"E06000001": "TLC31", "S12000033": "TLM50"}
+
     @staticmethod
-    def _zip_bytes(csv_text, arcname="NSPL.csv"):
+    def _zip_bytes(csv_text, arcname="Data/multi_csv/NSPL_MAY_2026_UK_A.csv"):
         import io as _io
         import zipfile
 
@@ -352,13 +327,13 @@ class TestLoadNSPL:
             zf.writestr(arcname, csv_text)
         return buf.getvalue()
 
-    def test_populates_lookup_from_zip(self, tmp_path, monkeypatch):
+    def test_populates_lookup_via_lad_bridge(self, tmp_path, monkeypatch):
         monkeypatch.setattr(data_loader, "_lookup", {})
         csv_text = (
-            "pcds,itl,doterm\n"
-            "SW1A 2AA,TLI32,\n"
-            "EC1A 1BB,TLI32,\n"
-            "M1 9NS,TLD46,202312\n"  # terminated
+            "pcds,lad25cd,doterm\n"
+            "SW1A 2AA,E06000001,\n"
+            "AB1 0AA,S12000033,\n"
+            "M1 9NS,E06000001,202312\n"  # terminated → skipped
         )
         content = self._zip_bytes(csv_text)
 
@@ -366,14 +341,22 @@ class TestLoadNSPL:
             return httpx.Response(200, content=content, headers={"ETag": '"v1"'})
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
-        count = data_loader._load_nspl(client, "https://example.com/NSPL.zip", tmp_path)
+        count = data_loader._load_nspl(client, "https://example.com/NSPL.zip", tmp_path, self.LAD_MAP)
         assert count == 2
-        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+        # Emits TL codes (via LAD → ITL3), not NSPL's GSS itl column.
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLC31"
+        assert data_loader._lookup[("UK", "AB10AA")] == "TLM50"
         assert ("UK", "M19NS") not in data_loader._lookup
+
+    def test_unmapped_lad_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        content = self._zip_bytes("pcds,lad25cd,doterm\nZZ1 1ZZ,E99999999,\n")
+        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=content)))
+        assert data_loader._load_nspl(client, "https://x/n.zip", tmp_path, self.LAD_MAP) == 0
 
     def test_returns_zero_when_url_unset(self, tmp_path):
         client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
-        assert data_loader._load_nspl(client, "", tmp_path) == 0
+        assert data_loader._load_nspl(client, "", tmp_path, self.LAD_MAP) == 0
 
     def test_swallows_exceptions(self, tmp_path, monkeypatch):
         monkeypatch.setattr(data_loader, "_lookup", {})
@@ -382,7 +365,7 @@ class TestLoadNSPL:
             raise httpx.ConnectError("boom")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
-        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
+        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path, self.LAD_MAP) == 0
 
     def test_non_zip_response_returns_zero(self, tmp_path, monkeypatch):
         monkeypatch.setattr(data_loader, "_lookup", {})
@@ -391,20 +374,20 @@ class TestLoadNSPL:
             return httpx.Response(200, content=b"not a zip")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
-        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path) == 0
+        assert data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path, self.LAD_MAP) == 0
 
     def test_transient_failure_reuses_cached_zip(self, tmp_path, monkeypatch):
         monkeypatch.setattr(data_loader, "_lookup", {})
         # Seed the on-disk cache from a prior successful run.
-        (tmp_path / "nspl.zip").write_bytes(self._zip_bytes("pcds,itl,doterm\nSW1A 2AA,TLI32,\n"))
+        (tmp_path / "nspl.zip").write_bytes(self._zip_bytes("pcds,lad25cd,doterm\nSW1A 2AA,E06000001,\n"))
 
         def handler(request):
             raise httpx.ConnectError("ons down")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
-        count = data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path)
+        count = data_loader._load_nspl(client, "https://example.com/x.zip", tmp_path, self.LAD_MAP)
         assert count == 1
-        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLI32"
+        assert data_loader._lookup[("UK", "SW1A2AA")] == "TLC31"
 
     def test_nspl_failure_does_not_block_tercet(self, tmp_path, monkeypatch):
         """If NSPL is unreachable, previously-loaded TERCET data must still serve."""
@@ -414,7 +397,7 @@ class TestLoadNSPL:
             raise httpx.ConnectError("ons unavailable")
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
-        nspl_count = data_loader._load_nspl(client, "https://ons.invalid/nspl.zip", tmp_path)
+        nspl_count = data_loader._load_nspl(client, "https://ons.invalid/nspl.zip", tmp_path, self.LAD_MAP)
         assert nspl_count == 0
         # AT lookup must still work (TERCET data untouched)
         result = data_loader.lookup("AT", "1010")
@@ -487,51 +470,15 @@ class TestBuildOutwardIndex:
         assert data_loader._outward_lookup == {}
 
 
-class TestLoadITLNames:
-    def test_populates_nuts_names(self, monkeypatch):
-        monkeypatch.setattr(data_loader, "_nuts_names", {})
-
-        def handler(request):
-            body = "ITL321CD,ITL321NM\nTLI32,Tower Hamlets\nTLI31,Hackney and Newham\n"
-            return httpx.Response(200, content=body.encode())
-
-        client = httpx.Client(transport=httpx.MockTransport(handler))
-        count = data_loader._load_itl_names(client, ["https://example.com/itl3.csv"])
-        assert count == 2
-        assert data_loader._nuts_names["TLI32"] == "Tower Hamlets"
-
-    def test_empty_url_list_no_op(self):
-        client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
-        assert data_loader._load_itl_names(client, []) == 0
-
-    def test_missing_columns_skipped(self, monkeypatch):
-        monkeypatch.setattr(data_loader, "_nuts_names", {})
-
-        def handler(request):
-            return httpx.Response(200, content=b"foo,bar\n1,2\n")
-
-        client = httpx.Client(transport=httpx.MockTransport(handler))
-        assert data_loader._load_itl_names(client, ["https://example.com/x.csv"]) == 0
-
-    def test_http_error_swallowed(self, monkeypatch):
-        monkeypatch.setattr(data_loader, "_nuts_names", {})
-
-        def handler(request):
-            raise httpx.ConnectError("boom")
-
-        client = httpx.Client(transport=httpx.MockTransport(handler))
-        assert data_loader._load_itl_names(client, ["https://example.com/x.csv"]) == 0
-
-
 class TestNSPLConfigHash:
     def test_empty_when_unconfigured(self, monkeypatch):
         monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
-        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "uk_itl_lookup_url", "", raising=False)
         assert data_loader._nspl_config_hash() == ""
 
     def test_changes_when_url_set(self, monkeypatch):
         monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
-        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "uk_itl_lookup_url", "", raising=False)
         empty = data_loader._nspl_config_hash()
         monkeypatch.setattr(data_loader.settings, "nspl_url", "https://ons/nspl.zip", raising=False)
         assert data_loader._nspl_config_hash() != empty
@@ -539,7 +486,7 @@ class TestNSPLConfigHash:
 
     def test_db_invalidated_when_nspl_config_changes(self, tmp_path, monkeypatch):
         monkeypatch.setattr(data_loader.settings, "nspl_url", "", raising=False)
-        monkeypatch.setattr(data_loader.settings, "itl_names_urls", "", raising=False)
+        monkeypatch.setattr(data_loader.settings, "uk_itl_lookup_url", "", raising=False)
         monkeypatch.setattr(data_loader, "_lookup", {("AT", "1010"): "AT130"})
         monkeypatch.setattr(data_loader, "_estimates", {})
         monkeypatch.setattr(data_loader, "_nuts_names", {})
