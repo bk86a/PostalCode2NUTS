@@ -4,11 +4,40 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Grouped so a week's bumps arrive as one reviewable PR instead of one per
+    # package. Production and development are kept apart because they carry
+    # different follow-up work: production bumps also need requirements.lock
+    # regenerated (Dependabot cannot do this — it only scans requirements*.txt,
+    # so the .lock is always a manual step) plus a prod redeploy, while dev-only
+    # bumps (ruff, pytest) are self-contained.
+    groups:
+      python-production:
+        applies-to: version-updates
+        dependency-type: "production"
+        patterns:
+          - "*"
+      python-development:
+        applies-to: version-updates
+        dependency-type: "development"
+        patterns:
+          - "*"
+
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      docker:
+        applies-to: version-updates
+        patterns:
+          - "*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
