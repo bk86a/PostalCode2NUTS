@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-08-14
+
+Maintenance release: dependency currency and an HTTP-client migration. No API
+changes — no new or altered routes, response fields, or configuration.
+
+### Changed
+
+- **HTTP client migrated from `httpx` to `httpx2`** (#156). starlette 1.6.0
+  deprecates using `httpx` with `starlette.testclient`, which now imports
+  `httpx2` first and warns on the fallback. `httpx2` is the successor from the
+  same author and is API-compatible for everything used here, so the migration
+  is an import change only.
+  - **Operational note for self-hosters:** `httpx2` replaces `certifi` with
+    [`truststore`](https://pypi.org/project/truststore/), moving TLS
+    verification to the **OS trust store** rather than a bundled CA bundle. The
+    published image is unaffected (verified: real HTTPS fetch succeeds and an
+    expired certificate is still rejected), but a custom base image must have
+    system CA certificates installed or outbound HTTPS will fail at runtime.
+- Dependencies brought current: fastapi 0.141.1, starlette 1.6.0, uvicorn
+  0.52.3, pydantic-settings 2.15.0, shapely 2.1.2, numpy 2.5.2, plus ruff 0.16.2
+  for development.
+- Dependabot version updates are now **grouped** into a single weekly PR per
+  ecosystem (#148), separating production from development bumps because only
+  the former also require `requirements.lock` regeneration.
+
+### Security
+
+- **The outbound-request log guard survives the client swap.** `app/main.py`
+  quiets the HTTP client's request logging because that logger emits full URLs
+  at INFO, and `/resolve` passes street/city to the geocoder as query
+  parameters. `httpx2` logs under the logger name `httpx2`, so the previous
+  `getLogger("httpx")` call would have gone on silencing a logger nothing writes
+  to, and those addresses would have begun appearing in logs — with nothing
+  failing to signal it. The logger name is now derived from the imported module
+  so a future client swap cannot reopen this, and `tests/test_http_logging.py`
+  asserts both the level and the absence of the address from captured output.
+  This was caught and closed before release; no published version logged
+  geocoder query parameters.
+
 ## [1.1.1] - 2026-07-04
 
 ### Fixed
