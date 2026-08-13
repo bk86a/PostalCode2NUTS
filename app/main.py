@@ -46,7 +46,7 @@ from app.nuts_polygons import load_nuts_pip
 from app.photon_client import PhotonClient
 from app.postal_patterns import PATTERNS_META, POSTAL_PATTERNS
 from app.resolver import resolve as _resolve
-import httpx as _httpx
+import httpx2 as _httpx
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,10 +54,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# httpx logs full outbound request URLs (including query strings) at INFO.
+# httpx2 logs full outbound request URLs (including query strings) at INFO.
 # /resolve sends street/city to the Photon geocoder as query params, so at
-# INFO level httpx would leak that PII into our logs — quiet it to WARNING.
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# INFO level httpx2 would leak that PII into our logs — quiet it to WARNING.
+# The logger name is taken from the module rather than hardcoded: it is the
+# client library's own name ("httpx2"), so swapping the client again cannot
+# leave this silencing a logger nobody writes to while the PII leak reopens.
+logging.getLogger(_httpx.__name__).setLevel(logging.WARNING)
 
 _nuts_pip = None  # app.nuts_pip.NutsPip once polygons load
 _photon_client = None  # app.photon_client.PhotonClient when PC2NUTS_PHOTON_URL set

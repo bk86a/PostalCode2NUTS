@@ -23,7 +23,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import httpx
+import httpx2 as httpx
 
 OUT_FIELDS = [
     "OID",

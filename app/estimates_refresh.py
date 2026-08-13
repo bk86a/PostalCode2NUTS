@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-import httpx
+import httpx2 as httpx
 
 from app.config import settings
 from app.data_loader import _data_lock, _estimates, _revalidate_estimates, parse_estimates_from_text

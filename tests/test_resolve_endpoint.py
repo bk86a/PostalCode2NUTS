@@ -3,7 +3,7 @@
 import importlib
 import json
 
-import httpx
+import httpx2 as httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -57,7 +57,7 @@ def client(tmp_path, monkeypatch):
     )
     # main._photon_client is only populated by lifespan(), which runs on
     # TestClient.__enter__ — so it must be entered before we can patch its
-    # underlying httpx client with the mock transport.
+    # underlying HTTP client with the mock transport.
     with TestClient(main.app) as c:
         main._photon_client._client = httpx.Client(
             transport=httpx.MockTransport(

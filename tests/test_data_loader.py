@@ -1,6 +1,6 @@
 """Tests for data_loader.py — normalize functions and lookup tiers."""
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from app import data_loader

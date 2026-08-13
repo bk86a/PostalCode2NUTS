@@ -16,7 +16,7 @@ the correct NUTS-3 region.
 
 from __future__ import annotations
 
-import httpx
+import httpx2 as httpx
 
 
 class PhotonClient:

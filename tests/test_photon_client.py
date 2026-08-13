@@ -1,6 +1,6 @@
 """Tests for app/photon_client.py."""
 
-import httpx
+import httpx2 as httpx
 
 from app.photon_client import PhotonClient
 

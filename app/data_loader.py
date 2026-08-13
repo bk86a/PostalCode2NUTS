@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-import httpx
+import httpx2 as httpx
 
 from app.albania_blocks import SUPPORTED as AL_SUPPORTED
 from app.albania_blocks import resolve_al_block

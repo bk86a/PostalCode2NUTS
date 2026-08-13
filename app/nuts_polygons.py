@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import httpx
+import httpx2 as httpx
 
 from app.nuts_pip import NutsPip, load_nuts3_features
 
@@ -23,7 +23,7 @@ def load_nuts_pip(*, url: str, path: str, cache_dir: str, client: httpx.Client |
     cache = Path(cache_dir) / _CACHE_NAME
     if not cache.exists():
         if client is None:
-            raise ValueError("no cached polygons and no httpx client to download them")
+            raise ValueError("no cached polygons and no HTTP client to download them")
         cache.parent.mkdir(parents=True, exist_ok=True)
         resp = client.get(url, timeout=120, follow_redirects=True)
         resp.raise_for_status()
