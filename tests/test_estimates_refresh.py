@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import importlib
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 

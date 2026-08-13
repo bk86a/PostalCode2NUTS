@@ -2,7 +2,7 @@
 
 import json
 
-import httpx
+import httpx2 as httpx
 
 from app.nuts_polygons import load_nuts_pip
 

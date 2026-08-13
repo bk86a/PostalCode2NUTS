@@ -88,7 +88,7 @@ class TestTokenDBExecute:
 
             def raise_for_status(self):
                 if self.status_code >= 400:
-                    import httpx
+                    import httpx2 as httpx
 
                     raise httpx.HTTPStatusError("boom", request=None, response=self)
 
@@ -100,7 +100,7 @@ class TestTokenDBExecute:
             captured["headers"] = headers
             return _Response(json_body, status_code)
 
-        import httpx
+        import httpx2 as httpx
 
         monkeypatch.setattr(httpx.Client, "post", _post)
         return captured
