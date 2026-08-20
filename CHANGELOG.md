@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `requirements.lock` regenerated after the grouped Dependabot production bump
+  (#158): python-dotenv 1.2.3, uvicorn 0.52.4, and the transitive httpx2 2.12.0
+  / httpcore2 2.12.0 / idna 3.19. Dependabot only edits `requirements.txt`, so
+  the lockfile - which the CI `security` gate audits - is regenerated
+  separately.
+
 ## [1.1.2] - 2026-08-14
 
 Maintenance release: dependency currency and an HTTP-client migration. No API
