@@ -169,3 +169,61 @@ def test_not_found_no_address_is_none():
     r = _run(None, street=None, city=None)
     assert r["resolved_via"] == "none" and r["match_type"] == "not_found"
     assert r["nuts3"] is None and r["geocode"]["status"] == "no_address"
+
+
+def test_resolve_skips_the_geocoder_for_a_territory_with_no_coverage():
+    """No NUTS polygon covers an OCT, so geocoding can only waste a call."""
+    called = []
+
+    def geocode_fn(street, city, postal):
+        called.append((street, city, postal))
+        return (-22.2758, 166.4580)  # Nouméa
+
+    territory = {
+        "id": "NC", "iso": "NC", "name": "New Caledonia", "status": "oct",
+        "administering_country": "FR", "legal_basis": "TFEU Part Four, Annex II",
+        "note": None, "nuts_coverage": "none",
+    }
+    result = resolve(
+        "FR", "98800", "1 rue de Sébastopol", "Nouméa",
+        lookup_fn=lambda c, p: {
+            "match_type": None, "nuts1": None, "nuts2": None, "nuts3": None,
+            "nuts1_name": None, "nuts2_name": None, "nuts3_name": None,
+            "nuts3_confidence": None, "territory": territory,
+        },
+        geocode_fn=geocode_fn,
+        pip=None,
+        name_fn=lambda code: None,
+    )
+    assert called == []
+    assert result["geocode"]["status"] == "not_attempted"
+    assert result["resolved_via"] == "none"
+    assert result["nuts3"] is None
+    assert result["territory"]["id"] == "NC"
+
+
+def test_resolve_still_geocodes_a_weak_ordinary_result():
+    """The territory branch must not swallow the normal weak-result path."""
+    called = []
+
+    def geocode_fn(street, city, postal):
+        called.append(postal)
+        return (52.52, 13.405)
+
+    class _Pip:
+        def lookup(self, lat, lon):
+            return {"nuts1": "DE3", "nuts2": "DE30", "nuts3": "DE300"}
+
+    result = resolve(
+        "DE", "10999", "Hauptstr 1", "Berlin",
+        lookup_fn=lambda c, p: {
+            "match_type": "approximate", "nuts1": "DE3", "nuts2": "DE30",
+            "nuts3": "DE300", "nuts1_name": None, "nuts2_name": None,
+            "nuts3_name": None, "nuts3_confidence": 0.4,
+        },
+        geocode_fn=geocode_fn,
+        pip=_Pip(),
+        name_fn=lambda code: None,
+    )
+    assert called == ["10999"]
+    assert result["resolved_via"] == "geocode"

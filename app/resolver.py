@@ -53,7 +53,24 @@ def resolve(
             "nuts3_confidence": current.get("nuts3_confidence"),
         }
 
+    territory = current.get("territory") if current else None
     base = {"country_code": country, "postal_code": postal_code, "match_type": match_type}
+    if territory is not None:
+        base["territory"] = territory
+        if territory["nuts_coverage"] == "none":
+            # No NUTS polygon covers the territory, so a coordinate cannot help:
+            # PIP would return pip_outside and we would fall back to the postal
+            # answer anyway. Skip the geocoder rather than pay for that round trip.
+            return {
+                **base,
+                "match_type": None,
+                "resolved_via": "none",
+                "nuts1": None, "nuts1_name": None,
+                "nuts2": None, "nuts2_name": None,
+                "nuts3": None, "nuts3_name": None,
+                "nuts3_confidence": None,
+                "geocode": {"status": "not_attempted"},
+            }
 
     if not weak:
         return {**base, **_postal(), "geocode": {"status": "not_attempted"}}
