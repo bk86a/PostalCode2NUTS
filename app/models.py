@@ -18,7 +18,9 @@ class TerritoryInfo(BaseModel):
     )
     administering_country: str = Field(description="ISO 3166-1 alpha-2 code of the administering country")
     legal_basis: str | None = Field(default=None, description="Treaty provision establishing the status")
-    note: str | None = Field(default=None, description="Plain-language explanation of the territory's position")
+    note: str | None = Field(
+        default=None, description="Plain-language explanation of the territory's position"
+    )
     nuts_coverage: Literal["full", "tercet_entry_only", "none"] = Field(
         description=(
             "'full' — Eurostat classifies the territory and the code resolved; "
@@ -59,7 +61,9 @@ class NUTSResult(BaseModel):
     )
     territory: TerritoryInfo | None = Field(
         default=None,
-        description="Present when the postal code lies in an outermost region, an OCT, or another non-NUTS territory",
+        description=(
+            "Present when the postal code lies in an outermost region, an OCT, or another non-NUTS territory"
+        ),
     )
 
 
