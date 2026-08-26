@@ -76,7 +76,7 @@ UK coverage is **optional and operator-configured** — the ~178 MB NSPL ZIP is 
 nullable. Clients with strict schemas must widen those types before upgrading; clients that
 read JSON dynamically need only handle `null`.
 
-Seven postal ranges that previously returned a European NUTS region now return `null` with a
+Eight postal ranges that previously returned a European NUTS region now return `null` with a
 `territory` block: French `975xx`, `977xx`, `978xx`, `984xx`, `986xx`, `987xx`, `988xx`, and
 Danish `39xx`. Those answers were wrong — `FR/98800` in Nouméa resolved to Alpes-Maritimes —
 so the correction may reduce your match rate while improving its accuracy.
