@@ -128,6 +128,19 @@ def test_aruba_answers_on_the_country_code_alone(mock_data):
     assert data_loader.lookup("AW", "anything")["territory"]["id"] == "AW"
 
 
+def test_dutch_octs_never_reach_the_netherlands_rows(mock_data):
+    # AW/CW/SX/BQ have no postal system at all. A real Dutch postal code must
+    # never key into NL's TERCET data through the administering-country fallback.
+    data_loader._lookup[("NL", "1012")] = "NL329"
+    data_loader._build_prefix_index()
+    for iso in ("AW", "CW", "SX", "BQ"):
+        r = data_loader.lookup(iso, "1012")
+        assert r["territory"]["id"] == iso
+        assert r["territory"]["nuts_coverage"] == "none"
+        assert r["nuts3"] is None
+        assert r["match_type"] is None
+
+
 # ── Tier 6 is gone ───────────────────────────────────────────────────────────
 
 def test_crown_dependency_codes_reach_the_territory_statement(mock_data):

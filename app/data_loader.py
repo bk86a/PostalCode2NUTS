@@ -1418,11 +1418,17 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
         # well-formed Danish code, but it is not Greenlandic.
         if t.has_postal_system and not cls.postal_in_territory:
             return None
-        if t.has_postal_system and not _matches_pattern(probe_cc, postal_code):
-            return None
 
     if t is None:
         return _lookup_cascade(cc, postal_code)
+
+    # Extracted once, reused by the pattern guard and the tier-1 probe below —
+    # validating the guard against the raw string let wide-prefix territories
+    # (e.g. ES-CN, PT-20) reject input (spacing, punctuation) that the cascade
+    # itself would have accepted after extraction.
+    extracted = extract_postal_code(probe_cc, postal_code)
+    if t.has_postal_system and not _matches_pattern(probe_cc, extracted):
+        return None
 
     if t.in_nuts:
         result = _lookup_cascade(probe_cc, postal_code)
@@ -1431,10 +1437,15 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
         result["territory"] = _territory_payload(t, "full")
         return result
 
-    # Outside NUTS: tier 1 only. whole_country territories have no Eurostat rows
-    # by construction — an attributed code would be listed as exact or prefix.
-    if not t.whole_country:
-        extracted = extract_postal_code(probe_cc, postal_code)
+    # Outside NUTS: tier 1 only. A territory with no postal system
+    # (has_postal_system is False, e.g. the Dutch OCTs) cannot have a
+    # postal-keyed Eurostat row by construction, so the probe never runs for
+    # it — probe_cc would otherwise fall back to the administering country and
+    # the raw code could key straight into that country's real data (e.g.
+    # AW/1012 must never resolve as NL's Amsterdam row). whole_country
+    # territories likewise have no Eurostat rows by construction — an
+    # attributed code would be listed as exact or prefix.
+    if t.has_postal_system and not t.whole_country:
         nuts3 = _lookup.get((probe_cc, extracted))
         if nuts3 is not None:
             result = _build_result("exact", nuts3)
