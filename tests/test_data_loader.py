@@ -148,36 +148,37 @@ class TestLookup:
         assert result is None
 
     def test_tier6_fo_synthetic(self, mock_data):
-        """FO has no NUTS coverage → synthetic approximate result."""
+        """FO has no NUTS coverage → territory-only result, no fabricated code."""
         result = lookup("FO", "100")
         assert result is not None
-        assert result["match_type"] == "approximate"
-        assert result["nuts3"] == "FO000"
-        assert result["nuts2"] == "FO00"
-        assert result["nuts1"] == "FO0"
-        assert result["nuts3_confidence"] == 0.80
-        assert result["nuts2_confidence"] == 0.85
-        assert result["nuts1_confidence"] == 0.90
+        assert result["match_type"] is None
+        assert result["nuts3"] is None
+        assert result["nuts2"] is None
+        assert result["nuts1"] is None
+        assert result["territory"]["id"] == "FO"
+        assert result["territory"]["nuts_coverage"] == "none"
 
     def test_tier6_fo_names(self, mock_data):
         result = lookup("FO", "100")
-        assert result["nuts1_name"] == "Faroe Islands"
-        assert result["nuts2_name"] == "Faroe Islands"
-        assert result["nuts3_name"] == "Faroe Islands"
+        assert result["nuts1_name"] is None
+        assert result["nuts2_name"] is None
+        assert result["nuts3_name"] is None
+        assert result["territory"]["name"] == "Faroe Islands"
 
     def test_tier6_fo_prefix_variants(self, mock_data):
         for raw in ("FO-100", "FO 100", "FO100", "970", "999"):
-            assert lookup("FO", raw)["nuts3"] == "FO000"
+            assert lookup("FO", raw)["territory"]["id"] == "FO"
 
     def test_tier6_fo_rejects_bad_format(self, mock_data):
-        """Format guard: non-3-digit input gets no synthetic result."""
+        """Format guard: non-3-digit input is rejected outright by the gate."""
         assert lookup("FO", "1234") is None
         assert lookup("FO", "ABC") is None
         assert lookup("FO", "DK-3800") is None
 
     def test_tier6_fo_rejects_two_digit(self, mock_data):
         """Real FO codes are 100-970, never leading-zero-padded. A bare 2-digit
-        input must NOT be recovered to a 3-digit code and resolve to FO000."""
+        input must NOT be recovered to a 3-digit code and reach the territory
+        statement."""
         assert lookup("FO", "10") is None
         assert lookup("FO", "99") is None
 

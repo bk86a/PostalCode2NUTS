@@ -597,7 +597,6 @@ async def admin_memory(request: Request) -> JSONResponse:
         ),
         "data_loader._nuts_names": len(_dl._nuts_names),
         "data_loader._single_nuts3": len(_dl._single_nuts3),
-        "data_loader._synthetic_nuts": len(_dl._synthetic_nuts),
         "data_loader._country_fallback": len(_dl._country_fallback),
         "auth._db_tokens": len(_auth._db_tokens),
     }

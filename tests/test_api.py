@@ -132,24 +132,29 @@ class TestFaroeIslandsAPI:
         assert r.status_code == 200
         body = r.json()
         assert body["country_code"] == "FO"
-        assert body["match_type"] == "approximate"
-        assert body["nuts3"] == "FO000"
-        assert body["nuts2"] == "FO00"
-        assert body["nuts1"] == "FO0"
-        assert body["nuts3_confidence"] == 0.80
-        assert body["nuts1_name"] == "Faroe Islands"
+        assert body["match_type"] is None
+        assert body["nuts3"] is None
+        assert body["nuts2"] is None
+        assert body["nuts1"] is None
+        assert body["nuts3_confidence"] is None
+        assert body["nuts1_name"] is None
+        assert body["territory"]["id"] == "FO"
+        assert body["territory"]["name"] == "Faroe Islands"
+        assert body["territory"]["nuts_coverage"] == "none"
 
     def test_lookup_fo_prefix(self, client):
         r = client.get("/lookup", params={"country": "FO", "postal_code": "FO-100"})
         assert r.status_code == 200
-        assert r.json()["nuts3"] == "FO000"
+        body = r.json()
+        assert body["nuts3"] is None
+        assert body["territory"]["id"] == "FO"
 
     def test_lookup_fo_bad_format_404(self, client):
         r = client.get("/lookup", params={"country": "FO", "postal_code": "1234"})
         assert r.status_code == 404
 
     def test_lookup_fo_two_digit_404(self, client):
-        # A 2-digit code must not be leading-zero-padded into a valid FO000 hit.
+        # A 2-digit code must not be leading-zero-padded into a valid FO hit.
         r = client.get("/lookup", params={"country": "FO", "postal_code": "10"})
         assert r.status_code == 404
 
