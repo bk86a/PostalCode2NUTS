@@ -89,6 +89,7 @@ class HealthResponse(BaseModel):
     estimates_refresh_stale: bool | None = None
     geocoder_configured: bool = Field(default=False, description="True if PC2NUTS_PHOTON_URL is set")
     pip_ready: bool = Field(default=False, description="True if NUTS polygons loaded for /resolve")
+    territories: int = Field(default=0, description="Number of territories in the registry")
 
 
 class GeocodeInfo(BaseModel):

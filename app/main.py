@@ -46,6 +46,7 @@ from app.nuts_polygons import load_nuts_pip
 from app.photon_client import PhotonClient
 from app.postal_patterns import PATTERNS_META, POSTAL_PATTERNS
 from app.resolver import resolve as _resolve
+from app.territories import count as territory_count, get_by_iso as get_territory
 import httpx2 as _httpx
 
 logging.basicConfig(
@@ -347,6 +348,18 @@ def lookup_postal_code(
 
     result = lookup(country, postal_code)
     if result is None:
+        terr = get_territory(cc)
+        if terr is not None:
+            scheme_clause = (
+                f"{terr.name} uses the {terr.validate_as} postal scheme; codes outside "
+                f"its range belong to another territory or to {terr.administering_country} itself."
+                if terr.validate_as
+                else f"{terr.name} has no postal codes of its own."
+            )
+            raise HTTPException(
+                status_code=404,
+                detail=(f"Postal code '{postal_code}' is not a {terr.name} code. {scheme_clause}"),
+            )
         pattern = POSTAL_PATTERNS.get(cc)
         hint = f" Expected format: {pattern['example']}" if pattern else ""
         raise HTTPException(
@@ -387,7 +400,16 @@ def get_pattern(
     if country is None:
         return sorted(POSTAL_PATTERNS.keys())
     cc = country.upper()
-    pattern = POSTAL_PATTERNS.get(cc)
+    terr = get_territory(cc)
+    if terr is not None:
+        if not terr.has_postal_system:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{terr.name} uses no postal codes.",
+            )
+        pattern = POSTAL_PATTERNS.get(terr.validate_as)
+    else:
+        pattern = POSTAL_PATTERNS.get(cc)
     if pattern is None:
         raise HTTPException(
             status_code=404,
@@ -503,6 +525,7 @@ def health(response: Response):
         estimates_refresh_stale=_get_estimates_refresh_stale(),
         geocoder_configured=bool(_config.settings.photon_url),
         pip_ready=_nuts_pip is not None,
+        territories=territory_count(),
     )
 
 
