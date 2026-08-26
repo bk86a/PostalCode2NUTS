@@ -147,7 +147,7 @@ class TestLookup:
         result = lookup("ZZ", "12345")
         assert result is None
 
-    def test_tier6_fo_synthetic(self, mock_data):
+    def test_fo_territory_only_no_nuts_coverage(self, mock_data):
         """FO has no NUTS coverage → territory-only result, no fabricated code."""
         result = lookup("FO", "100")
         assert result is not None
@@ -158,31 +158,31 @@ class TestLookup:
         assert result["territory"]["id"] == "FO"
         assert result["territory"]["nuts_coverage"] == "none"
 
-    def test_tier6_fo_names(self, mock_data):
+    def test_fo_territory_names(self, mock_data):
         result = lookup("FO", "100")
         assert result["nuts1_name"] is None
         assert result["nuts2_name"] is None
         assert result["nuts3_name"] is None
         assert result["territory"]["name"] == "Faroe Islands"
 
-    def test_tier6_fo_prefix_variants(self, mock_data):
+    def test_fo_prefix_variants(self, mock_data):
         for raw in ("FO-100", "FO 100", "FO100", "970", "999"):
             assert lookup("FO", raw)["territory"]["id"] == "FO"
 
-    def test_tier6_fo_rejects_bad_format(self, mock_data):
+    def test_fo_rejects_bad_format(self, mock_data):
         """Format guard: non-3-digit input is rejected outright by the gate."""
         assert lookup("FO", "1234") is None
         assert lookup("FO", "ABC") is None
         assert lookup("FO", "DK-3800") is None
 
-    def test_tier6_fo_rejects_two_digit(self, mock_data):
+    def test_fo_rejects_two_digit(self, mock_data):
         """Real FO codes are 100-970, never leading-zero-padded. A bare 2-digit
         input must NOT be recovered to a 3-digit code and reach the territory
         statement."""
         assert lookup("FO", "10") is None
         assert lookup("FO", "99") is None
 
-    def test_tier6_fo_in_loaded_countries(self, mock_data):
+    def test_fo_in_loaded_countries(self, mock_data):
         from app.data_loader import get_loaded_countries
 
         assert "FO" in get_loaded_countries()

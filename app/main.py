@@ -46,7 +46,11 @@ from app.nuts_polygons import load_nuts_pip
 from app.photon_client import PhotonClient
 from app.postal_patterns import PATTERNS_META, POSTAL_PATTERNS
 from app.resolver import resolve as _resolve
-from app.territories import count as territory_count, get_by_iso as get_territory
+from app.territories import (
+    count as territory_count,
+    get_by_iso as get_territory,
+    territory_iso_codes,
+)
 import httpx2 as _httpx
 
 logging.basicConfig(
@@ -398,7 +402,8 @@ def get_pattern(
 ):
     response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
     if country is None:
-        return sorted(POSTAL_PATTERNS.keys())
+        territory_codes = {iso for iso in territory_iso_codes() if get_territory(iso).has_postal_system}
+        return sorted(set(POSTAL_PATTERNS.keys()) | territory_codes)
     cc = country.upper()
     terr = get_territory(cc)
     if terr is not None:

@@ -122,6 +122,26 @@ class TestPatternEndpoint:
         resp = client.get("/pattern", params={"country": "ZZ"})
         assert resp.status_code == 404
 
+    def test_200_list_all_includes_territory_codes_with_patterns(self, client):
+        resp = client.get("/pattern")
+        data = resp.json()
+        # Territories with a postal validation scheme of their own are
+        # discoverable from the no-argument listing.
+        for code in {"RE", "GL", "NC", "GI", "JE", "GG", "IM", "SJ"}:
+            assert code in data
+        # Territories with no postal system at all 404 when queried
+        # individually, so they must not appear in the listing either.
+        for code in {"AW", "CW", "SX", "BQ"}:
+            assert code not in data
+
+    def test_200_list_all_codes_each_resolve_individually(self, client):
+        # Every code the listing advertises must actually answer for itself —
+        # this is what would have caught territory codes being omitted.
+        data = client.get("/pattern").json()
+        for code in data:
+            r = client.get("/pattern", params={"country": code})
+            assert r.status_code == 200, f"'{code}' is listed but /pattern?country={code} failed"
+
 
 # ── Faroe Islands (FO) API tests ─────────────────────────────────────────────
 

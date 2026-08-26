@@ -53,7 +53,8 @@ Guernsey and the Isle of Man.
 Twenty-three territory ISO codes are accepted as the `country` parameter — `GP` `MQ` `GF` `RE`
 `YT` `MF` `GL` `PF` `NC` `WF` `PM` `BL` `TF` `AW` `CW` `SX` `BQ` `SJ` `FO` `GI` `JE` `GG` `IM`
 — alongside the administering country's own code. Twenty-two of them are new in 2.0.0; `FO`
-was already supported, and 59 country codes are now accepted in total. The Canary Islands, Azores and Madeira have
+was already supported, and 59 country codes are now accepted in total (60 with UK/ITL
+configured — see [United Kingdom (ITL)](#united-kingdom-itl)). The Canary Islands, Azores and Madeira have
 no ISO alpha-2 code and are reached only through `ES` and `PT` postal codes.
 
 Every result inside a listed territory carries a `territory` block; results elsewhere carry
@@ -361,6 +362,10 @@ but does not belong to the named territory returns `404` rather than the mainlan
 `GL/2100` is a valid Danish code for Copenhagen, but it is not Greenlandic, and `SJ/0150` is
 Oslo, not Svalbard.
 
+The whole-country territories — `FO`, `GI`, `JE`, `GG` and `IM` — are the exception to "two
+routes": they have no postal prefix of their own within the administering country's scheme, so
+only their own ISO code resolves. `JE/JE2 3XP` returns `200`; `UK/JE2 3XP` returns `404`.
+
 The service accepts postal codes with or without country prefixes. For example, all of the following resolve to the same result for Austria: `1010`, `A-1010`, `AT-1010`, `A1010`.
 
 Greece uses the GISCO code `EL`, but you can query with either `EL` or `GR` — the service maps `GR` to `EL` automatically.
@@ -382,7 +387,7 @@ GET /pattern
 ```
 
 ```json
-["AL", "AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FO", "FR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "SE", "SI", "SK", "TR"]
+["AL", "AT", "BE", "BG", "BL", "CH", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FO", "FR", "GF", "GG", "GI", "GL", "GP", "HR", "HU", "IE", "IM", "IS", "IT", "JE", "LI", "LT", "LU", "LV", "ME", "MF", "MK", "MQ", "MT", "NC", "NL", "NO", "PF", "PL", "PM", "PT", "RE", "RO", "RS", "SE", "SI", "SJ", "SK", "TF", "TR", "UK", "WF", "YT"]
 ```
 
 ```

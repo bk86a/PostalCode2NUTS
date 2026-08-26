@@ -31,7 +31,8 @@ NUTS code for territories Eurostat does not classify.
 - 22 new territory ISO codes accepted as the `country` parameter: `GP` `MQ` `GF`
   `RE` `YT` `MF` `GL` `PF` `NC` `WF` `PM` `BL` `TF` `AW` `CW` `SX` `BQ` `SJ` `GI`
   `JE` `GG` `IM`. They previously returned `400`. The registry holds 23 ISO codes
-  in total — `FO` was already supported — bringing accepted country codes to 59.
+  in total — `FO` was already supported — bringing accepted country codes to 59
+  (60 with UK/ITL configured via `PC2NUTS_NSPL_URL`).
 - Svalbard and Jan Mayen coverage: `SJ/8099` → `NO0B1`, `SJ/9170`–`9178` → `NO0B2`.
 - `territories` count on `/health`.
 

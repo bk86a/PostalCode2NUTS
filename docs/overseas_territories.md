@@ -138,6 +138,11 @@ territory's own ranges is rejected with `404` rather than answered from the pare
 data — `GL/2100` is a valid Danish code for Copenhagen, but it is not Greenlandic, so it 404s
 rather than silently returning a Copenhagen NUTS region under a Greenland lookup.
 
+The whole-country territories — `FO`, `GI`, `JE`, `GG` and `IM` — are the exception to "two
+routes": they have no postal prefix of their own carved out of the administering country's
+scheme, so only their own ISO code resolves. `JE/JE2 3XP` returns `200`; `UK/JE2 3XP` returns
+`404`.
+
 The `/resolve` geocoding fallback does not correct a `nuts_coverage: "none"` result either:
 no NUTS polygon covers these territories, so point-in-polygon has nothing to resolve against.
 The geocoder is skipped entirely — `geocode.status: "not_attempted"`, `resolved_via: "none"`
