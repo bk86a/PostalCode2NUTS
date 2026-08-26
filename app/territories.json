@@ -1,0 +1,197 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "source": "TFEU Art. 349 (outermost regions) and Part Four / Annex II (OCTs), consolidated 2026-01-01",
+    "note": "Annex II lists 13 OCTs; ISO 3166-1 gives Bonaire, Saba and Sint Eustatius a single code (BQ), so 13 OCTs map to 11 entries."
+  },
+  "territories": [
+    {
+      "id": "GP", "iso": "GP", "name": "Guadeloupe",
+      "status": "outermost_region", "administering_country": "FR",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["971"], "whole_country": false}
+    },
+    {
+      "id": "MQ", "iso": "MQ", "name": "Martinique",
+      "status": "outermost_region", "administering_country": "FR",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["972"], "whole_country": false}
+    },
+    {
+      "id": "GF", "iso": "GF", "name": "French Guiana",
+      "status": "outermost_region", "administering_country": "FR",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["973"], "whole_country": false}
+    },
+    {
+      "id": "RE", "iso": "RE", "name": "Réunion",
+      "status": "outermost_region", "administering_country": "FR",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["974"], "whole_country": false}
+    },
+    {
+      "id": "YT", "iso": "YT", "name": "Mayotte",
+      "status": "outermost_region", "administering_country": "FR",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["976"], "whole_country": false}
+    },
+    {
+      "id": "MF", "iso": "MF", "name": "Saint-Martin",
+      "status": "outermost_region", "administering_country": "FR",
+      "legal_basis": "TFEU Art. 349",
+      "note": "Outermost region: EU law applies. Eurostat publishes no NUTS code for it.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FR", "exact": ["97150"], "prefixes": ["978"], "whole_country": false}
+    },
+    {
+      "id": "ES-CN", "iso": null, "name": "Canarias",
+      "status": "outermost_region", "administering_country": "ES",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "ES", "exact": [], "prefixes": ["35", "38"], "whole_country": false}
+    },
+    {
+      "id": "PT-20", "iso": null, "name": "Região Autónoma dos Açores",
+      "status": "outermost_region", "administering_country": "PT",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "PT", "exact": [], "prefixes": ["95", "96", "97", "98", "99"], "whole_country": false}
+    },
+    {
+      "id": "PT-30", "iso": null, "name": "Região Autónoma da Madeira",
+      "status": "outermost_region", "administering_country": "PT",
+      "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
+      "postal": {"validate_as": "PT", "exact": [], "prefixes": ["90", "91", "92", "93", "94"], "whole_country": false}
+    },
+    {
+      "id": "GL", "iso": "GL", "name": "Greenland",
+      "status": "oct", "administering_country": "DK",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Associated with the EU; outside the NUTS classification.",
+      "in_nuts": false,
+      "postal": {"validate_as": "DK", "exact": [], "prefixes": ["39"], "whole_country": false}
+    },
+    {
+      "id": "PF", "iso": "PF", "name": "French Polynesia",
+      "status": "oct", "administering_country": "FR",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Associated with the EU; outside the NUTS classification.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["987"], "whole_country": false}
+    },
+    {
+      "id": "NC", "iso": "NC", "name": "New Caledonia",
+      "status": "oct", "administering_country": "FR",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Associated with the EU; outside the NUTS classification.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["988"], "whole_country": false}
+    },
+    {
+      "id": "WF", "iso": "WF", "name": "Wallis and Futuna",
+      "status": "oct", "administering_country": "FR",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Associated with the EU; outside the NUTS classification.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["986"], "whole_country": false}
+    },
+    {
+      "id": "PM", "iso": "PM", "name": "Saint-Pierre-et-Miquelon",
+      "status": "oct", "administering_country": "FR",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Associated with the EU; outside the NUTS classification.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["975"], "whole_country": false}
+    },
+    {
+      "id": "BL", "iso": "BL", "name": "Saint-Barthélemy",
+      "status": "oct", "administering_country": "FR",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "OCT since 2012-01-01. Its 97133 code remains inside Guadeloupe's 971xx block in the GISCO TERCET FR file.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FR", "exact": ["97133"], "prefixes": ["977"], "whole_country": false}
+    },
+    {
+      "id": "TF", "iso": "TF", "name": "French Southern and Antarctic Lands",
+      "status": "oct", "administering_country": "FR",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Associated with the EU; outside the NUTS classification.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["984"], "whole_country": false}
+    },
+    {
+      "id": "AW", "iso": "AW", "name": "Aruba",
+      "status": "oct", "administering_country": "NL",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Uses no postal codes. Outside the NUTS classification.",
+      "in_nuts": false, "postal": null
+    },
+    {
+      "id": "CW", "iso": "CW", "name": "Curaçao",
+      "status": "oct", "administering_country": "NL",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Uses no postal codes. Outside the NUTS classification.",
+      "in_nuts": false, "postal": null
+    },
+    {
+      "id": "SX", "iso": "SX", "name": "Sint Maarten",
+      "status": "oct", "administering_country": "NL",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Uses no postal codes. Outside the NUTS classification.",
+      "in_nuts": false, "postal": null
+    },
+    {
+      "id": "BQ", "iso": "BQ", "name": "Bonaire, Saba and Sint Eustatius",
+      "status": "oct", "administering_country": "NL",
+      "legal_basis": "TFEU Part Four, Annex II",
+      "note": "Three separate OCTs under Annex II sharing one ISO 3166-1 code. They use no postal codes and are outside the NUTS classification.",
+      "in_nuts": false, "postal": null
+    },
+    {
+      "id": "SJ", "iso": "SJ", "name": "Svalbard and Jan Mayen",
+      "status": "other", "administering_country": "NO",
+      "legal_basis": null,
+      "note": "Part of Norway. Covered by the EFTA statistical regions: NO0B1 Jan Mayen, NO0B2 Svalbard.",
+      "in_nuts": true,
+      "postal": {"validate_as": "NO", "exact": ["8099"], "prefixes": ["917"], "whole_country": false}
+    },
+    {
+      "id": "FO", "iso": "FO", "name": "Faroe Islands",
+      "status": "other", "administering_country": "DK",
+      "legal_basis": "TFEU Art. 355(5)(a)",
+      "note": "The Treaties do not apply. Outside the NUTS classification; no GISCO TERCET file.",
+      "in_nuts": false,
+      "postal": {"validate_as": "FO", "exact": [], "prefixes": [], "whole_country": true}
+    },
+    {
+      "id": "GI", "iso": "GI", "name": "Gibraltar",
+      "status": "other", "administering_country": "UK",
+      "legal_basis": null,
+      "note": "Outside the EU since the United Kingdom's withdrawal. Not in NUTS, not in ITL, not in NSPL.",
+      "in_nuts": false,
+      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+    },
+    {
+      "id": "JE", "iso": "JE", "name": "Jersey",
+      "status": "other", "administering_country": "UK",
+      "legal_basis": null,
+      "note": "Crown Dependency. Not in NUTS, not in ITL geography, not in NSPL.",
+      "in_nuts": false,
+      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+    },
+    {
+      "id": "GG", "iso": "GG", "name": "Guernsey",
+      "status": "other", "administering_country": "UK",
+      "legal_basis": null,
+      "note": "Crown Dependency. Not in NUTS, not in ITL geography, not in NSPL.",
+      "in_nuts": false,
+      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+    },
+    {
+      "id": "IM", "iso": "IM", "name": "Isle of Man",
+      "status": "other", "administering_country": "UK",
+      "legal_basis": null,
+      "note": "Crown Dependency. Not in NUTS, not in ITL geography, not in NSPL.",
+      "in_nuts": false,
+      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+    }
+  ]
+}

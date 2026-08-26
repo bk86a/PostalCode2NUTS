@@ -2,7 +2,10 @@
 
 FastAPI microservice that maps postal codes to [NUTS codes](https://ec.europa.eu/eurostat/web/nuts) (Nomenclature of Territorial Units for Statistics) for EU, EFTA, and EU candidate countries using [GISCO TERCET](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/postal-codes) flat files.
 
-Returns NUTS levels 1, 2, and 3 for any postal code across 36 countries, with confidence scores indicating how the result was determined.
+Returns NUTS levels 1, 2, and 3 for any postal code across 36 countries and 26 overseas
+territories, with confidence scores indicating how the result was determined. Where a
+territory lies outside the NUTS classification — an EU overseas country or territory, for
+instance — the service says so explicitly rather than approximating a European region.
 
 Runs in two tiers, selected at deploy time: a low-cost **Lite** tier (postal code → NUTS only) and an optional **Full** tier that adds an address → geocode → NUTS fallback — self-hosted [Photon](https://github.com/komoot/photon) geocoding plus NUTS polygons — for the rows postal lookup alone can't resolve. See [Deployment tiers](#deployment-tiers).
 
@@ -29,10 +32,34 @@ Albania (AL), North Macedonia (MK), Montenegro (ME), Serbia (RS), Türkiye (TR)
 
 > **Albania** has a full NUTS hierarchy (`AL0`; `AL01` / `AL02` / `AL03`; 12 NUTS3 counties `AL011`–`AL035`) but Eurostat publishes no GISCO TERCET file for it. Coverage is provided by an authoritative postal-code **block resolver** (`app/albania_blocks.py`): Albanian codes are block-allocated by district — the first two digits identify one of ~33 postal districts, each belonging to one of the 12 NUTS3 qarks — so a code resolves to its qark by its district prefix. Codes whose prefix belongs to no district (i.e. that don't exist) return not-found rather than a fabricated region. Lookups return `match_type="estimated"` with `high` confidence — see [Estimates](#estimates).
 
-**Other territories** (1):
-Faroe Islands (FO) — not part of NUTS; synthetic result.
+### Overseas regions and territories
 
-> **Faroe Islands** is an autonomous Danish territory with no NUTS coverage and no GISCO TERCET file. Lookups for FO are served by a synthetic single-region fallback (Tier 6) configured via `synthetic_nuts_fallback` in `app/settings.json`, returning `FO0` / `FO00` / `FO000` with `match_type="approximate"` and capped confidence (`0.90` / `0.85` / `0.80`) for any well-formed 3-digit code. The code is fabricated, not derived from a real NUTS dataset — contrast Montenegro's `ME000`, which is a genuine single-region NUTS code.
+EU primary law splits the non-continental territories of France, Portugal, Spain, Denmark
+and the Netherlands into two categories, and only one of them exists in NUTS:
+
+- **Outermost regions** (Art. 349 TFEU) are part of the EU and part of NUTS. All nine are
+  supported: Guadeloupe (`FRY10`), Martinique (`FRY20`), French Guiana (`FRY30`), Réunion
+  (`FRY40`), Mayotte (`FRY50`), the Azores (`PT200`), Madeira (`PT300`), the Canary Islands
+  (`ES703`–`ES709` at island level), and Saint-Martin — which is an outermost region with no
+  NUTS code of its own.
+- **Overseas countries and territories** (Part Four TFEU, Annex II) are associated with the
+  EU but not part of it, and have no NUTS regions at all. Annex II lists thirteen; ISO 3166-1
+  covers them with eleven codes, since Bonaire, Saba and Sint Eustatius share `BQ`.
+
+A further six European territories sit outside the ordinary country set: Svalbard and Jan
+Mayen (`SJ`, which *is* in NUTS as `NO0B1`/`NO0B2`), the Faroe Islands, Gibraltar, Jersey,
+Guernsey and the Isle of Man.
+
+Twenty-three territory ISO codes are accepted as the `country` parameter — `GP` `MQ` `GF` `RE`
+`YT` `MF` `GL` `PF` `NC` `WF` `PM` `BL` `TF` `AW` `CW` `SX` `BQ` `SJ` `FO` `GI` `JE` `GG` `IM`
+— alongside the administering country's own code. Twenty-two of them are new in 2.0.0; `FO`
+was already supported, and 59 country codes are now accepted in total (60 with UK/ITL
+configured — see [United Kingdom (ITL)](#united-kingdom-itl)). The Canary Islands, Azores and Madeira have
+no ISO alpha-2 code and are reached only through `ES` and `PT` postal codes.
+
+Every result inside a listed territory carries a `territory` block; results elsewhere carry
+`territory: null`. See [`docs/overseas_territories.md`](docs/overseas_territories.md) for the
+complete lists and per-territory behaviour.
 
 ### United Kingdom (ITL)
 
@@ -42,7 +69,21 @@ ITL is **not** a drop-in for NUTS-2016 UK: it diverges at L2 (41 vs 40 regions) 
 
 UK coverage is **optional and operator-configured** — the ~178 MB NSPL ZIP is not bundled. When `PC2NUTS_NSPL_URL` is unset (the default), UK is unsupported and returns the standard `400`. Outward-code-only input (e.g. `SW1A`) resolves to the majority ITL3 for that outward code with `estimated`/medium confidence.
 
-> **Out of scope:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL, and are not supported — lookups for those country codes return `400`.
+> **Out of scope for ITL:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL. They are registered territories (see [Overseas regions and territories](#overseas-regions-and-territories)): a well-formed UK-pattern code returns `200` with a `territory` block and `nuts_coverage: "none"`, not an ITL result.
+
+## Upgrading to 2.0.0
+
+`match_type`, `nuts1`/`nuts2`/`nuts3`, their `_name` and `_confidence` companions are now
+nullable. Clients with strict schemas must widen those types before upgrading; clients that
+read JSON dynamically need only handle `null`.
+
+Eight postal ranges that previously returned a European NUTS region now return `null` with a
+`territory` block: French `975xx`, `977xx`, `978xx`, `984xx`, `986xx`, `987xx`, `988xx`, and
+Danish `39xx`. Those answers were wrong — `FR/98800` in Nouméa resolved to Alpes-Maritimes —
+so the correction may reduce your match rate while improving its accuracy.
+
+The fabricated Faroe Islands codes `FO0`/`FO00`/`FO000` are gone. They were invented by this
+project, not published by Eurostat. `FO` lookups now return a `territory` block with null NUTS.
 
 ## Deployment tiers
 
@@ -241,6 +282,90 @@ Every response includes:
 
 See [Five-tier lookup](#five-tier-lookup) below for details on match types and confidence values.
 
+#### The `territory` block
+
+Present when the postal code lies in an overseas region or territory; `null` otherwise.
+
+| Field | Meaning |
+|---|---|
+| `id` | Registry id — the ISO code where one exists, else `ES-CN`, `PT-20`, `PT-30` |
+| `iso` | ISO 3166-1 alpha-2 code, or `null` for the three without one |
+| `name` | Territory name |
+| `status` | `outermost_region`, `oct`, or `other` |
+| `administering_country` | ISO code of the administering country |
+| `legal_basis` | Treaty provision, e.g. `TFEU Art. 349` |
+| `note` | Plain-language explanation |
+| `nuts_coverage` | `full`, `tercet_entry_only`, or `none` |
+
+`nuts_coverage` tells you what to expect from the NUTS fields:
+
+- **`full`** — Eurostat classifies the territory and the code resolved normally.
+- **`tercet_entry_only`** — the territory is outside NUTS, but the GISCO TERCET file carries
+  this exact code. The NUTS fields are populated from Eurostat's own row and flagged. Only
+  Saint-Barthélemy's `97133` behaves this way.
+- **`none`** — no NUTS code exists. `match_type` and all six NUTS fields are `null`, and the
+  response is still `200`: the absence is the answer, not an error.
+
+```bash
+curl 'https://api.datatoolset.eu/PostalCode2NUTS/lookup?country=NC&postal_code=98800'
+```
+
+```json
+{
+  "postal_code": "98800",
+  "country_code": "NC",
+  "code_system": "NUTS",
+  "match_type": null,
+  "nuts1": null, "nuts1_name": null, "nuts1_confidence": null,
+  "nuts2": null, "nuts2_name": null, "nuts2_confidence": null,
+  "nuts3": null, "nuts3_name": null, "nuts3_confidence": null,
+  "territory": {
+    "id": "NC",
+    "iso": "NC",
+    "name": "New Caledonia",
+    "status": "oct",
+    "administering_country": "FR",
+    "legal_basis": "TFEU Part Four, Annex II",
+    "note": "Associated with the EU; outside the NUTS classification.",
+    "nuts_coverage": "none"
+  }
+}
+```
+
+An outermost region resolves as usual and is labelled:
+
+```json
+{
+  "postal_code": "97400",
+  "country_code": "RE",
+  "code_system": "NUTS",
+  "match_type": "exact",
+  "nuts1": "FRY", "nuts1_name": "RUP FR — Régions Ultrapériphériques Françaises", "nuts1_confidence": 1.0,
+  "nuts2": "FRY4", "nuts2_name": "La Réunion", "nuts2_confidence": 1.0,
+  "nuts3": "FRY40", "nuts3_name": "La Réunion", "nuts3_confidence": 1.0,
+  "territory": {
+    "id": "RE", "iso": "RE", "name": "Réunion",
+    "status": "outermost_region", "administering_country": "FR",
+    "legal_basis": "TFEU Art. 349", "note": null, "nuts_coverage": "full"
+  }
+}
+```
+
+#### Two routes to the same answer
+
+A territory is reachable by its own ISO code or by the administering country's code, and both
+return the same body apart from the echoed `country_code`: `GL/3900` = `DK/3900`,
+`NC/98800` = `FR/98800`, `SJ/9170` = `NO/9170`.
+
+Substitution is asymmetric, though. A code that is well-formed for the administering country
+but does not belong to the named territory returns `404` rather than the mainland answer —
+`GL/2100` is a valid Danish code for Copenhagen, but it is not Greenlandic, and `SJ/0150` is
+Oslo, not Svalbard.
+
+The whole-country territories — `FO`, `GI`, `JE`, `GG` and `IM` — are the exception to "two
+routes": they have no postal prefix of their own within the administering country's scheme, so
+only their own ISO code resolves. `JE/JE2 3XP` returns `200`; `UK/JE2 3XP` returns `404`.
+
 The service accepts postal codes with or without country prefixes. For example, all of the following resolve to the same result for Austria: `1010`, `A-1010`, `AT-1010`, `A1010`.
 
 Greece uses the GISCO code `EL`, but you can query with either `EL` or `GR` — the service maps `GR` to `EL` automatically.
@@ -262,7 +387,7 @@ GET /pattern
 ```
 
 ```json
-["AL", "AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FO", "FR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "SE", "SI", "SK", "TR"]
+["AL", "AT", "BE", "BG", "BL", "CH", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FO", "FR", "GF", "GG", "GI", "GL", "GP", "HR", "HU", "IE", "IM", "IS", "IT", "JE", "LI", "LT", "LU", "LV", "ME", "MF", "MK", "MQ", "MT", "NC", "NL", "NO", "PF", "PL", "PM", "PT", "RE", "RO", "RS", "SE", "SI", "SJ", "SK", "TF", "TR", "UK", "WF", "YT"]
 ```
 
 ```
@@ -276,6 +401,11 @@ GET /pattern?country=AT
   "example": "1010, A-1010, AT-1010"
 }
 ```
+
+A territory code returns the administering country's pattern — `GET /pattern?country=RE`
+echoes `country_code: "RE"` with FR's regex. Aruba, Curaçao, Sint Maarten and Bonaire/Saba/Sint
+Eustatius (`AW`, `CW`, `SX`, `BQ`) use no postal codes at all, so this endpoint returns `404`
+for them rather than a pattern.
 
 ### `GET /resolve`
 
@@ -296,14 +426,14 @@ curl -s "localhost:8000/resolve?country=NL&postal_code=1012AB&street=Dam&city=Am
 
 **Response fields:** `country_code`, `postal_code`, `resolved_via`
 (`postal` | `geocode` | `none`), `match_type`, `nuts1..nuts3` (+ `_name`),
-`nuts3_confidence`, and a `geocode` object: `status`, `lat`, `lon`, `nuts3`,
-`snap_km`.
+`nuts3_confidence`, `territory` (see [The `territory` block](#the-territory-block)), and a
+`geocode` object: `status`, `lat`, `lon`, `nuts3`, `snap_km`.
 
 `geocode.status` values:
 
 | status | meaning |
 |---|---|
-| `not_attempted` | postal result was strong enough; geocoding skipped |
+| `not_attempted` | postal result was strong enough, or the code is inside a territory with `nuts_coverage: "none"`; geocoding skipped |
 | `ok` | geocoded and the point fell inside a NUTS-3 region |
 | `snapped` | point was just outside; snapped to the nearest same-country region (`snap_km`) |
 | `pip_outside` | geocoded but the point is outside all NUTS regions and beyond the snap cap |
@@ -312,6 +442,10 @@ curl -s "localhost:8000/resolve?country=NL&postal_code=1012AB&street=Dam&city=Am
 | `geocoder_unavailable` | Lite tier — no geocoder configured |
 
 In Lite, `/resolve` returns the postal result with `geocode.status: geocoder_unavailable`.
+
+A territory outside NUTS (`nuts_coverage: "none"`) skips the geocoder entirely, even in Full —
+no NUTS polygon covers those territories, so there is nothing for point-in-polygon to resolve
+against. `resolved_via` is `"none"` and `geocode.status` is `"not_attempted"`.
 
 ### `GET /health`
 
@@ -331,7 +465,8 @@ Returns service status and data statistics.
   "token_db_stale": null,
   "estimates_refresh_stale": null,
   "geocoder_configured": false,
-  "pip_ready": false
+  "pip_ready": false,
+  "territories": 26
 }
 ```
 
@@ -347,6 +482,7 @@ Returns service status and data statistics.
 | `estimates_refresh_stale` | `true` if the last periodic estimates refresh failed; `null` if `PC2NUTS_ESTIMATES_REFRESH_URL` is unset |
 | `geocoder_configured` | `true` if `PC2NUTS_PHOTON_URL` is set (Full tier active) |
 | `pip_ready` | `true` if NUTS polygons are loaded, i.e. point-in-polygon resolution is available for `/resolve` |
+| `territories` | Number of entries in the territory registry (currently 26) |
 
 ## Error handling
 
@@ -356,7 +492,7 @@ The API uses standard HTTP status codes with human-readable error messages:
 |--------|---------|------|
 | **200** | Success | Lookup found, pattern returned, health OK, or resolve completed (even when unresolved — see `resolved_via: "none"`) |
 | **400** | Bad request | Country code is not supported (lists available countries) |
-| **404** | Not found | Postal code not found (shows expected format), or no pattern for country. `/resolve` never 404s. |
+| **404** | Not found | Postal code not found (shows expected format), no pattern for country, a postal code that is well-formed but does not belong to the named territory, or a `/pattern` request for a territory with no postal system. `/resolve` never 404s. |
 | **422** | Validation error | Parameter format invalid (e.g. country code not 2 letters, contains digits) |
 | **429** | Too many requests | Rate limit exceeded (configurable via `PC2NUTS_RATE_LIMIT`) |
 
@@ -370,6 +506,16 @@ Unsupported country (400):
 Postal code not found (404) — includes expected format hint:
 ```json
 {"detail": "No NUTS mapping found for postal code 'Traiskirchen' in country 'AT'. Expected format: 1010, A-1010, AT-1010"}
+```
+
+Code outside the named territory (404) — `GL/2100` is a valid Danish code, but not Greenlandic:
+```json
+{"detail": "Postal code '2100' is not a Greenland code. Greenland uses the DK postal scheme; codes outside its range belong to another territory or to DK itself."}
+```
+
+Territory with no postal system, on `/pattern` (404):
+```json
+{"detail": "Aruba uses no postal codes."}
 ```
 
 Invalid parameter format (422):
@@ -446,7 +592,7 @@ User input: "Traiskirchen"
 | EL | 5 digits or 2+3 / 3+2 with space | GR-, EL- | `10431`, `GR-10431`, `EL-10431`, `105 57` |
 | ES | 5 digits | E- | `28001`, `E-28001` |
 | FI | 5 digits | FI- | `00100`, `FI-00100` |
-| FO | 3 digits (no NUTS coverage — resolves to synthetic `FO000` via Tier 6, `approximate`/capped confidence) | FO- | `100`, `FO-100`, `FO 100` |
+| FO | 3 digits (outside NUTS — returns a `territory` block, `nuts_coverage: "none"`) | FO- | `100`, `FO-100`, `FO 100` |
 | FR | 5 digits | F- | `75001`, `F-75001` |
 | HR | 5 digits | HR- | `10000`, `HR-10000` |
 | HU | 4 digits | H- | `1011`, `H-1011` |
@@ -667,6 +813,10 @@ If only the DB env vars are unset (`PC2NUTS_TRUSTED_TOKENS` still set), behaviou
 This section describes the **postal-code → NUTS resolution path** — the sole mechanism behind `GET /lookup`, and the first stage that `GET /resolve` always tries before falling back to geocoding. It is identical in both the Lite and Full tiers.
 
 The service resolves postal codes using a five-tier fall-through strategy. Each tier adds coverage for codes not found by the tier above, and every result includes a `match_type` and per-level confidence scores so consumers can decide how much to trust the result.
+
+Before any tier runs, the territory registry classifies the input. For a territory outside
+NUTS only Tier 1 may run — every approximation tier is unreachable, which is what stops an
+OCT postal code from being answered with a neighbouring European region.
 
 ### Tier 1: Exact match (`match_type: "exact"`)
 

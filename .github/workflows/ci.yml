@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch: {}
@@ -22,6 +23,12 @@ jobs:
   # Data files bundled into the container image (tercet_missing_codes.csv,
   # docker-entrypoint.sh) ARE code-relevant — a change to either affects
   # what ships in `ghcr.io/.../:latest`, so they belong in the filter.
+  #
+  # On a `v*` tag push, dorny/paths-filter has no usable `base:` (the tag has
+  # no prior ref to diff against) and can resolve `code` to `false`. Every
+  # gate step below therefore also runs when `startsWith(github.ref,
+  # 'refs/tags/v')`, so a tagged release always lints, tests and audits the
+  # image it publishes rather than trusting a possibly-wrong filter result.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -50,17 +57,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pip install ruff
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: ruff check app/ scripts/
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: ruff format --check app/ scripts/
-      - if: needs.changes.outputs.code != 'true'
+      - if: needs.changes.outputs.code != 'true' && !startsWith(github.ref, 'refs/tags/v')
         run: echo "Docs-only change — skipping lint."
 
   import-check:
@@ -68,15 +75,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pip install -r requirements.txt
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: python -c "from app.main import app; print('imports OK')"
-      - if: needs.changes.outputs.code != 'true'
+      - if: needs.changes.outputs.code != 'true' && !startsWith(github.ref, 'refs/tags/v')
         run: echo "Docs-only change — skipping import-check."
 
   security:
@@ -84,19 +91,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pip install -r requirements.txt
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         name: Dependency audit
         run: pip install pip-audit && pip-audit -r requirements.lock
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         name: Static security analysis
         run: pip install bandit && bandit -r app/ -c pyproject.toml
-      - if: needs.changes.outputs.code != 'true'
+      - if: needs.changes.outputs.code != 'true' && !startsWith(github.ref, 'refs/tags/v')
         run: echo "Docs-only change — skipping security."
 
   test:
@@ -104,15 +111,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pip install -r requirements-dev.txt
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pytest tests/ -v
-      - if: needs.changes.outputs.code != 'true'
+      - if: needs.changes.outputs.code != 'true' && !startsWith(github.ref, 'refs/tags/v')
         run: echo "Docs-only change — skipping tests."
 
   docker:
@@ -120,22 +127,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         name: Build image
         run: docker build -t postalcode2nuts .
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         name: Verify non-root user
         run: |
           user=$(docker run --rm postalcode2nuts whoami)
           echo "Container user: $user"
           [ "$user" = "appuser" ] || exit 1
-      - if: needs.changes.outputs.code != 'true'
+      - if: needs.changes.outputs.code != 'true' && !startsWith(github.ref, 'refs/tags/v')
         run: echo "Docs-only change — skipping docker build."
 
   publish:
     # workflow_dispatch on main always publishes (the whole point of a manual
     # trigger); push to main publishes only if a code-relevant file changed.
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.changes.outputs.code == 'true'))
+    if: (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.changes.outputs.code == 'true'))) || startsWith(github.ref, 'refs/tags/v')
     needs: [changes, lint, import-check, test, security, docker]
     runs-on: ubuntu-latest
     steps:
@@ -150,8 +157,10 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}
       - uses: docker/build-push-action@v7
         with:
           context: .

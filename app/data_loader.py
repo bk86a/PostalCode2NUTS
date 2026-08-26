@@ -19,6 +19,8 @@ import httpx2 as httpx
 from app.albania_blocks import SUPPORTED as AL_SUPPORTED
 from app.albania_blocks import resolve_al_block
 from app.config import settings
+from app.territories import classify as classify_territory
+from app.territories import load_territories, territory_iso_codes
 
 _NUTS3_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{1,3}$")
 
@@ -42,14 +44,6 @@ _prefix_index: dict[str, dict[str, list[str]]] = {}
 # Countries with a single NUTS3 region: country_code -> nuts3 code
 _single_nuts3: dict[str, str] = {}
 
-# Territories with NO NUTS coverage: country_code -> fabricated NUTS3-style code
-# (e.g. FO -> FO000). Resolved via Tier 6 as approximate/capped confidence.
-_synthetic_nuts: dict[str, str] = {}
-
-# Region display names for synthetic (non-NUTS) territories, keyed by country
-# code. Kept here (not in settings) so synthetic_nuts_fallback stays cc->code.
-_SYNTHETIC_NAMES: dict[str, str] = {"FO": "Faroe Islands"}
-
 # Country-level majority-vote fallback for countries where NUTS1/NUTS2
 # are unanimous but NUTS3 has a dominant winner (e.g. MT → MT0/MT00/MT001)
 _country_fallback: dict[str, dict] = {}
@@ -70,6 +64,8 @@ _extra_source_count: int = 0
 
 # Protects against concurrent reload
 _data_lock = threading.Lock()
+
+load_territories()
 
 
 def normalize_postal_code(code: str) -> str:
@@ -113,7 +109,7 @@ def get_loaded_countries() -> set[str]:
         {cc for cc, _ in _lookup}
         | {cc for cc, _ in _estimates}
         | set(_single_nuts3.keys())
-        | set(_synthetic_nuts.keys())
+        | territory_iso_codes()
         | set(AL_SUPPORTED)
     )
 
@@ -865,23 +861,6 @@ def _build_prefix_index() -> None:
     if _single_nuts3:
         logger.info("Single-NUTS3 countries: %s", ", ".join(sorted(_single_nuts3)))
 
-    # Synthetic single-region fallback for territories with NO NUTS coverage
-    # (e.g. FO). Fabricated codes → approximate provenance at lookup time.
-    _synthetic_nuts.clear()
-    for cc, nuts3 in settings.synthetic_nuts_fallback.items():
-        _synthetic_nuts[cc] = nuts3
-        # Inject a per-country region name so output is not null. Applied here
-        # (after GISCO names load in both load paths) and only for codes not
-        # already present, so real names are never overwritten. A territory
-        # without an entry in _SYNTHETIC_NAMES gets null names rather than the
-        # wrong name.
-        name = _SYNTHETIC_NAMES.get(cc)
-        if name is not None:
-            for code in (nuts3[:3], nuts3[:4], nuts3):
-                _nuts_names.setdefault(code, name)
-    if _synthetic_nuts:
-        logger.info("Synthetic-NUTS territories: %s", ", ".join(sorted(_synthetic_nuts)))
-
     # Country-level majority-vote fallback for countries NOT in _single_nuts3
     # where NUTS1 and NUTS2 are unanimous but NUTS3 has a dominant winner
     _country_fallback.clear()
@@ -1261,9 +1240,8 @@ def _build_result(match_type: str, nuts3: str, nuts1: str = "", nuts2: str = "",
 def _matches_pattern(cc: str, raw: str) -> bool:
     """True if raw input matches the country's compiled postal pattern.
 
-    Used as a format guard for synthetic (Tier 6) countries so that, unlike the
-    single-NUTS3 tier, FO accepts only well-formed input. Imported locally to
-    avoid the postal_patterns ↔ data_loader circular import.
+    Used as a format guard for territory input. Imported locally to avoid the
+    postal_patterns ↔ data_loader circular import.
     """
     from app.postal_patterns import _COMPILED, _preprocess, POSTAL_PATTERNS
 
@@ -1274,7 +1252,7 @@ def _matches_pattern(cc: str, raw: str) -> bool:
     return pat.match(cleaned.upper()) is not None
 
 
-def lookup(country_code: str, postal_code: str) -> dict | None:
+def _lookup_cascade(country_code: str, postal_code: str) -> dict | None:
     """Look up NUTS codes for a given country + postal code.
 
     Tiered fall-through:
@@ -1286,8 +1264,6 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     3. Runtime prefix-based estimation → calculated confidence
     4. Country-level majority vote → unanimous NUTS1/2, dominant NUTS3 (e.g. MT)
     5. Single-NUTS3 country fallback → confidence 1.0 (e.g. LI, CY, LU)
-    6. Synthetic single-region fallback → match_type='approximate', capped
-       confidence (e.g. FO → FO000; fabricated, not a real NUTS code)
 
     Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
@@ -1379,18 +1355,100 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
     if nuts3 is not None:
         return _build_result("estimated", nuts3)
 
-    # Tier 6: Synthetic single-region fallback for non-NUTS territories (e.g. FO).
-    # Fabricated code → approximate match_type, capped confidence. Format-guarded
-    # so only well-formed input resolves (contrast Tier 5, which fires on cc alone).
-    syn = _synthetic_nuts.get(cc)
-    if syn is not None and _matches_pattern(cc, postal_code):
-        caps = settings.approximate_confidence_caps
-        return _build_result(
-            "approximate",
-            syn,
-            nuts1_confidence=caps["nuts1"],
-            nuts2_confidence=caps["nuts2"],
-            nuts3_confidence=caps["nuts3"],
-        )
-
     return None
+
+
+def _territory_payload(t, nuts_coverage: str) -> dict:
+    return {
+        "id": t.id,
+        "iso": t.iso,
+        "name": t.name,
+        "status": t.status,
+        "administering_country": t.administering_country,
+        "legal_basis": t.legal_basis,
+        "note": t.note,
+        "nuts_coverage": nuts_coverage,
+    }
+
+
+def _territory_only_result(t) -> dict:
+    """A 200-shaped result stating the territory and the absence of a NUTS code."""
+    return {
+        "code_system": "NUTS",
+        "match_type": None,
+        "nuts1": None,
+        "nuts1_name": None,
+        "nuts1_confidence": None,
+        "nuts2": None,
+        "nuts2_name": None,
+        "nuts2_confidence": None,
+        "nuts3": None,
+        "nuts3_name": None,
+        "nuts3_confidence": None,
+        "territory": _territory_payload(t, "none"),
+    }
+
+
+def lookup(country_code: str, postal_code: str) -> dict | None:
+    """Look up NUTS codes for a given country + postal code.
+
+    Territory gate first (see app/territories.py), then the tier cascade:
+
+    - Not a territory → the cascade runs unchanged.
+    - Territory Eurostat classifies (``in_nuts``) → the full cascade runs against
+      the administering country, and the result is labelled ``full``.
+    - Territory outside NUTS → tier 1 (exact TERCET) only. A hit is labelled
+      ``tercet_entry_only``; a miss returns a territory-only result. No
+      approximation, prefix chain or fabricated code can be reached.
+
+    Returns None when the input is unusable — an unknown code, or a postal code
+    submitted under a territory ISO code it does not belong to.
+    """
+    from app.postal_patterns import extract_postal_code
+
+    cc = normalize_country(country_code)
+    probe_cc = cc
+    t = None
+    cls = classify_territory(cc, postal_code, extract_postal_code)
+    if cls is not None:
+        t = cls.territory
+        probe_cc = t.validate_as or t.administering_country
+        # An ISO-route code outside the territory's own ranges must not be
+        # answered from the administering country's data: GL/2100 is a
+        # well-formed Danish code, but it is not Greenlandic.
+        if t.has_postal_system and not cls.postal_in_territory:
+            return None
+
+    if t is None:
+        return _lookup_cascade(cc, postal_code)
+
+    # Extracted once, reused by the pattern guard and the tier-1 probe below —
+    # validating the guard against the raw string let wide-prefix territories
+    # (e.g. ES-CN, PT-20) reject input (spacing, punctuation) that the cascade
+    # itself would have accepted after extraction.
+    extracted = extract_postal_code(probe_cc, postal_code)
+    if t.has_postal_system and not _matches_pattern(probe_cc, extracted):
+        return None
+
+    if t.in_nuts:
+        result = _lookup_cascade(probe_cc, postal_code)
+        if result is None:
+            return None
+        result["territory"] = _territory_payload(t, "full")
+        return result
+
+    # Outside NUTS: tier 1 only. A territory with no postal system
+    # (has_postal_system is False, e.g. the Dutch OCTs) cannot have a
+    # postal-keyed Eurostat row by construction, so the probe never runs for
+    # it — probe_cc would otherwise fall back to the administering country and
+    # the raw code could key straight into that country's real data (e.g.
+    # AW/1012 must never resolve as NL's Amsterdam row). whole_country
+    # territories likewise have no Eurostat rows by construction — an
+    # attributed code would be listed as exact or prefix.
+    if t.has_postal_system and not t.whole_country:
+        nuts3 = _lookup.get((probe_cc, extracted))
+        if nuts3 is not None:
+            result = _build_result("exact", nuts3)
+            result["territory"] = _territory_payload(t, "tercet_entry_only")
+            return result
+    return _territory_only_result(t)

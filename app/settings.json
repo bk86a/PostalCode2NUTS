@@ -11,9 +11,6 @@
   "single_nuts3_fallback": {
     "ME": "ME000"
   },
-  "synthetic_nuts_fallback": {
-    "FO": "FO000"
-  },
   "confidence_map": {
     "high":   {"nuts3": 0.90, "nuts2": 0.95, "nuts1": 0.98},
     "medium": {"nuts3": 0.70, "nuts2": 0.80, "nuts1": 0.90},

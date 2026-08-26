@@ -116,13 +116,5 @@ class Settings(BaseSettings):
         resolve via the Tier 5 fallback."""
         return _defaults.get("single_nuts3_fallback", {})
 
-    @property
-    def synthetic_nuts_fallback(self) -> dict[str, str]:
-        """Country → fabricated NUTS-style code for territories with NO NUTS
-        coverage (e.g. FO → FO000). Resolved via the Tier 6 fallback with
-        match_type='approximate' and capped confidence, since the code is not a
-        real NUTS code (contrast single_nuts3_fallback, e.g. ME)."""
-        return _defaults.get("synthetic_nuts_fallback", {})
-
 
 settings = Settings()

@@ -3,6 +3,31 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class TerritoryInfo(BaseModel):
+    """Identifies an EU outermost region, OCT, or other non-NUTS territory."""
+
+    id: str = Field(description="Registry id — the ISO code where one exists, else e.g. 'ES-CN'")
+    iso: str | None = Field(default=None, description="ISO 3166-1 alpha-2 code, where one exists")
+    name: str = Field(description="Territory name")
+    status: Literal["outermost_region", "oct", "other"] = Field(
+        description=(
+            "'outermost_region' — Art. 349 TFEU, full EU territory; "
+            "'oct' — Part Four TFEU, associated with but not part of the EU; "
+            "'other' — any other territory outside the ordinary NUTS country set"
+        )
+    )
+    administering_country: str = Field(description="ISO 3166-1 alpha-2 code of the administering country")
+    legal_basis: str | None = Field(default=None, description="Treaty provision establishing the status")
+    note: str | None = Field(default=None, description="Plain-language explanation of the territory's position")
+    nuts_coverage: Literal["full", "tercet_entry_only", "none"] = Field(
+        description=(
+            "'full' — Eurostat classifies the territory and the code resolved; "
+            "'tercet_entry_only' — the territory is outside NUTS but the GISCO TERCET "
+            "file carries this exact code; 'none' — no NUTS code exists, all nuts fields null"
+        )
+    )
+
+
 class NUTSResult(BaseModel):
     postal_code: str = Field(description="The queried postal code (normalized)")
     country_code: str = Field(description="ISO 3166-1 alpha-2 country code")
@@ -13,18 +38,29 @@ class NUTSResult(BaseModel):
             "EU/EFTA/candidate data; 'ITL' for UK data from the ONS NSPL."
         ),
     )
-    match_type: Literal["exact", "estimated", "approximate"] = Field(
-        description="How the result was determined"
+    match_type: Literal["exact", "estimated", "approximate"] | None = Field(
+        default=None,
+        description="How the result was determined; null when no NUTS code was produced",
     )
-    nuts1: str = Field(description="NUTS level 1 code")
+    nuts1: str | None = Field(default=None, description="NUTS level 1 code")
     nuts1_name: str | None = Field(default=None, description="NUTS level 1 region name (Latin script)")
-    nuts1_confidence: float = Field(description="Confidence score for NUTS1 (0.0–1.0)", ge=0.0, le=1.0)
-    nuts2: str = Field(description="NUTS level 2 code")
+    nuts1_confidence: float | None = Field(
+        default=None, description="Confidence score for NUTS1 (0.0–1.0)", ge=0.0, le=1.0
+    )
+    nuts2: str | None = Field(default=None, description="NUTS level 2 code")
     nuts2_name: str | None = Field(default=None, description="NUTS level 2 region name (Latin script)")
-    nuts2_confidence: float = Field(description="Confidence score for NUTS2 (0.0–1.0)", ge=0.0, le=1.0)
-    nuts3: str = Field(description="NUTS level 3 code")
+    nuts2_confidence: float | None = Field(
+        default=None, description="Confidence score for NUTS2 (0.0–1.0)", ge=0.0, le=1.0
+    )
+    nuts3: str | None = Field(default=None, description="NUTS level 3 code")
     nuts3_name: str | None = Field(default=None, description="NUTS level 3 region name (Latin script)")
-    nuts3_confidence: float = Field(description="Confidence score for NUTS3 (0.0–1.0)", ge=0.0, le=1.0)
+    nuts3_confidence: float | None = Field(
+        default=None, description="Confidence score for NUTS3 (0.0–1.0)", ge=0.0, le=1.0
+    )
+    territory: TerritoryInfo | None = Field(
+        default=None,
+        description="Present when the postal code lies in an outermost region, an OCT, or another non-NUTS territory",
+    )
 
 
 class ErrorResponse(BaseModel):
@@ -53,6 +89,7 @@ class HealthResponse(BaseModel):
     estimates_refresh_stale: bool | None = None
     geocoder_configured: bool = Field(default=False, description="True if PC2NUTS_PHOTON_URL is set")
     pip_ready: bool = Field(default=False, description="True if NUTS polygons loaded for /resolve")
+    territories: int = Field(default=0, description="Number of territories in the registry")
 
 
 class GeocodeInfo(BaseModel):
@@ -87,4 +124,5 @@ class ResolveResponse(BaseModel):
     nuts3: str | None = None
     nuts3_name: str | None = None
     nuts3_confidence: float | None = None
+    territory: TerritoryInfo | None = None
     geocode: GeocodeInfo

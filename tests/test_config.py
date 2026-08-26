@@ -59,12 +59,6 @@ class TestEstimatesRefreshSettings:
             Settings()
 
 
-def test_synthetic_nuts_fallback_has_fo():
-    from app.config import settings
-
-    assert settings.synthetic_nuts_fallback.get("FO") == "FO000"
-
-
 class TestNSPLSettings:
     def test_nspl_url_defaults_empty(self):
         assert Settings().nspl_url == ""

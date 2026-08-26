@@ -14,6 +14,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the lockfile - which the CI `security` gate audits - is regenerated
   separately.
 
+## [2.0.0] - 2026-08-26
+
+Territory awareness. The service now states whether a postal code lies in an EU
+outermost region or an overseas country or territory, and no longer fabricates a
+NUTS code for territories Eurostat does not classify.
+
+### Added
+
+- Territory registry (`app/territories.py`, `app/territories.json`): 26 entries
+  covering the 9 outermost regions, the 13 Annex II OCTs (11 ISO codes) and 6 other
+  European territories.
+- `territory` block on `/lookup` and `/resolve` responses, carrying `id`, `iso`,
+  `name`, `status`, `administering_country`, `legal_basis`, `note` and
+  `nuts_coverage`. `null` for ordinary lookups.
+- 22 new territory ISO codes accepted as the `country` parameter: `GP` `MQ` `GF`
+  `RE` `YT` `MF` `GL` `PF` `NC` `WF` `PM` `BL` `TF` `AW` `CW` `SX` `BQ` `SJ` `GI`
+  `JE` `GG` `IM`. They previously returned `400`. The registry holds 23 ISO codes
+  in total — `FO` was already supported — bringing accepted country codes to 59
+  (60 with UK/ITL configured via `PC2NUTS_NSPL_URL`).
+- Svalbard and Jan Mayen coverage: `SJ/8099` → `NO0B1`, `SJ/9170`–`9178` → `NO0B2`.
+- `territories` count on `/health`.
+
+### Changed
+
+- **Breaking.** `match_type`, `nuts1`/`nuts2`/`nuts3` and their `_name` and
+  `_confidence` companions are nullable.
+- **Breaking.** Postal codes in territories outside NUTS return `200` with
+  `nuts_coverage: "none"` and null NUTS fields instead of an approximated region.
+  Affects French `975xx`, `977xx`, `978xx`, `984xx`, `986xx`, `987xx`, `988xx` and
+  Danish `39xx`. `FR/98800` (Nouméa) previously returned `FRL03` Alpes-Maritimes at
+  0.40 via a prefix chain onto Monaco's `98000`; `DK/3900` (Nuuk) previously
+  returned `DK013` Nordsjælland at 0.20.
+- **Breaking.** `FR/97150` Saint-Martin no longer returns `FRY10` at 0.60. It is an
+  outermost region with no NUTS code of its own.
+- `FR/97133` Saint-Barthélemy keeps `FRY10` at 1.0 but is now flagged
+  `nuts_coverage: "tercet_entry_only"` — the code comes from Eurostat's own FR file
+  even though the territory is an OCT.
+- A postal code submitted under a territory ISO code it does not belong to returns
+  `404` naming the territory, rather than answering from the administering
+  country's data. `GL/2100` and `SJ/0150` are the motivating cases.
+- `/resolve` skips geocoding entirely when `nuts_coverage` is `none`; no NUTS
+  polygon covers those territories.
+- `/pattern` resolves territory codes to the administering country's pattern, and
+  returns `404` for the four territories that use no postal codes.
+- The CI `publish` job also runs on `v*` tags and pushes semver-tagged images.
+
+### Removed
+
+- **Breaking.** Tier 6, the synthetic single-region fallback, and with it the
+  fabricated Faroe Islands codes `FO0`/`FO00`/`FO000`. Those codes were invented by
+  this project, not published by Eurostat. The `synthetic_nuts_fallback` key in
+  `app/settings.json` and the matching `config.settings` property are gone.
+  Montenegro's `ME000` and Albania's block-resolved codes are unaffected — both are
+  genuine Eurostat codes that merely lack a TERCET file.
+
 ## [1.1.2] - 2026-08-14
 
 Maintenance release: dependency currency and an HTTP-client migration. No API
