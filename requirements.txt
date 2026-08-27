@@ -1,6 +1,6 @@
 fastapi>=0.141.1,<1
-uvicorn[standard]>=0.52.3,<1
-httpx2>=2.10.0,<3
+uvicorn[standard]>=0.52.4,<1
+httpx2>=2.12.0,<3
 pydantic>=2.13.4,<3
 pydantic-settings>=2.15.0,<3
 slowapi>=0.1.10,<1
@@ -9,4 +9,4 @@ limits[redis]>=5.8.0
 shapely>=2.1.2,<3
 python-dotenv>=1.2.3,<2
 # Transitive (via httpx2); pinned to clear CVE-2026-45409
-idna>=3.18,<4
+idna>=3.19,<4
