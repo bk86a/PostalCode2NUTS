@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `GET /pattern` now returns a regex narrowed to the territory's own postal range
+  for the six ISO-coded territories that are both linked to NUTS and postal-coded:
+  `GP`, `MQ`, `GF`, `RE`, `YT` and `SJ`. Previously it echoed the administering
+  country's pattern verbatim, so `/pattern?country=RE` validated Paris's `75001`
+  as a Réunion code while `/lookup?country=RE&postal_code=75001` correctly refused
+  it. Only the digits are restricted - the parent's accepted country prefixes
+  (`F-`, `FR-`, `NO-`) still validate - and the `example` field is rebuilt around a
+  code from the territory's own range.
+- No `/lookup` behaviour change: it already gated on the registry's own ranges.
+  This closes a reporting gap, not a validation gap.
+- Territories that fail either condition are unchanged: the OCTs and Saint-Martin
+  have postal codes but no NUTS link, and the Crown Dependencies have no prefix
+  range to narrow to.
+
 ### Security
 
 - **Rate limiting could be bypassed by any caller.** The image ran uvicorn with

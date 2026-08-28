@@ -1,5 +1,7 @@
 """Endpoint behaviour for outermost regions, OCTs and other non-NUTS territories."""
 
+import re
+
 from app import data_loader
 
 
@@ -66,9 +68,19 @@ def test_unsupported_country_still_400s(client):
     assert r.status_code == 400
 
 
-def test_pattern_returns_the_parent_pattern_for_a_territory(client):
+def test_pattern_narrows_to_the_territorys_own_range_when_it_is_in_nuts(client):
+    """A territory Eurostat classifies advertises its own range, not the parent's:
+    FR's pattern would validate Paris's 75001 as a Réunion code."""
     body = client.get("/pattern", params={"country": "RE"}).json()
     assert body["country_code"] == "RE"
+    assert body["regex"] != client.get("/pattern", params={"country": "FR"}).json()["regex"]
+    assert re.match(body["regex"], "97400")
+    assert not re.match(body["regex"], "75001")
+
+
+def test_pattern_keeps_the_parent_pattern_for_a_territory_outside_nuts(client):
+    """Deliberate scope: only the NUTS-linked territories are narrowed for now."""
+    body = client.get("/pattern", params={"country": "NC"}).json()
     assert body["regex"] == client.get("/pattern", params={"country": "FR"}).json()["regex"]
 
 
