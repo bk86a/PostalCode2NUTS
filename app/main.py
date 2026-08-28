@@ -44,7 +44,7 @@ from app.models import (
 )
 from app.nuts_polygons import load_nuts_pip
 from app.photon_client import PhotonClient
-from app.postal_patterns import PATTERNS_META, POSTAL_PATTERNS
+from app.postal_patterns import PATTERNS_META, POSTAL_PATTERNS, narrow_to_ranges
 from app.resolver import resolve as _resolve
 from app.territories import (
     count as territory_count,
@@ -420,6 +420,12 @@ def get_pattern(
                 detail=f"{terr.name} uses no postal codes.",
             )
         pattern = POSTAL_PATTERNS.get(terr.validate_as)
+        # A territory Eurostat classifies resolves to a NUTS code of its own, so
+        # the pattern it advertises must describe its own range rather than the
+        # administering country's whole numbering space: FR's pattern would call
+        # Paris's 75001 a valid Réunion code, which /lookup already refuses.
+        if pattern is not None and terr.in_nuts:
+            pattern = narrow_to_ranges(pattern, terr.exact, terr.prefixes) or pattern
     else:
         pattern = POSTAL_PATTERNS.get(cc)
     if pattern is None:

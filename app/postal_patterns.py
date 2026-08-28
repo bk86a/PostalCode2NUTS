@@ -130,3 +130,50 @@ def extract_postal_code(country_code: str, raw_input: str) -> str:
                 code = _apply_tercet_map(code, tercet_map)
             return code
     return normalize_postal_code(cleaned)
+
+
+# The single all-digit capture group that every narrowable parent pattern uses,
+# e.g. FR's ``([0-9]{5})``. Territories carve a prefix range out of that group.
+_DIGIT_GROUP = re.compile(r"\(\[0-9\]\{(\d+)\}\)")
+
+
+def narrow_to_ranges(parent: dict, exact: tuple[str, ...], prefixes: tuple[str, ...]) -> dict | None:
+    """Restrict a parent country's pattern to a territory's own postal ranges.
+
+    A territory validated against its administering country accepts that country's
+    whole numbering space, so FR's pattern would call Paris's ``75001`` a valid
+    Réunion code. ``/lookup`` already rejects it — the registry knows Réunion is
+    ``974xx`` — so this narrows the *reported* pattern to the same ranges, leaving
+    the parent's accepted country prefixes (``F-``, ``FR-``) untouched.
+
+    Returns None when narrowing is not possible: no ranges to narrow to, or a
+    parent pattern that is not a single all-digit group (only FR and NO are needed
+    today; PT and ES split their codes across two groups). Callers fall back to
+    the parent pattern unchanged.
+    """
+    if not exact and not prefixes:
+        return None
+    digits = parent.get("expected_digits")
+    if not digits:
+        return None
+    groups = _DIGIT_GROUP.findall(parent["regex"])
+    if len(groups) != 1 or int(groups[0]) != digits:
+        return None
+
+    alternatives = list(exact)
+    for prefix in prefixes:
+        rest = digits - len(prefix)
+        if rest < 0:
+            return None
+        alternatives.append(prefix + {0: "", 1: "[0-9]"}.get(rest, f"[0-9]{{{rest}}}"))
+
+    regex = _DIGIT_GROUP.sub("(" + "|".join(alternatives) + ")", parent["regex"], count=1)
+
+    # Rebuild the example around a real code from the territory's own range, so
+    # "75001, F-75001, FR-75001" becomes "97400, F-97400, FR-97400".
+    sample = exact[0] if exact else prefixes[0].ljust(digits, "0")
+    example = parent.get("example", "")
+    parent_sample = re.search(r"\d{2,}", example)
+    example = example.replace(parent_sample.group(), sample) if parent_sample else sample
+
+    return {**parent, "regex": regex, "example": example}

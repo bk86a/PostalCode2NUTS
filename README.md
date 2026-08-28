@@ -402,10 +402,28 @@ GET /pattern?country=AT
 }
 ```
 
-A territory code returns the administering country's pattern — `GET /pattern?country=RE`
-echoes `country_code: "RE"` with FR's regex. Aruba, Curaçao, Sint Maarten and Bonaire/Saba/Sint
-Eustatius (`AW`, `CW`, `SX`, `BQ`) use no postal codes at all, so this endpoint returns `404`
-for them rather than a pattern.
+**Territory codes.** A territory that meets both conditions — it is linked to NUTS, and it has
+postal codes of its own — gets a pattern narrowed to its own range rather than the administering
+country's whole numbering space. Six ISO-coded territories qualify:
+
+| `country` | Regex | Example | Narrowed from |
+|---|---|---|---|
+| `GP` | `^(?:F[…]*\|FR[…]*)?(971[0-9]{2})$` | `97100, F-97100, FR-97100` | FR |
+| `MQ` | `^(?:F[…]*\|FR[…]*)?(972[0-9]{2})$` | `97200, F-97200, FR-97200` | FR |
+| `GF` | `^(?:F[…]*\|FR[…]*)?(973[0-9]{2})$` | `97300, F-97300, FR-97300` | FR |
+| `RE` | `^(?:F[…]*\|FR[…]*)?(974[0-9]{2})$` | `97400, F-97400, FR-97400` | FR |
+| `YT` | `^(?:F[…]*\|FR[…]*)?(976[0-9]{2})$` | `97600, F-97600, FR-97600` | FR |
+| `SJ` | `^(?:N[…]*\|NO[…]*)?(8099\|917[0-9])$` | `8099, N-8099, NO-8099` | NO |
+
+Only the digits are restricted; the parent country's accepted prefixes (`F-`, `FR-`, `NO-`) still
+validate. So `/pattern?country=RE` no longer accepts Paris's `75001` as a Réunion code, which
+matches what `/lookup?country=RE&postal_code=75001` has always answered.
+
+Every other territory code still returns the administering country's pattern unchanged: the OCTs
+and Saint-Martin have postal codes but no NUTS link, and the Crown Dependencies have no prefix
+range to narrow to. Aruba, Curaçao, Sint Maarten and Bonaire/Saba/Sint Eustatius (`AW`, `CW`,
+`SX`, `BQ`) use no postal codes at all, so this endpoint returns `404` for them rather than a
+pattern.
 
 ### `GET /resolve`
 
