@@ -84,7 +84,8 @@ longer emits `400`. `404` now means only that the URL is not a route of this API
 
 Three response models gain `found` (bool) and `message` (string or null); `PatternResponse.regex`
 and `PatternResponse.example` become nullable. Clients with strict schemas must widen those
-types.
+types. `GET /pattern` with no `country` is unaffected — it is a listing, so it still returns a
+plain array of country codes with no `found` field to branch on.
 
 **The `territory` block is renamed to `context`** (`TerritoryInfo` → `ContextInfo`). It covers
 three kinds of place — outermost regions, which are integral parts of a Member State; overseas
