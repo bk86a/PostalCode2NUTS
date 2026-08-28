@@ -52,32 +52,45 @@ own — reach them only through `PT` or `ES` postal codes; the registry keys the
 ## Overseas countries and territories
 
 None of the 13 OCTs has a NUTS region, so no lookup can return one. All eleven ISO-coded
-entries return `200` with a `context` block and `nuts_coverage: "none"` — either on their
-own ISO code, or on a well-formed postal code under the administering country that falls in
-the territory's range.
+registry entries return `200` with a `context` block and `nuts_coverage: "none"` — either on
+their own ISO code, or on a well-formed postal code under the administering country that falls
+in the territory's range. Saint-Barthélemy is the single exception, explained below the table.
 
-| Territory | ISO | Postal codes |
-|---|---|---|
-| Greenland (DK) | `GL` | `39xx` (Danish scheme) |
-| French Polynesia (FR) | `PF` | `987xx` |
-| New Caledonia (FR) | `NC` | `988xx` |
-| Wallis and Futuna (FR) | `WF` | `986xx` |
-| Saint-Pierre-et-Miquelon (FR) | `PM` | `975xx` |
-| Saint-Barthélemy (FR) | `BL` | `97133`, `977xx` |
-| French Southern and Antarctic Lands (FR) | `TF` | `984xx` |
-| Aruba (NL) | `AW` | none |
-| Curaçao (NL) | `CW` | none |
-| Sint Maarten (NL) | `SX` | none |
-| Bonaire, Saba, Sint Eustatius (NL) | `BQ` | none |
+All thirteen, in Annex II order:
+
+| Territory | ISO | Postal codes | NUTS3 | `nuts_coverage` |
+|---|---|---|---|---|
+| Greenland (DK) | `GL` | `39xx` (Danish scheme) | — | `none` |
+| New Caledonia (FR) | `NC` | `988xx` | — | `none` |
+| French Polynesia (FR) | `PF` | `987xx` | — | `none` |
+| French Southern and Antarctic Lands (FR) | `TF` | `984xx` | — | `none` |
+| Wallis and Futuna (FR) | `WF` | `986xx` | — | `none` |
+| Saint-Pierre-et-Miquelon (FR) | `PM` | `975xx` | — | `none` |
+| Saint-Barthélemy (FR) | `BL` | `97133`, `977xx` | `FRY10` (`97133` only) | `tercet_entry_only` for `97133`, `none` for `977xx` |
+| Aruba (NL) | `AW` | none | — | `none` |
+| Curaçao (NL) | `CW` | none | — | `none` |
+| Sint Maarten (NL) | `SX` | none | — | `none` |
+| Bonaire (NL) | `BQ` ¹ | none | — | `none` |
+| Saba (NL) | `BQ` ¹ | none | — | `none` |
+| Sint Eustatius (NL) | `BQ` ¹ | none | — | `none` |
+
+¹ Bonaire, Saba and Sint Eustatius are three separate OCTs under Annex II, but ISO 3166-1
+gives them one shared code. The registry therefore holds them as a single entry named
+*Bonaire, Saba and Sint Eustatius* — which is why the registry counts eleven OCT entries
+where Annex II counts thirteen. A lookup on `BQ` answers for all three.
 
 Saint-Barthélemy is the one exception to "null NUTS": its `97133` code is carried as an actual
 row in the GISCO TERCET FR file, left over from before it became an OCT on 1 January 2012. A
 lookup for `BL/97133` or `FR/97133` returns `200` with `nuts3: "FRY10"` (Guadeloupe) at full
 confidence, flagged `nuts_coverage: "tercet_entry_only"` — Eurostat's own row is honoured, but
-labelled so a consumer can tell it apart from a normal NUTS classification. No other OCT code
-has a TERCET row, so this behaviour is unique to Saint-Barthélemy.
+labelled so a consumer can tell it apart from a normal NUTS classification.
 
-The four Dutch OCTs use no postal codes at all: `has_postal_system` is false in the registry,
+The exception is that one code, not the whole territory. Saint-Barthélemy's other codes — the
+`977xx` block — have no TERCET row, so `BL/97705` answers like every other OCT code: null NUTS
+and `nuts_coverage: "none"`. No other OCT code anywhere has a TERCET row, so `97133` is the
+only `tercet_entry_only` result the service can produce.
+
+The six Dutch OCTs — four ISO codes — use no postal codes at all: `has_postal_system` is false in the registry,
 so a lookup on `AW`, `CW`, `SX` or `BQ` needs no `postal_code` and answers directly from the
 country code; `GET /pattern` for any of them answers `200` with `found: false` and a
 `message` saying so, not a pattern.

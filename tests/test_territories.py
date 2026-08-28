@@ -123,3 +123,65 @@ def test_iso_index_excludes_entries_without_an_iso_code():
     assert {"GP", "MQ", "GF", "RE", "YT", "MF"} <= codes
     assert {"GL", "PF", "NC", "WF", "PM", "BL", "TF", "AW", "CW", "SX", "BQ"} <= codes
     assert {"SJ", "FO", "GI", "JE", "GG", "IM"} <= codes
+
+
+def _oct_table_rows() -> list[list[str]]:
+    """The (Territory, ISO) cells of the OCT table in docs/overseas_territories.md.
+
+    Scoped to the table under the OCT heading, not the whole document: every ISO
+    code and territory name also appears in the surrounding prose, so a document
+    -wide search would pass even with every row deleted.
+    """
+    from pathlib import Path
+
+    doc = (Path(__file__).resolve().parent.parent / "docs" / "overseas_territories.md").read_text(
+        encoding="utf-8"
+    )
+    section = doc.split("## Overseas countries and territories", 1)[1].split("\n## ", 1)[0]
+    lines = [ln.strip() for ln in section.splitlines()]
+    header = next(i for i, ln in enumerate(lines) if ln.startswith("| Territory | ISO |"))
+    rows = []
+    for ln in lines[header + 2 :]:  # skip the header and its |---| separator
+        if not ln.startswith("|"):
+            break
+        cells = [c.strip() for c in ln.strip("|").split("|")]
+        rows.append(cells)
+    return rows
+
+
+def test_the_oct_table_lists_all_thirteen_annex_ii_territories():
+    """Annex II counts 13 OCTs; ISO 3166-1 covers them with 11 codes. The table is
+    per territory, so it must carry 13 rows - one each for Bonaire, Saba and Sint
+    Eustatius, which share `BQ` and would otherwise collapse into a single row."""
+    rows = _oct_table_rows()
+    assert len(rows) == 13, f"expected 13 OCT rows, found {len(rows)}"
+
+    octs = {t.iso: t for t in territories._registry if t.status == "oct"}
+    assert len(octs) == 11
+
+    listed = [(name, iso) for name, iso, *_ in rows]
+    for iso, t in octs.items():
+        if iso == "BQ":
+            continue  # covered by the three-name check below
+        matches = [n for n, i in listed if i.startswith(f"`{iso}`")]
+        assert len(matches) == 1, f"{t.name} ({iso}) must have exactly one row, found {len(matches)}"
+        assert matches[0].startswith(t.name), f"row for {iso} is '{matches[0]}', expected {t.name}"
+
+    bq = [n for n, i in listed if i.startswith("`BQ`")]
+    assert len(bq) == 3, f"BQ covers three Annex II OCTs, found {len(bq)} rows"
+    for name in ("Bonaire", "Saba", "Sint Eustatius"):
+        assert any(n.startswith(name) for n in bq), f"{name} is an Annex II OCT with no table row"
+
+
+def test_the_oct_table_matches_the_registry_postal_ranges():
+    """Postal-code cells are transcribed from app/territories.json - keep them true."""
+    rows = {iso.split("`")[1]: codes for _, iso, codes, *_ in _oct_table_rows()}
+    for t in (t for t in territories._registry if t.status == "oct"):
+        cell = rows[t.iso]
+        if not t.has_postal_system:
+            assert cell == "none", f"{t.iso} has no postal system but the table says '{cell}'"
+            continue
+        for prefix in t.prefixes:
+            assert f"`{prefix}" in cell, f"{t.iso} prefix {prefix} missing from '{cell}'"
+        for code in t.exact:
+            assert f"`{code}`" in cell, f"{t.iso} exact code {code} missing from '{cell}'"

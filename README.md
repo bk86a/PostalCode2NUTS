@@ -43,8 +43,12 @@ and the Netherlands into two categories, and only one of them exists in NUTS:
   (`ES703`–`ES709` at island level), and Saint-Martin — which is an outermost region with no
   NUTS code of its own.
 - **Overseas countries and territories** (Part Four TFEU, Annex II) are associated with the
-  EU but not part of it, and have no NUTS regions at all. Annex II lists thirteen; ISO 3166-1
-  covers them with eleven codes, since Bonaire, Saba and Sint Eustatius share `BQ`.
+  EU but not part of it, and have no NUTS regions at all. All thirteen are supported:
+  Greenland (`GL`), New Caledonia (`NC`), French Polynesia (`PF`), the French Southern and
+  Antarctic Lands (`TF`), Wallis and Futuna (`WF`), Saint-Pierre-et-Miquelon (`PM`),
+  Saint-Barthélemy (`BL`), Aruba (`AW`), Curaçao (`CW`), Sint Maarten (`SX`), and Bonaire,
+  Saba and Sint Eustatius — three separate OCTs that ISO 3166-1 covers with the single code
+  `BQ`, which is why eleven codes reach thirteen territories.
 
 A further six European territories sit outside the ordinary country set: Svalbard and Jan
 Mayen (`SJ`, which *is* in NUTS as `NO0B1`/`NO0B2`), the Faroe Islands, Gibraltar, Jersey,
