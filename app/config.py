@@ -12,6 +12,23 @@ except (json.JSONDecodeError, OSError) as _exc:
     raise SystemExit(f"Fatal: failed to load {_settings_path}: {_exc}") from _exc
 
 
+# Trusted tokens shorter than this are refused at startup. Matches the floor the
+# operator CLI already enforces on `scripts.tokens add --value`.
+MIN_TRUSTED_TOKEN_LENGTH = 32
+
+
+def _fatal(message: str) -> None:
+    """Refuse to start, without pydantic's error echo.
+
+    A ValueError raised from a model validator becomes a ValidationError whose
+    rendering includes the whole settings input dict — which holds
+    PC2NUTS_TRUSTED_TOKENS and PC2NUTS_TOKEN_DB_AUTH_TOKEN verbatim. That would
+    print live credentials into container logs and crash reports on an unrelated
+    misconfiguration, so validation failures exit with their own message instead.
+    """
+    raise SystemExit(f"Fatal: {message}")
+
+
 class Settings(BaseSettings):
     tercet_base_url: str = _defaults["tercet_base_url"]
     data_dir: str = "./data"
@@ -30,6 +47,12 @@ class Settings(BaseSettings):
     estimates_refresh_interval_seconds: int = Field(default=86400, ge=0)
     cache_max_age: int = _defaults.get("cache_max_age", 3600)
     startup_timeout: int = 300
+    # Ceilings on remote bodies we buffer in memory. A hijacked or misbehaving
+    # upstream must not be able to drive the worker out of memory: downloads
+    # abort as soon as they pass the limit. The NUTS polygon zip (~160 MB) is
+    # the largest thing we legitimately fetch; the estimates CSV is ~0.2 MB.
+    max_download_mb: int = Field(default=512, ge=1)
+    max_estimates_download_mb: int = Field(default=64, ge=1)
     docs_enabled: bool = True
     # NSPL (UK postcode → ITL3) — optional, no-op when unset (TERCET-only deployment)
     nspl_url: str = _defaults.get("nspl_url", "")
@@ -62,10 +85,23 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _check_workers_have_shared_storage(self) -> "Settings":
         if self.workers > 1 and not self.rate_limit_storage_uri:
-            raise ValueError(
+            _fatal(
                 "PC2NUTS_WORKERS > 1 requires PC2NUTS_RATE_LIMIT_STORAGE_URI to be set "
                 "(e.g. 'redis://host:6379/0'). Without shared storage the per-IP rate "
                 "limit would silently loosen by a factor of WORKERS."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_trusted_token_length(self) -> "Settings":
+        weak = sum(1 for t in self.trusted_tokens if len(t) < MIN_TRUSTED_TOKEN_LENGTH)
+        if weak:
+            _fatal(
+                f"PC2NUTS_TRUSTED_TOKENS contains {weak} token(s) shorter than "
+                f"{MIN_TRUSTED_TOKEN_LENGTH} characters. An invalid token is rejected "
+                "before the rate limiter runs, so a short one can be guessed without "
+                "limit. Generate a strong token with "
+                "`python -m scripts.tokens add --label <name>` (48 hex chars)."
             )
         return self
 

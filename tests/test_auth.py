@@ -9,6 +9,12 @@ import pytest
 
 
 class TestTrustedTokensConfig:
+    # Parsing semantics, not entropy — but the settings validator enforces a
+    # 32-character floor, so the samples are full-length.
+    A = "a" * 32
+    B = "b" * 40
+    C = "c" * 48
+
     @pytest.fixture(autouse=True)
     def _isolate_env(self, monkeypatch):
         # Clear so each test sets only what it needs
@@ -30,34 +36,41 @@ class TestTrustedTokensConfig:
         assert settings.trusted_tokens == frozenset()
 
     def test_single_token(self, monkeypatch):
-        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "abc123")
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", self.A)
         settings = self._reload_settings()
-        assert settings.trusted_tokens == frozenset({"abc123"})
+        assert settings.trusted_tokens == frozenset({self.A})
 
     def test_multiple_tokens_comma_separated(self, monkeypatch):
-        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "abc,def,ghi")
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", f"{self.A},{self.B},{self.C}")
         settings = self._reload_settings()
-        assert settings.trusted_tokens == frozenset({"abc", "def", "ghi"})
+        assert settings.trusted_tokens == frozenset({self.A, self.B, self.C})
 
     def test_whitespace_stripped(self, monkeypatch):
-        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "  abc , def  ,ghi ")
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", f"  {self.A} , {self.B}  ,{self.C} ")
         settings = self._reload_settings()
-        assert settings.trusted_tokens == frozenset({"abc", "def", "ghi"})
+        assert settings.trusted_tokens == frozenset({self.A, self.B, self.C})
 
     def test_empty_entries_dropped(self, monkeypatch):
-        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "abc,,def,")
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", f"{self.A},,{self.B},")
         settings = self._reload_settings()
-        assert settings.trusted_tokens == frozenset({"abc", "def"})
+        assert settings.trusted_tokens == frozenset({self.A, self.B})
 
     def test_duplicates_deduplicated(self, monkeypatch):
-        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "abc,abc,def")
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", f"{self.A},{self.A},{self.B}")
         settings = self._reload_settings()
-        assert settings.trusted_tokens == frozenset({"abc", "def"})
+        assert settings.trusted_tokens == frozenset({self.A, self.B})
 
     def test_returns_frozenset_not_list(self, monkeypatch):
-        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "abc")
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", self.A)
         settings = self._reload_settings()
         assert isinstance(settings.trusted_tokens, frozenset)
+
+    def test_short_token_refuses_startup(self, monkeypatch):
+        """Failed auth is answered before the rate limiter, so a guessable
+        token would be guessable without limit."""
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "abc123")
+        with pytest.raises(SystemExit):
+            self._reload_settings()
 
 
 # ── token_id helper ──────────────────────────────────────────────────────────
