@@ -26,6 +26,11 @@ import httpx2 as httpx
 # the body on every request — so cap it rather than trust the far end.
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
+# Photon is loopback, so compression buys nothing — ask for none. Without this,
+# the byte ceiling above counts *decoded* bytes, and a compressed body only
+# reveals its true size after inflation.
+_NO_COMPRESSION = {"Accept-Encoding": "identity"}
+
 
 class PhotonClient:
     def __init__(self, base_url: str, client: httpx.Client, timeout: float = 5.0):
@@ -56,6 +61,7 @@ class PhotonClient:
                 "GET",
                 f"{self._base}/api",
                 params={"q": q, "limit": 1},
+                headers=_NO_COMPRESSION,
                 timeout=self._timeout,
             ) as resp:
                 resp.raise_for_status()
