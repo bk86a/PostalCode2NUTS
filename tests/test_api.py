@@ -50,7 +50,7 @@ class TestLookupEndpoint:
         assert body["country_code"] == "ZZ"
         assert body["postal_code"] == "12345"
         assert body["nuts3"] is None
-        assert body["territory"] is None
+        assert body["context"] is None
 
     def test_no_match_is_200_not_found(self, client):
         """EL has data but this postal code has no match (only 11141 in mock)."""
@@ -170,9 +170,9 @@ class TestFaroeIslandsAPI:
         assert body["nuts1"] is None
         assert body["nuts3_confidence"] is None
         assert body["nuts1_name"] is None
-        assert body["territory"]["id"] == "FO"
-        assert body["territory"]["name"] == "Faroe Islands"
-        assert body["territory"]["nuts_coverage"] == "none"
+        assert body["context"]["id"] == "FO"
+        assert body["context"]["name"] == "Faroe Islands"
+        assert body["context"]["nuts_coverage"] == "none"
         # A recognised code is a hit even where no NUTS code exists — found
         # stays true and message explains the null NUTS fields.
         assert body["found"] is True
@@ -183,7 +183,7 @@ class TestFaroeIslandsAPI:
         assert r.status_code == 200
         body = r.json()
         assert body["nuts3"] is None
-        assert body["territory"]["id"] == "FO"
+        assert body["context"]["id"] == "FO"
 
     def test_lookup_fo_bad_format_is_200_not_found(self, client):
         r = client.get("/lookup", params={"country": "FO", "postal_code": "1234"})

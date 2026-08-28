@@ -27,6 +27,13 @@ route always answers `200`, carrying a `found` flag and a human-readable
 - **BREAKING** `NUTSResult`, `PatternResponse` and `ResolveResponse` gain `found`
   (bool) and `message` (string or null). `PatternResponse.regex` and
   `PatternResponse.example` are now nullable.
+- **BREAKING** the `territory` block on `/lookup` and `/resolve` is renamed to
+  `context`, and the `TerritoryInfo` model to `ContextInfo`. The block covers three
+  kinds of place - outermost regions (integral parts of a Member State), overseas
+  countries and territories (several of them constituent countries) and other
+  European areas such as the Crown Dependencies - so naming it for one of them
+  described the other two wrongly. Field names inside the block are unchanged,
+  `status` included; only the key and the model name move.
 - `422` (unparseable parameters), `429` (rate limit) and `401` (invalid token) are
   unchanged - they describe the request, not the data.
 - OpenAPI `responses` for the three endpoints updated to document the 200-only
@@ -90,7 +97,8 @@ route always answers `200`, carrying a `found` flag and a human-readable
 
 ### Migration
 
-Replace `if r.status_code == 404` (and `== 400`) with `if not r.json()["found"]`.
+Replace `if r.status_code == 404` (and `== 400`) with `if not r.json()["found"]`,
+and read `body["context"]` where you read `body["territory"]`.
 A partial hit - a recognised code in a territory outside NUTS, e.g. `FO/100` - keeps
 `found: true` and carries a `message` explaining the null `nuts*` fields, so a client
 that only checks `found` behaves as before for those.

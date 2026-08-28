@@ -36,7 +36,7 @@ class TestLookupNotFound:
             "nuts3",
             "nuts3_name",
             "nuts3_confidence",
-            "territory",
+            "context",
         ):
             assert body[field] is None, field
 

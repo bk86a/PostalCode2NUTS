@@ -57,8 +57,8 @@ was already supported, and 59 country codes are now accepted in total (60 with U
 configured — see [United Kingdom (ITL)](#united-kingdom-itl)). The Canary Islands, Azores and Madeira have
 no ISO alpha-2 code and are reached only through `ES` and `PT` postal codes.
 
-Every result inside a listed territory carries a `territory` block; results elsewhere carry
-`territory: null`. See [`docs/overseas_territories.md`](docs/overseas_territories.md) for the
+Every result inside a listed area carries a `context` block; results elsewhere carry
+`context: null`. See [`docs/overseas_territories.md`](docs/overseas_territories.md) for the
 complete lists and per-territory behaviour.
 
 ### United Kingdom (ITL)
@@ -69,7 +69,7 @@ ITL is **not** a drop-in for NUTS-2016 UK: it diverges at L2 (41 vs 40 regions) 
 
 UK coverage is **optional and operator-configured** — the ~178 MB NSPL ZIP is not bundled. When `PC2NUTS_NSPL_URL` is unset (the default), UK is not served and `/lookup` answers `200` with `found: false`. Outward-code-only input (e.g. `SW1A`) resolves to the majority ITL3 for that outward code with `estimated`/medium confidence.
 
-> **Out of scope for ITL:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL. They are registered territories (see [Overseas regions and territories](#overseas-regions-and-territories)): a well-formed UK-pattern code returns `200` with a `territory` block and `nuts_coverage: "none"`, not an ITL result.
+> **Out of scope for ITL:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL. They are registered territories (see [Overseas regions and territories](#overseas-regions-and-territories)): a well-formed UK-pattern code returns `200` with a `context` block and `nuts_coverage: "none"`, not an ITL result.
 
 ## Upgrading to 3.0.0
 
@@ -81,6 +81,13 @@ longer emits `400`. `404` now means only that the URL is not a route of this API
 Three response models gain `found` (bool) and `message` (string or null); `PatternResponse.regex`
 and `PatternResponse.example` become nullable. Clients with strict schemas must widen those
 types.
+
+**The `territory` block is renamed to `context`** (`TerritoryInfo` → `ContextInfo`). It covers
+three kinds of place — outermost regions, which are integral parts of a Member State; overseas
+countries and territories, several of them constituent countries; and other European areas such
+as the Crown Dependencies — so naming it for any one of them described the other two wrongly.
+Nothing inside the block changes, `status` included: read `body["context"]` where you read
+`body["territory"]`.
 
 Replace status-code branching with the flag:
 
@@ -112,12 +119,12 @@ nullable. Clients with strict schemas must widen those types before upgrading; c
 read JSON dynamically need only handle `null`.
 
 Eight postal ranges that previously returned a European NUTS region now return `null` with a
-`territory` block: French `975xx`, `977xx`, `978xx`, `984xx`, `986xx`, `987xx`, `988xx`, and
+`context` block: French `975xx`, `977xx`, `978xx`, `984xx`, `986xx`, `987xx`, `988xx`, and
 Danish `39xx`. Those answers were wrong — `FR/98800` in Nouméa resolved to Alpes-Maritimes —
 so the correction may reduce your match rate while improving its accuracy.
 
 The fabricated Faroe Islands codes `FO0`/`FO00`/`FO000` are gone. They were invented by this
-project, not published by Eurostat. `FO` lookups now return a `territory` block with null NUTS.
+project, not published by Eurostat. `FO` lookups now return a `context` block with null NUTS.
 
 ## Deployment tiers
 
@@ -322,15 +329,21 @@ Every response includes:
 
 See [Five-tier lookup](#five-tier-lookup) below for details on match types and confidence values.
 
-#### The `territory` block
+#### The `context` block
 
-Present when the postal code lies in an overseas region or territory; `null` otherwise.
+Present when the postal code lies outside the ordinary NUTS country set; `null` otherwise.
+
+The block is deliberately not named for any one kind of place, because it covers three:
+EU **outermost regions** (integral parts of a Member State — Réunion is a French region),
+**overseas countries and territories** (several of them constituent countries — Aruba,
+Greenland), and **other European areas** such as the Crown Dependencies and Svalbard.
+`status` tells you which.
 
 | Field | Meaning |
 |---|---|
 | `id` | Registry id — the ISO code where one exists, else `ES-CN`, `PT-20`, `PT-30` |
 | `iso` | ISO 3166-1 alpha-2 code, or `null` for the three without one |
-| `name` | Territory name |
+| `name` | Name of the region, country or territory |
 | `status` | `outermost_region`, `oct`, or `other` |
 | `administering_country` | ISO code of the administering country |
 | `legal_basis` | Treaty provision, e.g. `TFEU Art. 349` |
@@ -362,7 +375,7 @@ curl 'https://api.datatoolset.eu/PostalCode2NUTS/lookup?country=NC&postal_code=9
   "nuts1": null, "nuts1_name": null, "nuts1_confidence": null,
   "nuts2": null, "nuts2_name": null, "nuts2_confidence": null,
   "nuts3": null, "nuts3_name": null, "nuts3_confidence": null,
-  "territory": {
+  "context": {
     "id": "NC",
     "iso": "NC",
     "name": "New Caledonia",
@@ -388,7 +401,7 @@ An outermost region resolves as usual and is labelled:
   "nuts1": "FRY", "nuts1_name": "RUP FR — Régions Ultrapériphériques Françaises", "nuts1_confidence": 1.0,
   "nuts2": "FRY4", "nuts2_name": "La Réunion", "nuts2_confidence": 1.0,
   "nuts3": "FRY40", "nuts3_name": "La Réunion", "nuts3_confidence": 1.0,
-  "territory": {
+  "context": {
     "id": "RE", "iso": "RE", "name": "Réunion",
     "status": "outermost_region", "administering_country": "FR",
     "legal_basis": "TFEU Art. 349", "note": null, "nuts_coverage": "full"
@@ -491,7 +504,7 @@ curl -s "localhost:8000/resolve?country=NL&postal_code=1012AB&street=Dam&city=Am
 
 **Response fields:** `found`, `message`, `country_code`, `postal_code`, `resolved_via`
 (`postal` | `geocode` | `none`), `match_type`, `nuts1..nuts3` (+ `_name`),
-`nuts3_confidence`, `territory` (see [The `territory` block](#the-territory-block)), and a
+`nuts3_confidence`, `context` (see [The `context` block](#the-context-block)), and a
 `geocode` object: `status`, `lat`, `lon`, `nuts3`, `snap_km`.
 
 An unserved country is a `200` with `found: false`, `resolved_via: "none"` and
@@ -586,7 +599,7 @@ Country not served by this instance — `GET /lookup?country=XX&postal_code=1234
   "nuts1": null, "nuts1_name": null, "nuts1_confidence": null,
   "nuts2": null, "nuts2_name": null, "nuts2_confidence": null,
   "nuts3": null, "nuts3_name": null, "nuts3_confidence": null,
-  "territory": null
+  "context": null
 }
 ```
 
@@ -621,7 +634,7 @@ construction rather than by absence of data (`FO/100`, `AW`, `GL`):
   "found": true,
   "message": "Faroe Islands is outside the NUTS classification, so no NUTS code exists for this postal code.",
   "postal_code": "100", "country_code": "FO", "nuts3": null,
-  "territory": {"id": "FO", "name": "Faroe Islands", "nuts_coverage": "none", "...": "..."}
+  "context": {"id": "FO", "name": "Faroe Islands", "nuts_coverage": "none", "...": "..."}
 }
 ```
 
@@ -705,7 +718,7 @@ User input: "Traiskirchen"
 | EL | 5 digits or 2+3 / 3+2 with space | GR-, EL- | `10431`, `GR-10431`, `EL-10431`, `105 57` |
 | ES | 5 digits | E- | `28001`, `E-28001` |
 | FI | 5 digits | FI- | `00100`, `FI-00100` |
-| FO | 3 digits (outside NUTS — returns a `territory` block, `nuts_coverage: "none"`) | FO- | `100`, `FO-100`, `FO 100` |
+| FO | 3 digits (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | FO- | `100`, `FO-100`, `FO 100` |
 | FR | 5 digits | F- | `75001`, `F-75001` |
 | HR | 5 digits | HR- | `10000`, `HR-10000` |
 | HU | 4 digits | H- | `1011`, `H-1011` |

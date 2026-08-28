@@ -3,8 +3,15 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class TerritoryInfo(BaseModel):
-    """Identifies an EU outermost region, OCT, or other non-NUTS territory."""
+class ContextInfo(BaseModel):
+    """Context for a postal code that sits outside the ordinary NUTS country set.
+
+    Covers three kinds of place, which is why the block is not named for any one
+    of them: EU outermost regions (integral parts of a Member State, e.g. Réunion),
+    overseas countries and territories (several of them constituent countries, e.g.
+    Aruba, Greenland), and other European areas such as the Crown Dependencies and
+    Svalbard.
+    """
 
     id: str = Field(description="Registry id — the ISO code where one exists, else e.g. 'ES-CN'")
     iso: str | None = Field(default=None, description="ISO 3166-1 alpha-2 code, where one exists")
@@ -74,10 +81,12 @@ class NUTSResult(BaseModel):
     nuts3_confidence: float | None = Field(
         default=None, description="Confidence score for NUTS3 (0.0–1.0)", ge=0.0, le=1.0
     )
-    territory: TerritoryInfo | None = Field(
+    context: ContextInfo | None = Field(
         default=None,
         description=(
-            "Present when the postal code lies in an outermost region, an OCT, or another non-NUTS territory"
+            "Present when the postal code lies in an EU outermost region, an overseas "
+            "country or territory, or another area outside the ordinary NUTS country "
+            "set. Null for an ordinary lookup."
         ),
     )
 
@@ -166,5 +175,5 @@ class ResolveResponse(BaseModel):
     nuts3: str | None = None
     nuts3_name: str | None = None
     nuts3_confidence: float | None = None
-    territory: TerritoryInfo | None = None
+    context: ContextInfo | None = None
     geocode: GeocodeInfo
