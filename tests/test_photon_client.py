@@ -136,3 +136,42 @@ def test_response_just_under_the_cap_still_parses():
     pc = PhotonClient("http://photon", _client(handler))
     assert pc.geocode("Markt", "Tervuren", "3080") == (50.8246, 4.5149)
     assert photon_client._MAX_RESPONSE_BYTES > len(padding)
+
+
+def test_requests_uncompressed_responses():
+    """The byte ceiling counts decoded bytes, so a compressed body only reveals
+    its true size after inflation. Photon is loopback — ask for no compression."""
+    seen = []
+
+    def handler(req):
+        seen.append(req.headers.get("accept-encoding"))
+        return httpx.Response(200, json={"features": []})
+
+    pc = PhotonClient("http://photon", _client(handler))
+    pc.geocode("Markt", "Tervuren", "3080")
+    assert seen and all(enc == "identity" for enc in seen)
+
+
+def test_compressed_oversized_response_is_abandoned():
+    """Belt and braces: even if the far end ignores Accept-Encoding and gzips a
+    huge body, the cap holds and nothing near the decompressed size is retained."""
+    import gzip
+
+    from app import photon_client
+
+    bomb = gzip.compress(b"\0" * (64 * 1024 * 1024))
+
+    class _Stream(httpx.SyncByteStream):
+        def __iter__(self):
+            for i in range(0, len(bomb), 65536):
+                yield bomb[i : i + 65536]
+
+        def close(self):
+            pass
+
+    def handler(req):
+        return httpx.Response(200, stream=_Stream(), headers={"Content-Encoding": "gzip"})
+
+    pc = PhotonClient("http://photon", _client(handler))
+    assert pc.geocode("Markt", "Tervuren", "3080") is None
+    assert len(bomb) < photon_client._MAX_RESPONSE_BYTES  # the wire body alone would have passed
