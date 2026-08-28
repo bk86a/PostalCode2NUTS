@@ -123,3 +123,19 @@ def test_iso_index_excludes_entries_without_an_iso_code():
     assert {"GP", "MQ", "GF", "RE", "YT", "MF"} <= codes
     assert {"GL", "PF", "NC", "WF", "PM", "BL", "TF", "AW", "CW", "SX", "BQ"} <= codes
     assert {"SJ", "FO", "GI", "JE", "GG", "IM"} <= codes
+
+
+def test_every_oct_iso_code_is_documented():
+    """docs/overseas_territories.md enumerates the OCTs; keep it from drifting."""
+    from pathlib import Path
+
+    doc = (Path(__file__).resolve().parent.parent / "docs" / "overseas_territories.md").read_text(
+        encoding="utf-8"
+    )
+    octs = [t for t in territories._registry if t.status == "oct"]
+    assert len(octs) == 11  # 13 Annex II territories, 11 ISO codes (BQ covers three)
+    for t in octs:
+        assert f"`{t.iso}`" in doc, f"{t.name} ({t.iso}) is in the registry but not in the doc"
+    # The three OCTs that share BQ must each be named, or the doc lists 11 not 13.
+    for name in ("Bonaire", "Saba", "Sint Eustatius"):
+        assert name in doc, f"{name} is an Annex II OCT but is not named in the doc"
