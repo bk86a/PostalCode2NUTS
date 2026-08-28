@@ -71,3 +71,81 @@ class TestAcceptGeocode:
     def test_empty_inputs_rejected(self):
         assert enrich.accept_geocode("AL", "") is False
         assert enrich.accept_geocode("", "AL022") is False
+
+
+class TestFoundFlagBranch:
+    """process_row must read the v3 `found` flag and still accept 2.x statuses."""
+
+    @staticmethod
+    def _client(handler):
+        import httpx2 as httpx
+
+        return httpx.Client(transport=httpx.MockTransport(handler))
+
+    @staticmethod
+    def _row():
+        return {
+            "OID": "1",
+            "COUNTRY_CD": "DE",
+            "CITY": "",
+            "STREET_NAME_AND_NUMBER": "",
+            "POSTAL_CODE": "99999",
+        }
+
+    def _run(self, handler):
+        import httpx2 as httpx  # noqa: F401
+
+        with self._client(handler) as c:
+            return enrich.process_row(self._row(), c, "http://api", {}, 5.0)
+
+    def test_v3_found_false_is_not_found(self):
+        import httpx2 as httpx
+
+        out = self._run(
+            lambda r: httpx.Response(
+                200, json={"found": False, "message": "No NUTS mapping found ...", "nuts3": None}
+            )
+        )
+        assert out["POSTAL_MATCH_TYPE"] == "not_found"
+        assert out["RESOLUTION_METHOD"] == "unresolved"
+
+    def test_v3_unserved_country_is_unsupported(self):
+        import httpx2 as httpx
+
+        out = self._run(
+            lambda r: httpx.Response(
+                200, json={"found": False, "message": "Country 'ZZ' is not served by this instance."}
+            )
+        )
+        assert out["POSTAL_MATCH_TYPE"] == "unsupported"
+        assert out["RESOLUTION_METHOD"] == "unsupported"
+
+    def test_v3_hit_is_read_as_before(self):
+        import httpx2 as httpx
+
+        out = self._run(
+            lambda r: httpx.Response(
+                200,
+                json={
+                    "found": True,
+                    "message": None,
+                    "nuts3": "DE300",
+                    "match_type": "exact",
+                    "nuts3_confidence": 1.0,
+                },
+            )
+        )
+        assert out["NUTS3_FINAL"] == "DE300"
+        assert out["RESOLUTION_METHOD"] == "postal:exact"
+
+    def test_legacy_404_still_understood(self):
+        import httpx2 as httpx
+
+        out = self._run(lambda r: httpx.Response(404, json={"detail": "no mapping"}))
+        assert out["POSTAL_MATCH_TYPE"] == "not_found"
+
+    def test_legacy_400_still_understood(self):
+        import httpx2 as httpx
+
+        out = self._run(lambda r: httpx.Response(400, json={"detail": "not supported"}))
+        assert out["POSTAL_MATCH_TYPE"] == "unsupported"

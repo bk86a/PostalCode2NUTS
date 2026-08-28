@@ -26,18 +26,23 @@ def test_both_routes_agree_apart_from_the_echoed_country(client):
     assert a == b
 
 
-def test_code_outside_the_named_territory_is_a_404_naming_the_territory(client, mock_data):
+def test_code_outside_the_named_territory_is_not_found_naming_the_territory(client, mock_data):
     data_loader._lookup[("DK", "2100")] = "DK011"
     data_loader._build_prefix_index()
     r = client.get("/lookup", params={"country": "GL", "postal_code": "2100"})
-    assert r.status_code == 404
-    assert "Greenland" in r.json()["detail"]
-    assert "DK011" not in r.json()["detail"]
+    assert r.status_code == 200
+    body = r.json()
+    assert body["found"] is False
+    assert "Greenland" in body["message"]
+    # The administering country's answer must not leak through the miss.
+    assert "DK011" not in body["message"]
+    assert body["nuts3"] is None
 
 
-def test_malformed_territory_code_is_a_404(client):
+def test_malformed_territory_code_is_not_found(client):
     r = client.get("/lookup", params={"country": "NC", "postal_code": "12345"})
-    assert r.status_code == 404
+    assert r.status_code == 200
+    assert r.json()["found"] is False
 
 
 def test_territory_without_a_postal_system_answers_on_the_country_code(client):
@@ -63,9 +68,12 @@ def test_ordinary_lookup_has_a_null_territory(client):
     assert body["nuts3"] == "DE300"
 
 
-def test_unsupported_country_still_400s(client):
+def test_unsupported_country_is_200_not_found(client):
     r = client.get("/lookup", params={"country": "BR", "postal_code": "01000"})
-    assert r.status_code == 400
+    assert r.status_code == 200
+    body = r.json()
+    assert body["found"] is False
+    assert "BR" in body["message"]
 
 
 def test_pattern_narrows_to_the_territorys_own_range_when_it_is_in_nuts(client):
@@ -84,10 +92,13 @@ def test_pattern_keeps_the_parent_pattern_for_a_territory_outside_nuts(client):
     assert body["regex"] == client.get("/pattern", params={"country": "FR"}).json()["regex"]
 
 
-def test_pattern_404s_for_a_territory_with_no_postal_system(client):
+def test_pattern_not_found_for_a_territory_with_no_postal_system(client):
     r = client.get("/pattern", params={"country": "AW"})
-    assert r.status_code == 404
-    assert "no postal codes" in r.json()["detail"]
+    assert r.status_code == 200
+    body = r.json()
+    assert body["found"] is False
+    assert body["regex"] is None
+    assert "no postal codes" in body["message"]
 
 
 def test_health_reports_the_registry_size(client):

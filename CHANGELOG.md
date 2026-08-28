@@ -6,7 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-28
+
+Absence of data is no longer an HTTP error. A well-formed query against a served
+route always answers `200`, carrying a `found` flag and a human-readable
+`message`. `404` now means only that the requested URL is not a route of this API.
+
 ### Changed
+
+- **BREAKING** `/lookup` no longer returns `404` for an unmapped postal code, a
+  code outside a named territory, or a malformed territory code, and no longer
+  returns `400` for a country this instance does not serve. All four answer `200`
+  with `found: false`, a `message` explaining why, and every data field `null`.
+- **BREAKING** `/pattern` no longer returns `404` for a country with no pattern or
+  for a territory with no postal system. Both answer `200` with `found: false`,
+  `regex: null`, `example: null` and a `message`.
+- **BREAKING** `/resolve` no longer returns `400` for an unserved country; it
+  answers `200` with `found: false`, `resolved_via: "none"` and
+  `geocode.status: "not_attempted"`.
+- **BREAKING** `NUTSResult`, `PatternResponse` and `ResolveResponse` gain `found`
+  (bool) and `message` (string or null). `PatternResponse.regex` and
+  `PatternResponse.example` are now nullable.
+- `422` (unparseable parameters), `429` (rate limit) and `401` (invalid token) are
+  unchanged - they describe the request, not the data.
+- OpenAPI `responses` for the three endpoints updated to document the 200-only
+  contract.
+- `scripts/enrich_via_api.py` branches on `found` and still accepts the old
+  `404`/`400` shapes, so it works against a 2.x server.
 
 - `GET /pattern` now returns a regex narrowed to the territory's own postal range
   for the six ISO-coded territories that are both linked to NUTS and postal-coded:
@@ -62,7 +88,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `PC2NUTS_FORWARDED_ALLOW_IPS`, `PC2NUTS_MAX_DOWNLOAD_MB` and
   `PC2NUTS_MAX_ESTIMATES_DOWNLOAD_MB` settings (see the configuration table).
 
-### Changed
+### Migration
+
+Replace `if r.status_code == 404` (and `== 400`) with `if not r.json()["found"]`.
+A partial hit - a recognised code in a territory outside NUTS, e.g. `FO/100` - keeps
+`found: true` and carries a `message` explaining the null `nuts*` fields, so a client
+that only checks `found` behaves as before for those.
+
+### Changed (dependencies)
 
 - `requirements.lock` regenerated after the grouped Dependabot production bump
   (#158): python-dotenv 1.2.3, uvicorn 0.52.4, and the transitive httpx2 2.12.0

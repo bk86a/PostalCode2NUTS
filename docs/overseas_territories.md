@@ -79,7 +79,8 @@ has a TERCET row, so this behaviour is unique to Saint-Barthélemy.
 
 The four Dutch OCTs use no postal codes at all: `has_postal_system` is false in the registry,
 so a lookup on `AW`, `CW`, `SX` or `BQ` needs no `postal_code` and answers directly from the
-country code; `GET /pattern` for any of them returns `404`.
+country code; `GET /pattern` for any of them answers `200` with `found: false` and a
+`message` saying so, not a pattern.
 
 ## Other European territories
 
@@ -134,14 +135,15 @@ tier inside it. It classifies every `(country, postal_code)` pair before Tier 1 
 (`GL/3900`) or by the administering country's code (`DK/3900`); both return the same body
 apart from the echoed `country_code`. The routes are not symmetric, though: on the ISO route,
 a postal code that is well-formed for the administering country but falls outside the named
-territory's own ranges is rejected with `404` rather than answered from the parent country's
-data — `GL/2100` is a valid Danish code for Copenhagen, but it is not Greenlandic, so it 404s
-rather than silently returning a Copenhagen NUTS region under a Greenland lookup.
+territory's own ranges is answered `200` with `found: false` rather than from the parent
+country's data — `GL/2100` is a valid Danish code for Copenhagen, but it is not Greenlandic, so
+the response says so in its `message` rather than silently returning a Copenhagen NUTS region
+under a Greenland lookup.
 
 The whole-country territories — `FO`, `GI`, `JE`, `GG` and `IM` — are the exception to "two
 routes": they have no postal prefix of their own carved out of the administering country's
-scheme, so only their own ISO code resolves. `JE/JE2 3XP` returns `200`; `UK/JE2 3XP` returns
-`404`.
+scheme, so only their own ISO code resolves. `JE/JE2 3XP` is a hit; `UK/JE2 3XP` answers `200`
+with `found: false`.
 
 The `/resolve` geocoding fallback does not correct a `nuts_coverage: "none"` result either:
 no NUTS polygon covers these territories, so point-in-polygon has nothing to resolve against.
@@ -150,7 +152,7 @@ The geocoder is skipped entirely — `geocode.status: "not_attempted"`, `resolve
 
 If you process data that may contain territorial addresses, you no longer need to filter them
 out before lookup: querying them returns a clearly labelled `200` with `nuts_coverage`, not a
-misleading European region and not a bare `404`.
+misleading European region and not an error status.
 
 ## Why the asymmetry exists
 

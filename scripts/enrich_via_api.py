@@ -154,10 +154,16 @@ def process_row(row: dict, client: httpx.Client, base: str, headers: dict, timeo
             if st2 != 422:  # accept the sanitized retry only once it clears validation
                 st, body, pc = st2, body2, cand
     if st == 200 and body:
-        nuts3_postal = body.get("nuts3") or ""
-        match_type = body.get("match_type") or ""
-        c = body.get("nuts3_confidence")
-        conf = "" if c is None else f"{c:.2f}"
+        # Since v3.0.0 a miss is a 200 with found=false; older servers used
+        # 404 (no data) / 400 (country not served). Both shapes are handled.
+        if body.get("found") is False:
+            msg = body.get("message") or ""
+            match_type = "unsupported" if "not served" in msg.lower() else "not_found"
+        else:
+            nuts3_postal = body.get("nuts3") or ""
+            match_type = body.get("match_type") or ""
+            c = body.get("nuts3_confidence")
+            conf = "" if c is None else f"{c:.2f}"
     elif st == 404:
         match_type = "not_found"
     elif st == 400:
