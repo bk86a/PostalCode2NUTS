@@ -113,6 +113,64 @@ class TestFetchRemoteCsv:
         assert data is None
 
     @pytest.mark.asyncio
+    async def test_abandons_body_over_the_ceiling(self, url, monkeypatch):
+        """A hijacked or broken upstream must not be buffered into memory."""
+        from app import estimates_refresh
+
+        monkeypatch.setattr(
+            estimates_refresh, "settings", _stub_settings(url=url, max_mb=1)
+        )
+        oversized = b"x" * (2 * 1024 * 1024)
+
+        def handler(request):
+            return httpx.Response(200, content=oversized)
+
+        async with self._client_with(handler) as client:
+            data, status, _ = await estimates_refresh.fetch_remote_csv(client)
+
+        assert data is None
+        assert status == 0
+
+    @pytest.mark.asyncio
+    async def test_rejects_declared_length_over_the_ceiling(self, url, monkeypatch):
+        """Content-Length past the ceiling is refused before any body is read."""
+        from app import estimates_refresh
+
+        monkeypatch.setattr(
+            estimates_refresh, "settings", _stub_settings(url=url, max_mb=1)
+        )
+
+        def handler(request):
+            return httpx.Response(
+                200, content=b"small", headers={"Content-Length": str(9 * 1024 * 1024)}
+            )
+
+        async with self._client_with(handler) as client:
+            data, status, _ = await estimates_refresh.fetch_remote_csv(client)
+
+        assert data is None
+        assert status == 0
+
+    @pytest.mark.asyncio
+    async def test_body_at_the_ceiling_is_accepted(self, url, monkeypatch):
+        """The cap must not clip a legitimate body that merely approaches it."""
+        from app import estimates_refresh
+
+        monkeypatch.setattr(
+            estimates_refresh, "settings", _stub_settings(url=url, max_mb=1)
+        )
+        body = b"y" * (1024 * 1024)
+
+        def handler(request):
+            return httpx.Response(200, content=body)
+
+        async with self._client_with(handler) as client:
+            data, status, _ = await estimates_refresh.fetch_remote_csv(client)
+
+        assert status == 200
+        assert data == body
+
+    @pytest.mark.asyncio
     async def test_returns_none_on_transport_error(self, url):
         from app.estimates_refresh import fetch_remote_csv
 
@@ -496,11 +554,12 @@ class TestConcurrentRefresh:
         assert result.status == "disabled"
 
 
-def _stub_settings(*, url: str = "", interval: int = 86400):
-    """Build a minimal settings stub for tests that only need the two new fields."""
+def _stub_settings(*, url: str = "", interval: int = 86400, max_mb: int = 64):
+    """Build a minimal settings stub for tests that only need the new fields."""
 
     class _S:
         estimates_refresh_url = url
         estimates_refresh_interval_seconds = interval
+        max_estimates_download_mb = max_mb
 
     return _S()

@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+
+- **Rate limiting could be bypassed by any caller.** The image ran uvicorn with
+  `--forwarded-allow-ips '*'`, so uvicorn trusted `X-Forwarded-For` from any peer
+  and took its leftmost entry — the value the client sent. Rotating the header
+  gave a fresh per-IP bucket on every request (and forged the client IP in the
+  access log), and this held even behind a reverse proxy that appends the header
+  correctly. The flag is now `--forwarded-allow-ips "${PC2NUTS_FORWARDED_ALLOW_IPS:-127.0.0.1}"`.
+  **Operators must set `PC2NUTS_FORWARDED_ALLOW_IPS` to the address or CIDR of
+  their reverse proxy** — otherwise the proxy is untrusted and all traffic is
+  rate-limited under the proxy's own IP as a single bucket.
+- Trusted tokens shorter than 32 characters are refused at startup. An invalid
+  token is rejected before the rate limiter runs, so a short one could be guessed
+  unmetered. The operator CLI already enforced this floor; `PC2NUTS_TRUSTED_TOKENS`
+  did not. Tokens from the DB registry are unaffected.
+- Settings validation failures now exit with their own message instead of raising
+  through pydantic, whose `ValidationError` rendering includes the settings input
+  dict — printing `PC2NUTS_TRUSTED_TOKENS` and `PC2NUTS_TOKEN_DB_AUTH_TOKEN`
+  verbatim into container logs on an unrelated misconfiguration.
+- Every remote body the worker buffers is now capped: `PC2NUTS_MAX_DOWNLOAD_MB`
+  (default 512) for TERCET/NSPL zips, NUTS polygons and the names CSV,
+  `PC2NUTS_MAX_ESTIMATES_DOWNLOAD_MB` (default 64) for the estimates refresh URL.
+  A hijacked or misbehaving upstream previously had no ceiling. Zip *members*
+  were already capped; the outer download was not.
+- `/admin/refresh-estimates` is out of the public OpenAPI schema, as
+  `/admin/memory` already was. Both remain gated on a trusted token.
+- CORS pins `allow_credentials=False` explicitly, and the README now flags that
+  the wildcard default suits the public API but should be narrowed for internal
+  deployments.
+- The CI `security` job runs bandit over `scripts/` as well as `app/`.
+
+### Added
+
+- `PC2NUTS_FORWARDED_ALLOW_IPS`, `PC2NUTS_MAX_DOWNLOAD_MB` and
+  `PC2NUTS_MAX_ESTIMATES_DOWNLOAD_MB` settings (see the configuration table).
+
 ### Changed
 
 - `requirements.lock` regenerated after the grouped Dependabot production bump

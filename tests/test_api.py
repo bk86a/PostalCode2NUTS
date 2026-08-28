@@ -212,6 +212,12 @@ class TestRootEndpoint:
         resp = client.get("/openapi.json")
         assert "/" not in resp.json()["paths"]
 
+    def test_admin_routes_not_in_schema(self, client):
+        """Operator-only routes stay out of the public schema — the gate is the
+        trusted token, but there is no reason to advertise them."""
+        resp = client.get("/openapi.json")
+        assert not [p for p in resp.json()["paths"] if p.startswith("/admin")]
+
 
 # ── /health endpoint tests ───────────────────────────────────────────────────
 

@@ -342,19 +342,72 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
     return count
 
 
+# Describe the wire body, not the buffered copy we hand back.
+_WIRE_HEADERS = frozenset({"content-length", "content-encoding", "transfer-encoding"})
+
+
+class DownloadTooLarge(Exception):
+    """A remote body exceeded the configured size ceiling and was abandoned."""
+
+
+def _max_download_bytes() -> int:
+    return settings.max_download_mb * 1024 * 1024
+
+
+def _get_capped(
+    client: httpx.Client,
+    url: str,
+    *,
+    limit_bytes: int,
+    headers: dict[str, str] | None = None,
+    timeout: float = 60,
+) -> httpx.Response:
+    """GET `url`, buffering at most `limit_bytes` of body.
+
+    Every remote body we fetch (TERCET zips, NSPL, the names CSV, the ITL
+    override) is read into memory whole, so an upstream that turns hostile or
+    simply misbehaves could otherwise exhaust the worker. Streaming lets us stop
+    at the ceiling instead of after the damage.
+
+    Returns a Response carrying the buffered bytes, so callers keep reading
+    .status_code / .headers / .content unchanged. Raises DownloadTooLarge as
+    soon as the declared or actual length passes the limit.
+    """
+    with client.stream("GET", url, headers=headers or {}, timeout=timeout, follow_redirects=True) as resp:
+        declared = resp.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > limit_bytes:
+            raise DownloadTooLarge(f"{url}: Content-Length {declared} exceeds {limit_bytes} bytes")
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_bytes():
+            total += len(chunk)
+            if total > limit_bytes:
+                raise DownloadTooLarge(f"{url}: body exceeds {limit_bytes} bytes")
+            chunks.append(chunk)
+        # content-length/-encoding describe the wire body, which iter_bytes has
+        # already decoded; carrying them onto the buffered copy would misdescribe it.
+        kept = [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _WIRE_HEADERS]
+        status = resp.status_code
+        # Carry the request across so callers can still use raise_for_status().
+        request = resp.request
+    return httpx.Response(status, headers=kept, content=b"".join(chunks), request=request)
+
+
 def _download_zip_conditional(client: httpx.Client, url: str, cached_meta: dict) -> httpx.Response:
-    """Download with conditional-GET headers; returns the raw httpx.Response.
+    """Download with conditional-GET headers; returns a buffered httpx.Response.
 
     cached_meta keys: 'etag' and 'last_modified' (either may be absent). The
     caller handles 200 (re-parse), 304 (keep cache), and error statuses. Applies
     to both TERCET and NSPL so an unchanged upstream ZIP is not re-fetched.
+
+    Raises DownloadTooLarge when the body passes PC2NUTS_MAX_DOWNLOAD_MB.
     """
     headers = {}
     if cached_meta.get("etag"):
         headers["If-None-Match"] = cached_meta["etag"]
     if cached_meta.get("last_modified"):
         headers["If-Modified-Since"] = cached_meta["last_modified"]
-    return client.get(url, headers=headers, timeout=60, follow_redirects=True)
+    return _get_capped(client, url, limit_bytes=_max_download_bytes(), headers=headers, timeout=60)
 
 
 def _download_zip(client: httpx.Client, url: str) -> bytes | None:
@@ -364,11 +417,14 @@ def _download_zip(client: httpx.Client, url: str) -> bytes | None:
     """
     for attempt in range(2):
         try:
-            resp = client.get(url, timeout=60, follow_redirects=True)
+            resp = _get_capped(client, url, limit_bytes=_max_download_bytes(), timeout=60)
             if resp.status_code == 404:
                 return None
             resp.raise_for_status()
             return resp.content
+        except DownloadTooLarge as exc:
+            logger.warning("Refusing oversized download: %s", exc)
+            return None
         except httpx.HTTPStatusError:
             return None
         except httpx.RequestError as exc:
@@ -560,7 +616,7 @@ def _load_nspl(client: httpx.Client, url: str, cache_dir: Path, lad_to_itl3: dic
         total = _parse_nspl_zip(content, lad_to_itl3)
         logger.info("NSPL loaded: %d live UK postcodes", total)
         return total
-    except (httpx.HTTPError, zipfile.BadZipFile, OSError) as exc:
+    except (httpx.HTTPError, DownloadTooLarge, zipfile.BadZipFile, OSError) as exc:
         logger.warning("NSPL fetch failed (%s); trying cached copy", exc)
         return _load_nspl_from_cache(cache_path, lad_to_itl3)
 
@@ -734,9 +790,9 @@ def _download_nuts_names(client: httpx.Client) -> int:
     """
     url = f"https://gisco-services.ec.europa.eu/distribution/v2/nuts/csv/NUTS_AT_{settings.nuts_version}.csv"
     try:
-        resp = client.get(url, timeout=30, follow_redirects=True)
+        resp = _get_capped(client, url, limit_bytes=_max_download_bytes(), timeout=30)
         resp.raise_for_status()
-    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+    except (httpx.RequestError, httpx.HTTPStatusError, DownloadTooLarge) as exc:
         logger.warning("Failed to download NUTS names from %s: %s", url, exc)
         return 0
 
@@ -788,10 +844,10 @@ def _load_uk_itl_bridge(client: httpx.Client) -> dict[str, str]:
     url = settings.uk_itl_lookup_url
     if url:
         try:
-            resp = client.get(url, timeout=30, follow_redirects=True)
+            resp = _get_capped(client, url, limit_bytes=_max_download_bytes(), timeout=30)
             resp.raise_for_status()
             lad_to_itl3, itl_names = uk_itl.parse_lad_itl(resp.text)
-        except (httpx.HTTPError, csv.Error) as exc:
+        except (httpx.HTTPError, DownloadTooLarge, csv.Error) as exc:
             logger.warning("UK ITL lookup override failed (%s); using bundled map", exc)
     if not lad_to_itl3:
         lad_to_itl3, itl_names = uk_itl.load_bundled()
