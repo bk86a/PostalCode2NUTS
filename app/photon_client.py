@@ -16,7 +16,15 @@ the correct NUTS-3 region.
 
 from __future__ import annotations
 
+import json
+
 import httpx2 as httpx
+
+
+# A Photon feature response for limit=1 is a few kB. Anything approaching this
+# is a geocoder that has been replaced or has gone wrong, and /resolve buffers
+# the body on every request — so cap it rather than trust the far end.
+_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 class PhotonClient:
@@ -44,13 +52,19 @@ class PhotonClient:
 
     def _query(self, q: str) -> tuple[float, float] | None:
         try:
-            resp = self._client.get(
+            with self._client.stream(
+                "GET",
                 f"{self._base}/api",
                 params={"q": q, "limit": 1},
                 timeout=self._timeout,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            ) as resp:
+                resp.raise_for_status()
+                body = bytearray()
+                for chunk in resp.iter_bytes():
+                    body += chunk
+                    if len(body) > _MAX_RESPONSE_BYTES:
+                        return None
+            data = json.loads(bytes(body))
             feats = data.get("features") or []
             if not feats:
                 return None

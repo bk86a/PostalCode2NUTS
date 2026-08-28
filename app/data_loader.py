@@ -227,7 +227,10 @@ def _discover_zip_urls(client: httpx.Client, base_url: str) -> list[str]:
     """Try to discover ZIP file URLs from the TERCET directory listing."""
     urls: list[str] = []
     try:
-        resp = client.get(base_url, timeout=30)
+        # Capped like every other fetch: this one runs first on a cold cache, so
+        # an unbounded listing here would exhaust the worker before any of the
+        # capped ZIP downloads got a chance to.
+        resp = _get_capped(client, base_url, limit_bytes=_max_download_bytes(), timeout=30)
         resp.raise_for_status()
         # Parse href attributes pointing to .zip files
         for match in re.finditer(r'href="([^"]*\.zip)"', resp.text):
@@ -236,8 +239,8 @@ def _discover_zip_urls(client: httpx.Client, base_url: str) -> list[str]:
                 urls.append(href)
             else:
                 urls.append(base_url.rstrip("/") + "/" + href.lstrip("/"))
-    except (httpx.RequestError, httpx.HTTPStatusError):
-        logger.debug("Could not fetch directory listing from %s", base_url)
+    except (httpx.RequestError, httpx.HTTPStatusError, DownloadTooLarge) as exc:
+        logger.debug("Could not fetch directory listing from %s: %s", base_url, exc)
     return urls
 
 
