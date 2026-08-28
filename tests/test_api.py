@@ -41,12 +41,18 @@ class TestLookupEndpoint:
         assert resp.status_code == 200
         assert resp.json()["code_system"] == "ITL"
 
-    def test_400_unsupported_country(self, client):
+    def test_unsupported_country_is_200_not_found(self, client):
         resp = client.get("/lookup", params={"postal_code": "12345", "country": "ZZ"})
-        assert resp.status_code == 400
-        assert "not supported" in resp.json()["detail"].lower()
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["found"] is False
+        assert "not served" in body["message"].lower()
+        assert body["country_code"] == "ZZ"
+        assert body["postal_code"] == "12345"
+        assert body["nuts3"] is None
+        assert body["territory"] is None
 
-    def test_404_no_match(self, client):
+    def test_no_match_is_200_not_found(self, client):
         """EL has data but this postal code has no match (only 11141 in mock)."""
         resp = client.get("/lookup", params={"postal_code": "99999", "country": "EL"})
         # EL has only 1 NUTS3 code (EL303), so it may show up as single-NUTS3 fallback
@@ -118,9 +124,14 @@ class TestPatternEndpoint:
         resp = client.get("/pattern", params={"country": "DE"})
         assert "public" in resp.headers.get("cache-control", "")
 
-    def test_404_unknown_country(self, client):
+    def test_unknown_country_is_200_not_found(self, client):
         resp = client.get("/pattern", params={"country": "ZZ"})
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["found"] is False
+        assert body["regex"] is None
+        assert body["example"] is None
+        assert "no postal code pattern" in body["message"].lower()
 
     def test_200_list_all_includes_territory_codes_with_patterns(self, client):
         resp = client.get("/pattern")
@@ -129,8 +140,8 @@ class TestPatternEndpoint:
         # discoverable from the no-argument listing.
         for code in {"RE", "GL", "NC", "GI", "JE", "GG", "IM", "SJ"}:
             assert code in data
-        # Territories with no postal system at all 404 when queried
-        # individually, so they must not appear in the listing either.
+        # Territories with no postal system at all answer found=false when
+        # queried individually, so they must not appear in the listing either.
         for code in {"AW", "CW", "SX", "BQ"}:
             assert code not in data
 
@@ -141,6 +152,7 @@ class TestPatternEndpoint:
         for code in data:
             r = client.get("/pattern", params={"country": code})
             assert r.status_code == 200, f"'{code}' is listed but /pattern?country={code} failed"
+            assert r.json()["found"] is True, f"'{code}' is listed but has no pattern"
 
 
 # ── Faroe Islands (FO) API tests ─────────────────────────────────────────────
@@ -161,6 +173,10 @@ class TestFaroeIslandsAPI:
         assert body["territory"]["id"] == "FO"
         assert body["territory"]["name"] == "Faroe Islands"
         assert body["territory"]["nuts_coverage"] == "none"
+        # A recognised code is a hit even where no NUTS code exists — found
+        # stays true and message explains the null NUTS fields.
+        assert body["found"] is True
+        assert "outside the NUTS classification" in body["message"]
 
     def test_lookup_fo_prefix(self, client):
         r = client.get("/lookup", params={"country": "FO", "postal_code": "FO-100"})
@@ -169,14 +185,19 @@ class TestFaroeIslandsAPI:
         assert body["nuts3"] is None
         assert body["territory"]["id"] == "FO"
 
-    def test_lookup_fo_bad_format_404(self, client):
+    def test_lookup_fo_bad_format_is_200_not_found(self, client):
         r = client.get("/lookup", params={"country": "FO", "postal_code": "1234"})
-        assert r.status_code == 404
+        assert r.status_code == 200
+        body = r.json()
+        assert body["found"] is False
+        assert "Faroe Islands" in body["message"]
 
-    def test_lookup_fo_two_digit_404(self, client):
+    def test_lookup_fo_two_digit_is_200_not_found(self, client):
         # A 2-digit code must not be leading-zero-padded into a valid FO hit.
         r = client.get("/lookup", params={"country": "FO", "postal_code": "10"})
-        assert r.status_code == 404
+        assert r.status_code == 200
+        assert r.json()["found"] is False
+        assert r.json()["nuts3"] is None
 
     def test_pattern_fo(self, client):
         r = client.get("/pattern", params={"country": "FO"})

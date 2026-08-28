@@ -37,6 +37,7 @@ from app.data_loader import (
 )
 from app.models import (
     ErrorResponse,
+    GeocodeInfo,
     HealthResponse,
     NUTSResult,
     PatternResponse,
@@ -320,12 +321,37 @@ def _available_countries_str() -> str:
     return ", ".join(sorted(get_loaded_countries()))
 
 
+def _not_found(postal_code: str, cc: str, message: str) -> NUTSResult:
+    """A 200 'no data' answer.
+
+    Absence of data is not an HTTP error: the request was well-formed and the
+    service answered it. Only a genuinely unknown route yields a 404.
+    """
+    return NUTSResult(found=False, message=message, postal_code=postal_code, country_code=cc)
+
+
+def _partial_hit_message(result: dict) -> str | None:
+    """Explain a hit that carries no NUTS code (a territory outside NUTS)."""
+    if result.get("nuts3") is not None:
+        return None
+    terr = result.get("territory")
+    if terr is None:
+        return None
+    return f"{terr['name']} is outside the NUTS classification, so no NUTS code exists for this postal code."
+
+
 @app.get(
     "/lookup",
     response_model=NUTSResult,
     responses={
-        400: {"model": ErrorResponse, "description": "Unsupported country"},
-        404: {"model": ErrorResponse, "description": "Postal code not found"},
+        200: {
+            "model": NUTSResult,
+            "description": (
+                "Always 200 for a well-formed query, whether or not data exists. "
+                "`found` is false and `message` explains when the country is not "
+                "served or the postal code has no mapping."
+            ),
+        },
         429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
     summary="Look up NUTS codes for a postal code",
@@ -350,11 +376,14 @@ def lookup_postal_code(
     ),
 ):
     cc = normalize_country(country)
+    response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
 
     if cc not in get_loaded_countries():
-        raise HTTPException(
-            status_code=400,
-            detail=(f"Country '{cc}' is not supported. Available countries: {_available_countries_str()}"),
+        return _not_found(
+            postal_code,
+            cc,
+            f"Country '{cc}' is not served by this instance. "
+            f"Available countries: {_available_countries_str()}",
         )
 
     result = lookup(country, postal_code)
@@ -367,20 +396,22 @@ def lookup_postal_code(
                 if terr.validate_as
                 else f"{terr.name} has no postal codes of its own."
             )
-            raise HTTPException(
-                status_code=404,
-                detail=(f"Postal code '{postal_code}' is not a {terr.name} code. {scheme_clause}"),
+            return _not_found(
+                postal_code,
+                cc,
+                f"Postal code '{postal_code}' is not a {terr.name} code. {scheme_clause}",
             )
         pattern = POSTAL_PATTERNS.get(cc)
         hint = f" Expected format: {pattern['example']}" if pattern else ""
-        raise HTTPException(
-            status_code=404,
-            detail=(f"No NUTS mapping found for postal code '{postal_code}' in country '{cc}'.{hint}"),
+        return _not_found(
+            postal_code,
+            cc,
+            f"No NUTS mapping found for postal code '{postal_code}' in country '{cc}'.{hint}",
         )
-    response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
     return NUTSResult(
         postal_code=postal_code,
         country_code=cc,
+        message=_partial_hit_message(result),
         **result,
     )
 
@@ -389,7 +420,12 @@ def lookup_postal_code(
     "/pattern",
     response_model=PatternResponse | list[str],
     responses={
-        404: {"model": ErrorResponse, "description": "No pattern for this country"},
+        200: {
+            "description": (
+                "Always 200 for a well-formed query. `found` is false and `message` "
+                "explains when the country has no postal code pattern."
+            ),
+        },
         429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
     summary="Get postal code regex pattern for a country",
@@ -415,9 +451,10 @@ def get_pattern(
     terr = get_territory(cc)
     if terr is not None:
         if not terr.has_postal_system:
-            raise HTTPException(
-                status_code=404,
-                detail=f"{terr.name} uses no postal codes.",
+            return PatternResponse(
+                found=False,
+                message=f"{terr.name} uses no postal codes.",
+                country_code=cc,
             )
         pattern = POSTAL_PATTERNS.get(terr.validate_as)
         # A territory Eurostat classifies resolves to a NUTS code of its own, so
@@ -429,12 +466,13 @@ def get_pattern(
     else:
         pattern = POSTAL_PATTERNS.get(cc)
     if pattern is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
+        return PatternResponse(
+            found=False,
+            message=(
                 f"No postal code pattern defined for country '{cc}'. "
                 f"Available countries: {', '.join(sorted(POSTAL_PATTERNS.keys()))}"
             ),
+            country_code=cc,
         )
     return PatternResponse(
         country_code=cc,
@@ -447,7 +485,13 @@ def get_pattern(
     "/resolve",
     response_model=ResolveResponse,
     responses={
-        400: {"model": ErrorResponse, "description": "Unsupported country"},
+        200: {
+            "model": ResolveResponse,
+            "description": (
+                "Always 200 for a well-formed query. `found` is false and `message` "
+                "explains when the country is not served or nothing resolved."
+            ),
+        },
         429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     },
     summary="Resolve NUTS with a geocoding fallback for weak postal results",
@@ -469,7 +513,20 @@ def resolve_endpoint(
 ):
     cc = normalize_country(country)
     if cc not in get_loaded_countries():
-        raise HTTPException(status_code=400, detail=f"Country '{cc}' is not supported.")
+        # /resolve carries PII → do not cache.
+        response.headers["Cache-Control"] = "no-store"
+        return ResolveResponse(
+            found=False,
+            message=(
+                f"Country '{cc}' is not served by this instance. "
+                f"Available countries: {_available_countries_str()}"
+            ),
+            country_code=cc,
+            postal_code=postal_code,
+            resolved_via="none",
+            match_type=None,
+            geocode=GeocodeInfo(status="not_attempted"),
+        )
     geocode_fn = _photon_client.geocode if _photon_client is not None else None
     if _nuts_pip is None:
         geocode_fn = None  # PIP unavailable → cannot resolve a coordinate
@@ -487,7 +544,18 @@ def resolve_endpoint(
     )
     # /resolve carries PII → do not cache.
     response.headers["Cache-Control"] = "no-store"
-    return ResolveResponse(**result)
+    found = result.get("resolved_via") != "none" or result.get("territory") is not None
+    return ResolveResponse(
+        found=found,
+        message=None
+        if found
+        else (
+            f"No NUTS region could be resolved for postal code '{postal_code}' "
+            f"in country '{cc}'. Neither the postal lookup nor the geocoding "
+            f"fallback produced a match."
+        ),
+        **result,
+    )
 
 
 @app.get(

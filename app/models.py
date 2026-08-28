@@ -31,6 +31,21 @@ class TerritoryInfo(BaseModel):
 
 
 class NUTSResult(BaseModel):
+    found: bool = Field(
+        default=True,
+        description=(
+            "True when the query was resolved to a known postal code or territory. "
+            "False when no corresponding data exists — the response is still 200 and "
+            "every data field is null; `message` says why."
+        ),
+    )
+    message: str | None = Field(
+        default=None,
+        description=(
+            "Human-readable explanation. Set whenever `found` is false, and also on "
+            "partial hits (e.g. a territory outside NUTS). Null on an ordinary full hit."
+        ),
+    )
     postal_code: str = Field(description="The queried postal code (normalized)")
     country_code: str = Field(description="ISO 3166-1 alpha-2 country code")
     code_system: Literal["NUTS", "ITL"] = Field(
@@ -72,9 +87,20 @@ class ErrorResponse(BaseModel):
 
 
 class PatternResponse(BaseModel):
+    found: bool = Field(
+        default=True,
+        description=(
+            "True when a postal code pattern exists for the country. False when none "
+            "does — the response is still 200, `regex`/`example` are null and "
+            "`message` says why."
+        ),
+    )
+    message: str | None = Field(
+        default=None, description="Human-readable explanation. Set whenever `found` is false."
+    )
     country_code: str = Field(description="ISO 3166-1 alpha-2 country code")
-    regex: str = Field(description="Regex pattern for postal code validation")
-    example: str = Field(description="Example postal code inputs")
+    regex: str | None = Field(default=None, description="Regex pattern for postal code validation")
+    example: str | None = Field(default=None, description="Example postal code inputs")
 
 
 class HealthResponse(BaseModel):
@@ -115,6 +141,18 @@ class GeocodeInfo(BaseModel):
 
 
 class ResolveResponse(BaseModel):
+    found: bool = Field(
+        default=True,
+        description=(
+            "True when the country is served and a NUTS code was produced. False when "
+            "the country is not served, or when neither the postal nor the geocode path "
+            "yielded a region — the response is still 200 and `message` says why."
+        ),
+    )
+    message: str | None = Field(
+        default=None,
+        description="Human-readable explanation. Set whenever `found` is false.",
+    )
     country_code: str
     postal_code: str
     resolved_via: Literal["postal", "geocode", "none"] = Field(

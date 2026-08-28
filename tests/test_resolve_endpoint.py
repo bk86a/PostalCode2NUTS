@@ -116,3 +116,24 @@ def test_lookup_422_body_unaffected(client):
     assert errors[0]["loc"] == ["query", "country"]
     assert "input" in errors[0]
     assert "Cache-Control" not in r.headers
+
+
+def test_resolve_unserved_country_is_200_not_found(client):
+    r = client.get("/resolve", params={"country": "ZZ", "postal_code": "1000"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["found"] is False
+    assert "not served" in body["message"].lower()
+    assert body["resolved_via"] == "none"
+    assert body["nuts3"] is None
+    assert body["geocode"]["status"] == "not_attempted"
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_resolve_hit_is_found_with_no_message(client):
+    body = client.get(
+        "/resolve",
+        params={"country": "BE", "postal_code": "3080", "street": "Rue", "city": "X"},
+    ).json()
+    assert body["found"] is True
+    assert body["message"] is None

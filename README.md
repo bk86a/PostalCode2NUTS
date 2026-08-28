@@ -67,9 +67,43 @@ The UK left the EU, so it is no longer part of NUTS. Its successor classificatio
 
 ITL is **not** a drop-in for NUTS-2016 UK: it diverges at L2 (41 vs 40 regions) and L3 (179 vs 174), and ONS discontinued the bidirectional NUTS↔ITL lookups in 2023. Branch on `code_system` when comparing UK results against historical NUTS-UK data.
 
-UK coverage is **optional and operator-configured** — the ~178 MB NSPL ZIP is not bundled. When `PC2NUTS_NSPL_URL` is unset (the default), UK is unsupported and returns the standard `400`. Outward-code-only input (e.g. `SW1A`) resolves to the majority ITL3 for that outward code with `estimated`/medium confidence.
+UK coverage is **optional and operator-configured** — the ~178 MB NSPL ZIP is not bundled. When `PC2NUTS_NSPL_URL` is unset (the default), UK is not served and `/lookup` answers `200` with `found: false`. Outward-code-only input (e.g. `SW1A`) resolves to the majority ITL3 for that outward code with `estimated`/medium confidence.
 
 > **Out of scope for ITL:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL. They are registered territories (see [Overseas regions and territories](#overseas-regions-and-territories)): a well-formed UK-pattern code returns `200` with a `territory` block and `nuts_coverage: "none"`, not an ITL result.
+
+## Upgrading to 3.0.0
+
+**A miss is no longer an HTTP error.** `/lookup`, `/pattern` and `/resolve` answer `200` for
+every well-formed query, hit or miss. `/lookup` and `/pattern` no longer emit `404` (no
+mapping, no pattern, code outside a territory) or `400` (country not served); `/resolve` no
+longer emits `400`. `404` now means only that the URL is not a route of this API.
+
+Three response models gain `found` (bool) and `message` (string or null); `PatternResponse.regex`
+and `PatternResponse.example` become nullable. Clients with strict schemas must widen those
+types.
+
+Replace status-code branching with the flag:
+
+```diff
+-if r.status_code == 404:
+-    handle_missing()
+-elif r.status_code == 400:
+-    handle_unsupported_country()
+-elif r.status_code == 200:
+-    use(r.json())
++r.raise_for_status()          # 422 / 429 / 401 still raise
++body = r.json()
++if body["found"]:
++    use(body)
++else:
++    handle_missing(body["message"])
+```
+
+A recognised code in a territory outside NUTS (`FO/100`, `NC/98800`) keeps `found: true` with a
+`message` explaining the null `nuts*` fields — it was already a `200` in 2.x, so nothing changes
+for those.
+
+See [Error handling](#error-handling) for the full contract.
 
 ## Upgrading to 2.0.0
 
@@ -206,6 +240,8 @@ GET /lookup?country=AT&postal_code=A-1010
 
 ```json
 {
+  "found": true,
+  "message": null,
   "postal_code": "A-1010",
   "country_code": "AT",
   "code_system": "NUTS",
@@ -230,6 +266,8 @@ GET /lookup?country=AT&postal_code=1012
 
 ```json
 {
+  "found": true,
+  "message": null,
   "postal_code": "1012",
   "country_code": "AT",
   "match_type": "estimated",
@@ -253,6 +291,8 @@ GET /lookup?country=UK&postal_code=SW1A%202AA
 
 ```json
 {
+  "found": true,
+  "message": null,
   "postal_code": "SW1A2AA",
   "country_code": "UK",
   "code_system": "ITL",
@@ -304,7 +344,8 @@ Present when the postal code lies in an overseas region or territory; `null` oth
   this exact code. The NUTS fields are populated from Eurostat's own row and flagged. Only
   Saint-Barthélemy's `97133` behaves this way.
 - **`none`** — no NUTS code exists. `match_type` and all six NUTS fields are `null`, and the
-  response is still `200`: the absence is the answer, not an error.
+  response is still `200` with `found: true`: the code *was* recognised, and the absence of a
+  NUTS code is the answer, not an error. `message` says so in words.
 
 ```bash
 curl 'https://api.datatoolset.eu/PostalCode2NUTS/lookup?country=NC&postal_code=98800'
@@ -312,6 +353,8 @@ curl 'https://api.datatoolset.eu/PostalCode2NUTS/lookup?country=NC&postal_code=9
 
 ```json
 {
+  "found": true,
+  "message": "New Caledonia is outside the NUTS classification, so no NUTS code exists for this postal code.",
   "postal_code": "98800",
   "country_code": "NC",
   "code_system": "NUTS",
@@ -336,6 +379,8 @@ An outermost region resolves as usual and is labelled:
 
 ```json
 {
+  "found": true,
+  "message": null,
   "postal_code": "97400",
   "country_code": "RE",
   "code_system": "NUTS",
@@ -358,13 +403,13 @@ return the same body apart from the echoed `country_code`: `GL/3900` = `DK/3900`
 `NC/98800` = `FR/98800`, `SJ/9170` = `NO/9170`.
 
 Substitution is asymmetric, though. A code that is well-formed for the administering country
-but does not belong to the named territory returns `404` rather than the mainland answer —
+but does not belong to the named territory returns `found: false` rather than the mainland answer —
 `GL/2100` is a valid Danish code for Copenhagen, but it is not Greenlandic, and `SJ/0150` is
 Oslo, not Svalbard.
 
 The whole-country territories — `FO`, `GI`, `JE`, `GG` and `IM` — are the exception to "two
 routes": they have no postal prefix of their own within the administering country's scheme, so
-only their own ISO code resolves. `JE/JE2 3XP` returns `200`; `UK/JE2 3XP` returns `404`.
+only their own ISO code resolves. `JE/JE2 3XP` is a hit; `UK/JE2 3XP` answers `200` with `found: false`.
 
 The service accepts postal codes with or without country prefixes. For example, all of the following resolve to the same result for Austria: `1010`, `A-1010`, `AT-1010`, `A1010`.
 
@@ -396,6 +441,8 @@ GET /pattern?country=AT
 
 ```json
 {
+  "found": true,
+  "message": null,
   "country_code": "AT",
   "regex": "^(?:A-?|AT-?)?([0-9]{4})$",
   "example": "1010, A-1010, AT-1010"
@@ -422,8 +469,8 @@ matches what `/lookup?country=RE&postal_code=75001` has always answered.
 Every other territory code still returns the administering country's pattern unchanged: the OCTs
 and Saint-Martin have postal codes but no NUTS link, and the Crown Dependencies have no prefix
 range to narrow to. Aruba, Curaçao, Sint Maarten and Bonaire/Saba/Sint Eustatius (`AW`, `CW`,
-`SX`, `BQ`) use no postal codes at all, so this endpoint returns `404` for them rather than a
-pattern.
+`SX`, `BQ`) use no postal codes at all, so this endpoint answers `found: false` with a null
+`regex` for them rather than a pattern.
 
 ### `GET /resolve`
 
@@ -442,10 +489,14 @@ snapped to the nearest same-country region within `PC2NUTS_PIP_SNAP_KM` (default
 curl -s "localhost:8000/resolve?country=NL&postal_code=1012AB&street=Dam&city=Amsterdam"
 ```
 
-**Response fields:** `country_code`, `postal_code`, `resolved_via`
+**Response fields:** `found`, `message`, `country_code`, `postal_code`, `resolved_via`
 (`postal` | `geocode` | `none`), `match_type`, `nuts1..nuts3` (+ `_name`),
 `nuts3_confidence`, `territory` (see [The `territory` block](#the-territory-block)), and a
 `geocode` object: `status`, `lat`, `lon`, `nuts3`, `snap_km`.
+
+An unserved country is a `200` with `found: false`, `resolved_via: "none"` and
+`geocode.status: "not_attempted"` — `/resolve` has never used `404`, and no longer uses
+`400` either.
 
 `geocode.status` values:
 
@@ -504,42 +555,86 @@ Returns service status and data statistics.
 
 ## Error handling
 
-The API uses standard HTTP status codes with human-readable error messages:
+**Absence of data is not an HTTP error.** A well-formed query against a route the
+service serves always answers `200`, whether or not a mapping exists. When nothing
+was found the body carries `found: false`, a human-readable `message`, and null data
+fields. `404` means only one thing: the URL you requested is not a route of this API.
 
 | Status | Meaning | When |
 |--------|---------|------|
-| **200** | Success | Lookup found, pattern returned, health OK, or resolve completed (even when unresolved — see `resolved_via: "none"`) |
-| **400** | Bad request | Country code is not supported (lists available countries) |
-| **404** | Not found | Postal code not found (shows expected format), no pattern for country, a postal code that is well-formed but does not belong to the named territory, or a `/pattern` request for a territory with no postal system. `/resolve` never 404s. |
-| **422** | Validation error | Parameter format invalid (e.g. country code not 2 letters, contains digits) |
+| **200** | Answered | Every well-formed `/lookup`, `/pattern` and `/resolve` request — a hit (`found: true`) *and* a miss (`found: false` with a `message`), including an unserved country, an unmapped postal code, and a country with no postal pattern |
+| **401** | Unauthorized | Token authentication is enabled and the presented token is invalid |
+| **404** | No such route | The requested URL is not an endpoint of this API (e.g. `/lookup/DE`). Never used for missing data |
+| **422** | Validation error | Parameter *format* invalid (e.g. country code not 2 letters, contains digits) — the request could not be parsed, so nothing was looked up |
 | **429** | Too many requests | Rate limit exceeded (configurable via `PC2NUTS_RATE_LIMIT`) |
 
-**Examples:**
+### The not-found body
 
-Unsupported country (400):
+`/lookup` and `/resolve` return their normal response model with every data field
+null; `/pattern` returns `regex: null` and `example: null`. Clients branch on
+`found`, never on the status code.
+
+Country not served by this instance — `GET /lookup?country=XX&postal_code=12345`:
 ```json
-{"detail": "Country 'XX' is not supported. Available countries: AT, BE, BG, CH, ..."}
+{
+  "found": false,
+  "message": "Country 'XX' is not served by this instance. Available countries: AT, BE, BG, CH, ...",
+  "postal_code": "12345",
+  "country_code": "XX",
+  "code_system": "NUTS",
+  "match_type": null,
+  "nuts1": null, "nuts1_name": null, "nuts1_confidence": null,
+  "nuts2": null, "nuts2_name": null, "nuts2_confidence": null,
+  "nuts3": null, "nuts3_name": null, "nuts3_confidence": null,
+  "territory": null
+}
 ```
 
-Postal code not found (404) — includes expected format hint:
+Postal code with no mapping — the message carries the expected format hint:
 ```json
-{"detail": "No NUTS mapping found for postal code 'Traiskirchen' in country 'AT'. Expected format: 1010, A-1010, AT-1010"}
+{
+  "found": false,
+  "message": "No NUTS mapping found for postal code 'Traiskirchen' in country 'AT'. Expected format: 1010, A-1010, AT-1010",
+  "postal_code": "Traiskirchen", "country_code": "AT", "nuts3": null
+}
 ```
 
-Code outside the named territory (404) — `GL/2100` is a valid Danish code, but not Greenlandic:
+Code outside the named territory — `GL/2100` is a valid Danish code, but not Greenlandic:
 ```json
-{"detail": "Postal code '2100' is not a Greenland code. Greenland uses the DK postal scheme; codes outside its range belong to another territory or to DK itself."}
+{
+  "found": false,
+  "message": "Postal code '2100' is not a Greenland code. Greenland uses the DK postal scheme; codes outside its range belong to another territory or to DK itself.",
+  "postal_code": "2100", "country_code": "GL", "nuts3": null
+}
 ```
 
-Territory with no postal system, on `/pattern` (404):
+Territory with no postal system, on `/pattern?country=AW`:
 ```json
-{"detail": "Aruba uses no postal codes."}
+{"found": false, "message": "Aruba uses no postal codes.", "country_code": "AW", "regex": null, "example": null}
 ```
 
-Invalid parameter format (422):
+`found: true` with a `message` is a *partial* hit: the postal code is recognised but
+the territory sits outside the NUTS classification, so the `nuts*` fields are null by
+construction rather than by absence of data (`FO/100`, `AW`, `GL`):
+```json
+{
+  "found": true,
+  "message": "Faroe Islands is outside the NUTS classification, so no NUTS code exists for this postal code.",
+  "postal_code": "100", "country_code": "FO", "nuts3": null,
+  "territory": {"id": "FO", "name": "Faroe Islands", "nuts_coverage": "none", "...": "..."}
+}
+```
+
+An ordinary hit has `found: true` and `message: null`.
+
+Invalid parameter format (422) — the only remaining `detail`-shaped error body:
 ```json
 {"detail": [{"msg": "String should match pattern '^[A-Za-z]{2}$'", "input": "12"}]}
 ```
+
+> **Migrating from ≤ 2.x:** replace `if r.status_code == 404` / `== 400` with
+> `if not r.json()["found"]`. `/lookup` and `/pattern` no longer emit `400` or `404`
+> for data reasons; `422` and `429` are unchanged.
 
 ## Postal code input patterns
 
@@ -591,7 +686,7 @@ User input: "Traiskirchen"
   → preprocess: no changes (not numeric)
   → regex for AT: no match
   → fallback normalize: "TRAISKIRCHEN"
-  → lookup ("AT", "TRAISKIRCHEN") → 404
+  → lookup ("AT", "TRAISKIRCHEN") → found: false
 ```
 
 ### Supported patterns
@@ -900,9 +995,9 @@ For countries that have only a single NUTS3 region (e.g. LI, CY, LU), any postal
 - Confidence: **1.0** at all NUTS levels.
 - The set is auto-detected from the loaded TERCET data and additionally seeded from the `single_nuts3_fallback` map in `app/settings.json`. The latter covers countries Eurostat treats as a single nationwide unit but for which GISCO publishes no TERCET file (currently Montenegro → `ME000`).
 
-### No match (404)
+### No match
 
-If all five tiers fail, the service returns a 404 with a format hint for the expected postal code pattern.
+If all five tiers fail, the service returns `200` with `found: false` and a `message` carrying a format hint for the expected postal code pattern.
 
 ## How it works
 
@@ -918,7 +1013,7 @@ At startup the service also loads any pre-computed estimates from the DB, remove
 
 ### Why estimates are needed
 
-The GISCO TERCET correspondence tables are the authoritative source for postal-code-to-NUTS mappings, but they do not cover every postal code in active use. Gaps arise from newly issued codes, country-specific sub-ranges (e.g. French CEDEX codes), codes used only by specific postal operators, or simple omissions. The estimates table fills these gaps with pre-computed NUTS assignments so that real-world postal codes return a result instead of a 404.
+The GISCO TERCET correspondence tables are the authoritative source for postal-code-to-NUTS mappings, but they do not cover every postal code in active use. Gaps arise from newly issued codes, country-specific sub-ranges (e.g. French CEDEX codes), codes used only by specific postal operators, or simple omissions. The estimates table fills these gaps with pre-computed NUTS assignments so that real-world postal codes return a result instead of `found: false`.
 
 ### How missing codes were identified
 
