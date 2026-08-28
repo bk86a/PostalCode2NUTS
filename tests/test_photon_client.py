@@ -109,3 +109,30 @@ def test_transport_error_returns_none():
 def test_blank_query_returns_none():
     pc = PhotonClient("http://photon", _client(lambda r: httpx.Response(200, json={"features": []})))
     assert pc.geocode(None, None, None) is None
+
+
+def test_oversized_geocoder_response_is_abandoned():
+    """/resolve buffers the geocoder body on every request — a Photon that has
+    been replaced or has gone wrong must not be able to exhaust the worker."""
+    from app import photon_client
+
+    def handler(req):
+        return httpx.Response(200, content=b"x" * (photon_client._MAX_RESPONSE_BYTES + 1))
+
+    pc = PhotonClient("http://photon", _client(handler))
+    assert pc.geocode("Markt", "Tervuren", "3080") is None
+
+
+def test_response_just_under_the_cap_still_parses():
+    """The cap must not clip a legitimate response."""
+    from app import photon_client
+
+    feature = {"geometry": {"type": "Point", "coordinates": [4.5149, 50.8246]}}
+    padding = "y" * 1024  # well under the ceiling, but not trivially small
+
+    def handler(req):
+        return httpx.Response(200, json={"features": [feature], "note": padding})
+
+    pc = PhotonClient("http://photon", _client(handler))
+    assert pc.geocode("Markt", "Tervuren", "3080") == (50.8246, 4.5149)
+    assert photon_client._MAX_RESPONSE_BYTES > len(padding)

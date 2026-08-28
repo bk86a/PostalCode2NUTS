@@ -25,6 +25,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   through pydantic, whose `ValidationError` rendering includes the settings input
   dict — printing `PC2NUTS_TRUSTED_TOKENS` and `PC2NUTS_TOKEN_DB_AUTH_TOKEN`
   verbatim into container logs on an unrelated misconfiguration.
+- The TERCET directory listing (`_discover_zip_urls`) and the Photon geocoder
+  response are capped too. The listing is fetched first on a cold cache, before
+  any of the capped ZIP downloads; the geocoder body is buffered on every
+  `/resolve` request.
 - Every remote body the worker buffers is now capped: `PC2NUTS_MAX_DOWNLOAD_MB`
   (default 512) for TERCET/NSPL zips, NUTS polygons and the names CSV,
   `PC2NUTS_MAX_ESTIMATES_DOWNLOAD_MB` (default 64) for the estimates refresh URL.

@@ -587,3 +587,23 @@ class TestDownloadCap:
             return httpx.Response(200, content=b"payload")
 
         assert data_loader._download_zip(self._client(handler), "https://x/f.zip") == b"payload"
+
+    def test_discover_zip_urls_caps_the_listing(self, monkeypatch):
+        """The directory listing is fetched first on a cold cache, before any
+        capped ZIP download — so it needs the ceiling too."""
+        monkeypatch.setattr(data_loader.settings, "max_download_mb", 1, raising=False)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"<a href=\"x.zip\">" + b"p" * (2 * 1024 * 1024))
+
+        assert data_loader._discover_zip_urls(self._client(handler), "https://x/") == []
+
+    def test_discover_zip_urls_still_parses_a_normal_listing(self, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "max_download_mb", 1, raising=False)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b'<a href="pc2024_DE.zip">DE</a>')
+
+        assert data_loader._discover_zip_urls(self._client(handler), "https://x/") == [
+            "https://x/pc2024_DE.zip"
+        ]
