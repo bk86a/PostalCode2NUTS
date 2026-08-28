@@ -54,6 +54,12 @@ services:
       PC2NUTS_WORKERS: "2"
       PC2NUTS_RATE_LIMIT_STORAGE_URI: "redis://redis:6379/0"
 
+      # Which peers may set X-Forwarded-For. Must name the reverse proxy in
+      # front of this container — with the default (127.0.0.1) a non-loopback
+      # proxy's requests are all keyed to the proxy's own IP, and with "*" any
+      # client can spoof the header and bypass the per-IP rate limit entirely.
+      # PC2NUTS_FORWARDED_ALLOW_IPS: "172.17.0.1"
+
       # Optional knobs — uncomment as needed.
       # PC2NUTS_RATE_LIMIT: "120/minute"
       # PC2NUTS_TRUSTED_TOKENS: "<comma-separated>"  # rate-limit bypass via Bearer token
