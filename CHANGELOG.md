@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [3.0.0] - 2026-08-28
+## [3.0.0] - 2026-08-29
 
 Absence of data is no longer an HTTP error. A well-formed query against a served
 route always answers `200`, carrying a `found` flag and a human-readable
