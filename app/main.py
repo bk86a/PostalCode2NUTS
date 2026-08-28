@@ -334,7 +334,7 @@ def _partial_hit_message(result: dict) -> str | None:
     """Explain a hit that carries no NUTS code (a territory outside NUTS)."""
     if result.get("nuts3") is not None:
         return None
-    terr = result.get("territory")
+    terr = result.get("context")
     if terr is None:
         return None
     return f"{terr['name']} is outside the NUTS classification, so no NUTS code exists for this postal code."
@@ -544,7 +544,7 @@ def resolve_endpoint(
     )
     # /resolve carries PII → do not cache.
     response.headers["Cache-Control"] = "no-store"
-    found = result.get("resolved_via") != "none" or result.get("territory") is not None
+    found = result.get("resolved_via") != "none" or result.get("context") is not None
     return ResolveResponse(
         found=found,
         message=None

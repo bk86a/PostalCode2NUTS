@@ -189,7 +189,7 @@ def test_resolve_skips_the_geocoder_for_a_territory_with_no_coverage():
         lookup_fn=lambda c, p: {
             "match_type": None, "nuts1": None, "nuts2": None, "nuts3": None,
             "nuts1_name": None, "nuts2_name": None, "nuts3_name": None,
-            "nuts3_confidence": None, "territory": territory,
+            "nuts3_confidence": None, "context": territory,
         },
         geocode_fn=geocode_fn,
         pip=None,
@@ -199,7 +199,7 @@ def test_resolve_skips_the_geocoder_for_a_territory_with_no_coverage():
     assert result["geocode"]["status"] == "not_attempted"
     assert result["resolved_via"] == "none"
     assert result["nuts3"] is None
-    assert result["territory"]["id"] == "NC"
+    assert result["context"]["id"] == "NC"
 
 
 def test_resolve_still_geocodes_a_weak_ordinary_result():

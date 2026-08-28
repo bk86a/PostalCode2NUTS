@@ -9,10 +9,10 @@ def test_oct_returns_200_with_a_territory_block(client):
     r = client.get("/lookup", params={"country": "NC", "postal_code": "98800"})
     assert r.status_code == 200
     body = r.json()
-    assert body["territory"]["name"] == "New Caledonia"
-    assert body["territory"]["status"] == "oct"
-    assert body["territory"]["nuts_coverage"] == "none"
-    assert body["territory"]["legal_basis"] == "TFEU Part Four, Annex II"
+    assert body["context"]["name"] == "New Caledonia"
+    assert body["context"]["status"] == "oct"
+    assert body["context"]["nuts_coverage"] == "none"
+    assert body["context"]["legal_basis"] == "TFEU Part Four, Annex II"
     assert body["nuts3"] is None
     assert body["match_type"] is None
 
@@ -49,8 +49,8 @@ def test_territory_without_a_postal_system_answers_on_the_country_code(client):
     r = client.get("/lookup", params={"country": "AW", "postal_code": ""})
     assert r.status_code == 200
     body = r.json()
-    assert body["territory"]["name"] == "Aruba"
-    assert "no postal codes" in body["territory"]["note"]
+    assert body["context"]["name"] == "Aruba"
+    assert "no postal codes" in body["context"]["note"]
 
 
 def test_outermost_region_keeps_its_nuts_codes(client, mock_data):
@@ -58,13 +58,13 @@ def test_outermost_region_keeps_its_nuts_codes(client, mock_data):
     data_loader._build_prefix_index()
     body = client.get("/lookup", params={"country": "RE", "postal_code": "97400"}).json()
     assert body["nuts3"] == "FRY40"
-    assert body["territory"]["status"] == "outermost_region"
-    assert body["territory"]["nuts_coverage"] == "full"
+    assert body["context"]["status"] == "outermost_region"
+    assert body["context"]["nuts_coverage"] == "full"
 
 
 def test_ordinary_lookup_has_a_null_territory(client):
     body = client.get("/lookup", params={"country": "DE", "postal_code": "10115"}).json()
-    assert body["territory"] is None
+    assert body["context"] is None
     assert body["nuts3"] == "DE300"
 
 
@@ -103,3 +103,32 @@ def test_pattern_not_found_for_a_territory_with_no_postal_system(client):
 
 def test_health_reports_the_registry_size(client):
     assert client.get("/health").json()["territories"] == 26
+
+
+def test_the_block_is_named_context_not_territory(client):
+    """The block covers regions, countries and dependencies alike, so it is not
+    named for any one of them. The old key must be gone, not merely aliased."""
+    body = client.get("/lookup", params={"country": "NC", "postal_code": "98800"}).json()
+    assert "territory" not in body
+    assert body["context"]["name"] == "New Caledonia"
+
+
+def test_context_is_null_for_an_ordinary_lookup(client):
+    body = client.get("/lookup", params={"country": "DE", "postal_code": "10115"}).json()
+    assert "territory" not in body
+    assert body["context"] is None
+
+
+def test_openapi_exposes_context_not_territory():
+    from unittest.mock import patch
+
+    from app import data_loader
+
+    with patch.object(data_loader, "load_data"):
+        from app.main import app
+
+        schema = app.openapi()
+    props = schema["components"]["schemas"]["NUTSResult"]["properties"]
+    assert "context" in props and "territory" not in props
+    assert "ContextInfo" in schema["components"]["schemas"]
+    assert "TerritoryInfo" not in schema["components"]["schemas"]

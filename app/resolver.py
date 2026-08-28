@@ -53,12 +53,12 @@ def resolve(
             "nuts3_confidence": current.get("nuts3_confidence"),
         }
 
-    territory = current.get("territory") if current else None
+    ctx = current.get("context") if current else None
     base = {"country_code": country, "postal_code": postal_code, "match_type": match_type}
-    if territory is not None:
-        base["territory"] = territory
-        if territory["nuts_coverage"] == "none":
-            # No NUTS polygon covers the territory, so a coordinate cannot help:
+    if ctx is not None:
+        base["context"] = ctx
+        if ctx["nuts_coverage"] == "none":
+            # No NUTS polygon covers the area, so a coordinate cannot help:
             # PIP would return pip_outside and we would fall back to the postal
             # answer anyway. Skip the geocoder rather than pay for that round trip.
             return {

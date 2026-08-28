@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models import NUTSResult, TerritoryInfo
+from app.models import NUTSResult, ContextInfo
 
 
 def test_territory_only_result_validates_with_null_nuts():
@@ -14,7 +14,7 @@ def test_territory_only_result_validates_with_null_nuts():
         nuts1=None, nuts1_confidence=None,
         nuts2=None, nuts2_confidence=None,
         nuts3=None, nuts3_confidence=None,
-        territory=TerritoryInfo(
+        context=ContextInfo(
             id="NC", iso="NC", name="New Caledonia", status="oct",
             administering_country="FR", legal_basis="TFEU Part Four, Annex II",
             note=None, nuts_coverage="none",
@@ -22,8 +22,8 @@ def test_territory_only_result_validates_with_null_nuts():
     )
     assert r.nuts3 is None
     assert r.match_type is None
-    assert r.territory.status == "oct"
-    assert r.territory.nuts_coverage == "none"
+    assert r.context.status == "oct"
+    assert r.context.nuts_coverage == "none"
 
 
 def test_ordinary_result_omits_the_territory_block():
@@ -33,12 +33,12 @@ def test_ordinary_result_omits_the_territory_block():
         nuts2="DE30", nuts2_confidence=1.0,
         nuts3="DE300", nuts3_confidence=1.0,
     )
-    assert r.territory is None
+    assert r.context is None
 
 
 def test_nuts_coverage_is_constrained():
     with pytest.raises(ValidationError):
-        TerritoryInfo(
+        ContextInfo(
             id="NC", iso="NC", name="New Caledonia", status="oct",
             administering_country="FR", legal_basis=None, note=None,
             nuts_coverage="partial",
@@ -47,7 +47,7 @@ def test_nuts_coverage_is_constrained():
 
 def test_status_is_constrained():
     with pytest.raises(ValidationError):
-        TerritoryInfo(
+        ContextInfo(
             id="NC", iso="NC", name="New Caledonia", status="colony",
             administering_country="FR", legal_basis=None, note=None,
             nuts_coverage="none",

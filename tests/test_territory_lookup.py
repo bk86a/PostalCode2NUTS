@@ -18,9 +18,9 @@ def test_outermost_region_resolves_and_is_labelled(mock_data):
     r = data_loader.lookup("FR", "97400")
     assert r["match_type"] == "exact"
     assert r["nuts3"] == "FRY40"
-    assert r["territory"]["id"] == "RE"
-    assert r["territory"]["status"] == "outermost_region"
-    assert r["territory"]["nuts_coverage"] == "full"
+    assert r["context"]["id"] == "RE"
+    assert r["context"]["status"] == "outermost_region"
+    assert r["context"]["nuts_coverage"] == "full"
 
 
 def test_iso_route_matches_the_parent_route(mock_data):
@@ -35,9 +35,9 @@ def test_iso_route_matches_the_parent_route(mock_data):
 
 def test_oct_returns_a_territory_only_result(mock_data):
     r = data_loader.lookup("FR", "98800")
-    assert r["territory"]["id"] == "NC"
-    assert r["territory"]["status"] == "oct"
-    assert r["territory"]["nuts_coverage"] == "none"
+    assert r["context"]["id"] == "NC"
+    assert r["context"]["status"] == "oct"
+    assert r["context"]["nuts_coverage"] == "none"
     assert r["match_type"] is None
     for field in ("nuts1", "nuts2", "nuts3", "nuts1_name", "nuts2_name", "nuts3_name",
                   "nuts1_confidence", "nuts2_confidence", "nuts3_confidence"):
@@ -53,14 +53,14 @@ def test_oct_never_reaches_the_monaco_prefix_chain(mock_data):
     # Monaco itself is untouched and carries no territory block.
     monaco = data_loader.lookup("FR", "98000")
     assert monaco["nuts3"] == "FRL03"
-    assert monaco.get("territory") is None
+    assert monaco.get("context") is None
 
 
 def test_greenland_never_reaches_the_danish_prefix_fallback(mock_data):
     data_loader._lookup[("DK", "3700")] = "DK014"
     data_loader._build_prefix_index()
     r = data_loader.lookup("DK", "3900")
-    assert r["territory"]["id"] == "GL"
+    assert r["context"]["id"] == "GL"
     assert r["nuts3"] is None
 
 
@@ -68,9 +68,9 @@ def test_saint_martin_loses_its_approximation(mock_data):
     data_loader._lookup[("FR", "97100")] = "FRY10"
     data_loader._build_prefix_index()
     r = data_loader.lookup("FR", "97150")
-    assert r["territory"]["id"] == "MF"
-    assert r["territory"]["status"] == "outermost_region"
-    assert r["territory"]["nuts_coverage"] == "none"
+    assert r["context"]["id"] == "MF"
+    assert r["context"]["status"] == "outermost_region"
+    assert r["context"]["nuts_coverage"] == "none"
     assert r["nuts3"] is None
 
 
@@ -78,8 +78,8 @@ def test_tercet_entry_only_keeps_a_genuine_eurostat_row(mock_data):
     data_loader._lookup[("FR", "97133")] = "FRY10"
     data_loader._build_prefix_index()
     r = data_loader.lookup("FR", "97133")
-    assert r["territory"]["id"] == "BL"
-    assert r["territory"]["nuts_coverage"] == "tercet_entry_only"
+    assert r["context"]["id"] == "BL"
+    assert r["context"]["nuts_coverage"] == "tercet_entry_only"
     assert r["match_type"] == "exact"
     assert r["nuts3"] == "FRY10"
     assert r["nuts3_confidence"] == 1.0
@@ -87,8 +87,8 @@ def test_tercet_entry_only_keeps_a_genuine_eurostat_row(mock_data):
 
 def test_sibling_code_without_a_tercet_row_returns_none_coverage(mock_data):
     r = data_loader.lookup("FR", "97705")
-    assert r["territory"]["id"] == "BL"
-    assert r["territory"]["nuts_coverage"] == "none"
+    assert r["context"]["id"] == "BL"
+    assert r["context"]["nuts_coverage"] == "none"
     assert r["nuts3"] is None
 
 
@@ -114,18 +114,18 @@ def test_svalbard_is_in_nuts(mock_data):
     data_loader._build_prefix_index()
     r = data_loader.lookup("SJ", "9170")
     assert r["nuts3"] == "NO0B2"
-    assert r["territory"]["nuts_coverage"] == "full"
-    assert r["territory"]["status"] == "other"
+    assert r["context"]["nuts_coverage"] == "full"
+    assert r["context"]["status"] == "other"
 
 
 # ── Territories with no postal system ────────────────────────────────────────
 
 def test_aruba_answers_on_the_country_code_alone(mock_data):
     r = data_loader.lookup("AW", "")
-    assert r["territory"]["id"] == "AW"
-    assert r["territory"]["nuts_coverage"] == "none"
+    assert r["context"]["id"] == "AW"
+    assert r["context"]["nuts_coverage"] == "none"
     assert r["nuts3"] is None
-    assert data_loader.lookup("AW", "anything")["territory"]["id"] == "AW"
+    assert data_loader.lookup("AW", "anything")["context"]["id"] == "AW"
 
 
 def test_dutch_octs_never_reach_the_netherlands_rows(mock_data):
@@ -135,8 +135,8 @@ def test_dutch_octs_never_reach_the_netherlands_rows(mock_data):
     data_loader._build_prefix_index()
     for iso in ("AW", "CW", "SX", "BQ"):
         r = data_loader.lookup(iso, "1012")
-        assert r["territory"]["id"] == iso
-        assert r["territory"]["nuts_coverage"] == "none"
+        assert r["context"]["id"] == iso
+        assert r["context"]["nuts_coverage"] == "none"
         assert r["nuts3"] is None
         assert r["match_type"] is None
 
@@ -148,14 +148,14 @@ def test_crown_dependency_codes_reach_the_territory_statement(mock_data):
     # come back as a territory rather than a 404.
     r = data_loader.lookup("JE", "JE2 3XP")
     assert r is not None, "UK pattern rejected a Jersey code"
-    assert r["territory"]["id"] == "JE"
-    assert r["territory"]["nuts_coverage"] == "none"
+    assert r["context"]["id"] == "JE"
+    assert r["context"]["nuts_coverage"] == "none"
 
 
 def test_faroe_islands_no_longer_return_a_fabricated_code(mock_data):
     r = data_loader.lookup("FO", "100")
-    assert r["territory"]["id"] == "FO"
-    assert r["territory"]["nuts_coverage"] == "none"
+    assert r["context"]["id"] == "FO"
+    assert r["context"]["nuts_coverage"] == "none"
     assert r["nuts3"] is None
 
 
@@ -170,14 +170,14 @@ def test_ordinary_lookups_are_unchanged(mock_data):
     r = data_loader.lookup("DE", "10115")
     assert r["nuts3"] == "DE300"
     assert r["match_type"] == "exact"
-    assert r.get("territory") is None
+    assert r.get("context") is None
 
 
 def test_montenegro_single_nuts3_fallback_survives(mock_data):
     data_loader._single_nuts3["ME"] = "ME000"
     r = data_loader.lookup("ME", "81000")
     assert r["nuts3"] == "ME000"
-    assert r.get("territory") is None
+    assert r.get("context") is None
 
 
 def test_territory_iso_codes_are_supported_countries():

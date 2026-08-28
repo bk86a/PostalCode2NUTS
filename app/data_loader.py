@@ -1444,7 +1444,7 @@ def _territory_only_result(t) -> dict:
         "nuts3": None,
         "nuts3_name": None,
         "nuts3_confidence": None,
-        "territory": _territory_payload(t, "none"),
+        "context": _territory_payload(t, "none"),
     }
 
 
@@ -1493,7 +1493,7 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
         result = _lookup_cascade(probe_cc, postal_code)
         if result is None:
             return None
-        result["territory"] = _territory_payload(t, "full")
+        result["context"] = _territory_payload(t, "full")
         return result
 
     # Outside NUTS: tier 1 only. A territory with no postal system
@@ -1508,6 +1508,6 @@ def lookup(country_code: str, postal_code: str) -> dict | None:
         nuts3 = _lookup.get((probe_cc, extracted))
         if nuts3 is not None:
             result = _build_result("exact", nuts3)
-            result["territory"] = _territory_payload(t, "tercet_entry_only")
+            result["context"] = _territory_payload(t, "tercet_entry_only")
             return result
     return _territory_only_result(t)

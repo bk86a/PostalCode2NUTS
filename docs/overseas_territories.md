@@ -17,7 +17,7 @@ answer always matches the territory's real status.
 | **EU law** | Applies in full (with adaptations) | Does not apply |
 | **In NUTS?** | **Yes**, with one exception (Saint-Martin) | **No** |
 | **Count** | 9 | 13 (mapped to 11 ISO 3166-1 codes; all UK OCTs left in 2020) |
-| **This service** | Resolves `exact` from TERCET, `nuts_coverage: "full"` | Returns a `territory` block with null NUTS, `nuts_coverage: "none"` |
+| **This service** | Resolves `exact` from TERCET, `nuts_coverage: "full"` | Returns a `context` block with null NUTS, `nuts_coverage: "none"` |
 
 ## Outermost regions
 
@@ -46,13 +46,13 @@ own — reach them only through `PT` or `ES` postal codes; the registry keys the
 > **Saint-Martin's** single postal code, `97150`, falls inside Guadeloupe's `971xx` block in
 > the raw digits, but the territory registry gates on the code itself, not the prefix, and
 > `97150` is not a row TERCET carries. A lookup for `MF/97150` or `FR/97150` now returns
-> `200` with a `territory` block and null NUTS (`nuts_coverage: "none"`) — not Guadeloupe's
+> `200` with a `context` block and null NUTS (`nuts_coverage: "none"`) — not Guadeloupe's
 > `FRY10`, which is what it returned before this registry existed.
 
 ## Overseas countries and territories
 
 None of the 13 OCTs has a NUTS region, so no lookup can return one. All eleven ISO-coded
-entries return `200` with a `territory` block and `nuts_coverage: "none"` — either on their
+entries return `200` with a `context` block and `nuts_coverage: "none"` — either on their
 own ISO code, or on a well-formed postal code under the administering country that falls in
 the territory's range.
 
@@ -103,14 +103,14 @@ Mayen); the `917xx` block resolves to `NO0B2` (Svalbard) — for example `9170` 
 
 **The Faroe Islands** are an autonomous Danish territory the Treaties do not apply to (Art.
 355(5)(a) TFEU). There is no NUTS coverage and no GISCO TERCET file, so `FO` lookups return a
-`territory` block with null NUTS and `nuts_coverage: "none"`. Earlier releases of this service
+`context` block with null NUTS and `nuts_coverage: "none"`. Earlier releases of this service
 fabricated `FO0` / `FO00` / `FO000` as a synthetic single-region result — that code was
 invented by this project, never published by Eurostat, and has been removed. Contrast
 Montenegro's `ME000`, which is a genuine Eurostat single-region NUTS code.
 
 **Gibraltar and the three Crown Dependencies** use UK-style postcodes but sit outside ITL
 geography and the NSPL, so they cannot resolve even when UK/ITL coverage is configured. A
-well-formed UK-pattern code under `GI`, `JE`, `GG` or `IM` returns `200` with a `territory`
+well-formed UK-pattern code under `GI`, `JE`, `GG` or `IM` returns `200` with a `context`
 block and null NUTS.
 
 ## Implemented behaviour

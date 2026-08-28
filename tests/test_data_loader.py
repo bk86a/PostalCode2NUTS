@@ -155,19 +155,19 @@ class TestLookup:
         assert result["nuts3"] is None
         assert result["nuts2"] is None
         assert result["nuts1"] is None
-        assert result["territory"]["id"] == "FO"
-        assert result["territory"]["nuts_coverage"] == "none"
+        assert result["context"]["id"] == "FO"
+        assert result["context"]["nuts_coverage"] == "none"
 
     def test_fo_territory_names(self, mock_data):
         result = lookup("FO", "100")
         assert result["nuts1_name"] is None
         assert result["nuts2_name"] is None
         assert result["nuts3_name"] is None
-        assert result["territory"]["name"] == "Faroe Islands"
+        assert result["context"]["name"] == "Faroe Islands"
 
     def test_fo_prefix_variants(self, mock_data):
         for raw in ("FO-100", "FO 100", "FO100", "970", "999"):
-            assert lookup("FO", raw)["territory"]["id"] == "FO"
+            assert lookup("FO", raw)["context"]["id"] == "FO"
 
     def test_fo_rejects_bad_format(self, mock_data):
         """Format guard: non-3-digit input is rejected outright by the gate."""
