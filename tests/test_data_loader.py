@@ -528,3 +528,62 @@ class TestConditionalGet:
         data_loader._download_zip_conditional(client, "https://example.com/foo.zip", {})
         assert "if-none-match" not in captured["headers"]
         assert "if-modified-since" not in captured["headers"]
+
+
+class TestDownloadCap:
+    """Remote bodies are buffered whole, so every fetch needs a ceiling."""
+
+    @staticmethod
+    def _client(handler):
+        return httpx.Client(transport=httpx.MockTransport(handler))
+
+    def test_get_capped_returns_body_under_the_limit(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"hello", headers={"ETag": '"e"'})
+
+        resp = data_loader._get_capped(self._client(handler), "https://x/f.zip", limit_bytes=1024)
+        assert resp.status_code == 200
+        assert resp.content == b"hello"
+        assert resp.headers["etag"] == '"e"'
+
+    def test_get_capped_raises_when_body_exceeds_limit(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"z" * 5000)
+
+        with pytest.raises(data_loader.DownloadTooLarge):
+            data_loader._get_capped(self._client(handler), "https://x/f.zip", limit_bytes=1024)
+
+    def test_get_capped_raises_on_declared_length(self):
+        """Content-Length past the ceiling is refused before reading the body."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"z", headers={"Content-Length": "99999"})
+
+        with pytest.raises(data_loader.DownloadTooLarge):
+            data_loader._get_capped(self._client(handler), "https://x/f.zip", limit_bytes=1024)
+
+    def test_get_capped_passes_304_through(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(304)
+
+        resp = data_loader._get_capped(self._client(handler), "https://x/f.zip", limit_bytes=1024)
+        assert resp.status_code == 304
+        assert resp.content == b""
+
+    def test_download_zip_returns_none_for_oversized_body(self, monkeypatch):
+        """_download_zip swallows the cap breach: an oversized upstream is a
+        skipped source, never a crashed startup."""
+        monkeypatch.setattr(data_loader.settings, "max_download_mb", 1, raising=False)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"z" * (2 * 1024 * 1024))
+
+        assert data_loader._download_zip(self._client(handler), "https://x/f.zip") is None
+
+    def test_download_zip_still_returns_normal_body(self, monkeypatch):
+        monkeypatch.setattr(data_loader.settings, "max_download_mb", 1, raising=False)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"payload")
+
+        assert data_loader._download_zip(self._client(handler), "https://x/f.zip") == b"payload"

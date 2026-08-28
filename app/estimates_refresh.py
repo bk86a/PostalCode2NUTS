@@ -77,18 +77,40 @@ async def fetch_remote_csv(
     if _last_modified:
         headers["If-Modified-Since"] = _last_modified
 
+    limit = settings.max_estimates_download_mb * 1024 * 1024
     try:
-        r = await client.get(settings.estimates_refresh_url, headers=headers, timeout=10.0)
+        async with client.stream("GET", settings.estimates_refresh_url, headers=headers, timeout=10.0) as r:
+            response_headers = {k.lower(): v for k, v in r.headers.items()}
+            if r.status_code == 304:
+                return None, 304, response_headers
+            if r.status_code != 200:
+                return None, r.status_code, response_headers
+            declared = response_headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > limit:
+                logger.warning(
+                    "Remote estimates body declares %s bytes, over the %d-byte ceiling; ignoring",
+                    declared,
+                    limit,
+                )
+                return None, 0, response_headers
+            # Buffer with a ceiling: the bundled CSV is ~0.2 MB, so anything near
+            # the limit is an upstream that has been replaced or has gone wrong,
+            # and must not be allowed to exhaust the worker.
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in r.aiter_bytes():
+                total += len(chunk)
+                if total > limit:
+                    logger.warning(
+                        "Remote estimates body exceeded the %d-byte ceiling; abandoning fetch", limit
+                    )
+                    return None, 0, response_headers
+                chunks.append(chunk)
     except httpx.HTTPError as exc:
         logger.debug("Remote estimates fetch transport error: %s", exc)
         return None, 0, {}
 
-    response_headers = {k.lower(): v for k, v in r.headers.items()}
-    if r.status_code == 304:
-        return None, 304, response_headers
-    if r.status_code != 200:
-        return None, r.status_code, response_headers
-    return r.content, 200, response_headers
+    return b"".join(chunks), 200, response_headers
 
 
 async def refresh_estimates_once(

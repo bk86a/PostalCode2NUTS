@@ -139,6 +139,7 @@ async def lifespan(app: FastAPI):
                     path=_config.settings.nuts_geojson_path,
                     cache_dir=_config.settings.data_dir,
                     client=_dl_client,
+                    max_bytes=_config.settings.max_download_mb * 1024 * 1024,
                 )
             logger.info("NUTS polygons loaded — /resolve PIP ready.")
         except Exception:
@@ -301,6 +302,12 @@ if settings.cors_origins:
             allow_origins=origins,
             allow_methods=["GET"],
             allow_headers=["*"],
+            # Never reflect cookies or HTTP auth on a cross-origin read. The
+            # default is already False; it is pinned here because the default
+            # origin list is "*", and the pair (wildcard origin, credentials)
+            # is the combination that turns a public read API into a CSRF-ish
+            # data leak if a future deployment adds cookie auth.
+            allow_credentials=False,
         )
 
 
@@ -550,6 +557,8 @@ def health(response: Response):
         502: {"description": "Upstream fetch or parse failed"},
         503: {"description": "Feature disabled (PC2NUTS_ESTIMATES_REFRESH_URL unset)"},
     },
+    # Operator-only: kept out of the public schema, as /admin/memory already is.
+    include_in_schema=False,
 )
 async def admin_refresh_estimates(request: Request) -> JSONResponse:
     if not getattr(request.state, "trusted", False):

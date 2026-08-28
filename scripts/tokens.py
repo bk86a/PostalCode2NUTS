@@ -18,7 +18,7 @@ from typing import Sequence
 from app.token_db import TokenDB, TokenDBError
 
 
-def _make_db(url: str, auth_token: str = "") -> TokenDB:
+def _make_db(url: str, auth_token: str = "") -> TokenDB:  # nosec B107 — empty default means "no auth", not a hardcoded credential
     """Indirection seam for tests."""
     return TokenDB(url, auth_token=auth_token)
 
