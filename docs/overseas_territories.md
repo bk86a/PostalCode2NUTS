@@ -66,7 +66,7 @@ All thirteen, in Annex II order:
 | French Southern and Antarctic Lands (FR) | `TF` | `984xx` | — | `none` |
 | Wallis and Futuna (FR) | `WF` | `986xx` | — | `none` |
 | Saint-Pierre-et-Miquelon (FR) | `PM` | `975xx` | — | `none` |
-| Saint-Barthélemy (FR) | `BL` | `97133`, `977xx` | `FRY10` (`97133` only) | `tercet_entry_only` |
+| Saint-Barthélemy (FR) | `BL` | `97133`, `977xx` | `FRY10` (`97133` only) | `tercet_entry_only` for `97133`, `none` for `977xx` |
 | Aruba (NL) | `AW` | none | — | `none` |
 | Curaçao (NL) | `CW` | none | — | `none` |
 | Sint Maarten (NL) | `SX` | none | — | `none` |
@@ -83,8 +83,12 @@ Saint-Barthélemy is the one exception to "null NUTS": its `97133` code is carri
 row in the GISCO TERCET FR file, left over from before it became an OCT on 1 January 2012. A
 lookup for `BL/97133` or `FR/97133` returns `200` with `nuts3: "FRY10"` (Guadeloupe) at full
 confidence, flagged `nuts_coverage: "tercet_entry_only"` — Eurostat's own row is honoured, but
-labelled so a consumer can tell it apart from a normal NUTS classification. No other OCT code
-has a TERCET row, so this behaviour is unique to Saint-Barthélemy.
+labelled so a consumer can tell it apart from a normal NUTS classification.
+
+The exception is that one code, not the whole territory. Saint-Barthélemy's other codes — the
+`977xx` block — have no TERCET row, so `BL/97705` answers like every other OCT code: null NUTS
+and `nuts_coverage: "none"`. No other OCT code anywhere has a TERCET row, so `97133` is the
+only `tercet_entry_only` result the service can produce.
 
 The six Dutch OCTs — four ISO codes — use no postal codes at all: `has_postal_system` is false in the registry,
 so a lookup on `AW`, `CW`, `SX` or `BQ` needs no `postal_code` and answers directly from the
