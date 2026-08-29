@@ -18,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   code (`97133`, `97150`), already held as exact entries; the two blocks now
   belong to Réunion and resolve to `FRY40`. `BL`/`MF` lookups outside their own
   code answer `found: false`.
+- The five Réunion CEDEX estimates already in `tercet_missing_codes.csv` were
+  unreachable behind the territory gate, which runs tier 1 only outside NUTS.
+  They now resolve, and fifteen further observed CEDEX codes join them, so
+  twenty answer `estimated` `FRY40` at 0.90.
 
 ## [3.0.0] - 2026-08-29
 
