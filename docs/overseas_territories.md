@@ -30,7 +30,7 @@ outermost region but has no NUTS code of its own.
 | Guadeloupe (FR) | `GP` | `971xx` | `FRY10` | `full` |
 | Martinique (FR) | `MQ` | `972xx` | `FRY20` | `full` |
 | French Guiana (FR) | `GF` | `973xx` | `FRY30` | `full` |
-| Réunion (FR) | `RE` | `974xx` | `FRY40` | `full` |
+| Réunion (FR) | `RE` | `974xx`, `977xx`, `978xx` (CEDEX) | `FRY40` | `full` |
 | Mayotte (FR) | `YT` | `976xx` | `FRY50` | `full` |
 | Saint-Martin (FR) | `MF` | `97150` | — | `none` |
 | Azores (PT) | — | `9500-xxx`–`9980-xxx` | `PT200` | `full` |
@@ -66,7 +66,7 @@ All thirteen, in Annex II order:
 | French Southern and Antarctic Lands (FR) | `TF` | `984xx` | — | `none` |
 | Wallis and Futuna (FR) | `WF` | `986xx` | — | `none` |
 | Saint-Pierre-et-Miquelon (FR) | `PM` | `975xx` | — | `none` |
-| Saint-Barthélemy (FR) | `BL` | `97133`, `977xx` | `FRY10` (`97133` only) | `tercet_entry_only` for `97133`, `none` for `977xx` |
+| Saint-Barthélemy (FR) | `BL` | `97133` | `FRY10` | `tercet_entry_only` |
 | Aruba (NL) | `AW` | none | — | `none` |
 | Curaçao (NL) | `CW` | none | — | `none` |
 | Sint Maarten (NL) | `SX` | none | — | `none` |
@@ -85,10 +85,15 @@ lookup for `BL/97133` or `FR/97133` returns `200` with `nuts3: "FRY10"` (Guadelo
 confidence, flagged `nuts_coverage: "tercet_entry_only"` — Eurostat's own row is honoured, but
 labelled so a consumer can tell it apart from a normal NUTS classification.
 
-The exception is that one code, not the whole territory. Saint-Barthélemy's other codes — the
-`977xx` block — have no TERCET row, so `BL/97705` answers like every other OCT code: null NUTS
-and `nuts_coverage: "none"`. No other OCT code anywhere has a TERCET row, so `97133` is the
-only `tercet_entry_only` result the service can produce.
+`97133` is the whole of Saint-Barthélemy, so `tercet_entry_only` is all the territory ever
+answers. No other OCT code anywhere has a TERCET row.
+
+> **`977xx` and `978xx` are La Réunion CEDEX blocks, not island codes.** Saint-Barthélemy has
+> one postal code (`97133`) and Saint-Martin has one (`97150`); the two blocks that look
+> adjacent to them belong to Réunion — `97715` is the Université de La Réunion, `97831` a
+> lycée at Le Tampon. The registry carries them as Réunion prefixes, so they resolve to
+> `FRY40`. They were registered to the islands until this was corrected, which answered null
+> NUTS for some 12.6 M EUR of Réunion grant volume in the 2026-08 linkability run.
 
 The six Dutch OCTs — four ISO codes — use no postal codes at all: `has_postal_system` is false in the registry,
 so a lookup on `AW`, `CW`, `SX` or `BQ` needs no `postal_code` and answers directly from the

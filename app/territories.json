@@ -27,7 +27,7 @@
       "id": "RE", "iso": "RE", "name": "Réunion",
       "status": "outermost_region", "administering_country": "FR",
       "legal_basis": "TFEU Art. 349", "note": null, "in_nuts": true,
-      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["974"], "whole_country": false}
+      "postal": {"validate_as": "FR", "exact": [], "prefixes": ["974", "977", "978"], "whole_country": false}
     },
     {
       "id": "YT", "iso": "YT", "name": "Mayotte",
@@ -39,9 +39,9 @@
       "id": "MF", "iso": "MF", "name": "Saint-Martin",
       "status": "outermost_region", "administering_country": "FR",
       "legal_basis": "TFEU Art. 349",
-      "note": "Outermost region: EU law applies. Eurostat publishes no NUTS code for it.",
+      "note": "Outermost region: EU law applies. Eurostat publishes no NUTS code for it. Its only postal code is 97150; the 978xx block is La Réunion CEDEX.",
       "in_nuts": false,
-      "postal": {"validate_as": "FR", "exact": ["97150"], "prefixes": ["978"], "whole_country": false}
+      "postal": {"validate_as": "FR", "exact": ["97150"], "prefixes": [], "whole_country": false}
     },
     {
       "id": "ES-CN", "iso": null, "name": "Canarias",
@@ -105,9 +105,9 @@
       "id": "BL", "iso": "BL", "name": "Saint-Barthélemy",
       "status": "oct", "administering_country": "FR",
       "legal_basis": "TFEU Part Four, Annex II",
-      "note": "OCT since 2012-01-01. Its 97133 code remains inside Guadeloupe's 971xx block in the GISCO TERCET FR file.",
+      "note": "OCT since 2012-01-01. Its only postal code, 97133, remains inside Guadeloupe's 971xx block in the GISCO TERCET FR file; the 977xx block is La Réunion CEDEX.",
       "in_nuts": false,
-      "postal": {"validate_as": "FR", "exact": ["97133"], "prefixes": ["977"], "whole_country": false}
+      "postal": {"validate_as": "FR", "exact": ["97133"], "prefixes": [], "whole_country": false}
     },
     {
       "id": "TF", "iso": "TF", "name": "French Southern and Antarctic Lands",
