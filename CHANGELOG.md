@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-29
+
+### Fixed
+
+- French `977xx` and `978xx` are La Réunion CEDEX blocks, not island codes. The
+  registry had them as prefixes of Saint-Barthélemy and Saint-Martin, so Réunion
+  CEDEX addresses — the Université de La Réunion at `97715`, the Rectorat at
+  `97743`, five lycées in the `978xx` block — answered with null NUTS and an
+  OCT or outermost-region `context`. Both territories have exactly one postal
+  code (`97133`, `97150`), already held as exact entries; the two blocks now
+  belong to Réunion and resolve to `FRY40`. `BL`/`MF` lookups outside their own
+  code answer `found: false`.
+
 ## [3.0.0] - 2026-08-29
 
 Absence of data is no longer an HTTP error. A well-formed query against a served

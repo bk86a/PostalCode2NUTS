@@ -64,6 +64,27 @@ def test_exact_code_wins_over_a_longer_prefix_match():
     assert territories.classify("FR", "97100", _raw).territory.id == "GP"
 
 
+def test_reunion_cedex_blocks_are_reunion_not_the_caribbean_islands():
+    # 977xx and 978xx are La Reunion CEDEX ranges. Saint-Barthelemy and
+    # Saint-Martin each have exactly one postal code (97133, 97150); treating
+    # the blocks as theirs mislabelled the Universite de La Reunion (97715),
+    # the Rectorat (97743) and five Reunion lycees (978xx) as non-NUTS.
+    for code in ("97715", "97743", "97705"):
+        assert territories.classify("FR", code, _raw).territory.id == "RE"
+    for code in ("97831", "97825", "97867"):
+        assert territories.classify("FR", code, _raw).territory.id == "RE"
+    # The islands keep their own single codes.
+    assert territories.classify("FR", "97133", _raw).territory.id == "BL"
+    assert territories.classify("FR", "97150", _raw).territory.id == "MF"
+
+
+def test_island_iso_route_rejects_a_reunion_cedex_code():
+    cls = territories.classify("BL", "97715", _raw)
+    assert cls.territory.id == "BL" and cls.postal_in_territory is False
+    cls = territories.classify("MF", "97831", _raw)
+    assert cls.territory.id == "MF" and cls.postal_in_territory is False
+
+
 def test_longest_prefix_wins():
     assert territories.classify("FR", "98800", _raw).territory.id == "NC"
     assert territories.classify("FR", "98713", _raw).territory.id == "PF"

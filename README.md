@@ -123,9 +123,8 @@ See [Error handling](#error-handling) for the full contract.
 nullable. Clients with strict schemas must widen those types before upgrading; clients that
 read JSON dynamically need only handle `null`.
 
-Eight postal ranges that previously returned a European NUTS region now return `null` with a
-`context` block: French `975xx`, `977xx`, `978xx`, `984xx`, `986xx`, `987xx`, `988xx`, and
-Danish `39xx`. Those answers were wrong — `FR/98800` in Nouméa resolved to Alpes-Maritimes —
+Six postal ranges that previously returned a European NUTS region now return `null` with a
+`context` block: French `975xx`, `984xx`, `986xx`, `987xx`, `988xx`, and Danish `39xx`. Those answers were wrong — `FR/98800` in Nouméa resolved to Alpes-Maritimes —
 so the correction may reduce your match rate while improving its accuracy.
 
 The fabricated Faroe Islands codes `FO0`/`FO00`/`FO000` are gone. They were invented by this

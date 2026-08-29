@@ -85,11 +85,15 @@ def test_tercet_entry_only_keeps_a_genuine_eurostat_row(mock_data):
     assert r["nuts3_confidence"] == 1.0
 
 
-def test_sibling_code_without_a_tercet_row_returns_none_coverage(mock_data):
+def test_the_islands_have_no_sibling_codes_to_answer_for(mock_data):
+    # 97133 and 97150 are the whole of Saint-Barthelemy and Saint-Martin. A
+    # neighbouring code is Reunion CEDEX, so it is labelled RE and resolves.
+    data_loader._lookup[("FR", "97400")] = "FRY40"
+    data_loader._build_prefix_index()
     r = data_loader.lookup("FR", "97705")
-    assert r["context"]["id"] == "BL"
-    assert r["context"]["nuts_coverage"] == "none"
-    assert r["nuts3"] is None
+    assert r["context"]["id"] == "RE"
+    assert r["context"]["nuts_coverage"] == "full"
+    assert r["nuts3"] == "FRY40"
 
 
 # ── ISO route validation ─────────────────────────────────────────────────────
