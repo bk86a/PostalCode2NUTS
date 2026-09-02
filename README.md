@@ -732,7 +732,7 @@ User input: "Traiskirchen"
 | IE | Eircode: letter + 2 digits (or 6W) + optional space + 4 alphanumerics; lookup uses routing key (first 3 chars) | — | `D02 X285`, `D02X285`, `A65 F4E2` |
 | IS | 3 digits | IS- | `101`, `IS-101` |
 | IT | 5 digits | I-, IT- | `00118`, `I-00118`, `IT-00118` |
-| IM | Isle of Man: `IM1`–`IM9`, `IM86`–`IM99` + optional space + digit + 2 letters (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | — | `IM1 1AA`, `IM9 4EB`, `IM99 1PS` |
+| IM | Isle of Man: `IM1`–`IM9`, `IM86`, `IM87`, `IM99` + optional space + digit + 2 letters (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | — | `IM1 1AA`, `IM9 4EB`, `IM99 1PS` |
 | JE | Jersey: `JE1`–`JE5` + optional space + digit + 2 letters (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | — | `JE2 3XP`, `JE1 1BD` |
 | LI | 4 digits | FL- | `9490`, `FL-9490` |
 | LT | 5 digits | LT- | `01100`, `LT-01100` |

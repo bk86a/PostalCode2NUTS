@@ -128,7 +128,7 @@ Montenegro's `ME000`, which is a genuine Eurostat single-region NUTS code.
 
 **Gibraltar and the three Crown Dependencies** use UK-style postcodes but sit outside ITL
 geography and the NSPL, so they cannot resolve even when UK/ITL coverage is configured. Each
-validates against its own pattern — `GY1`–`GY10`, `JE1`–`JE5`, `IM1`–`IM9`/`IM86`–`IM99`, and
+validates against its own pattern — `GY1`–`GY10`, `JE1`–`JE5`, `IM1`–`IM9` plus `IM86`/`IM87`/`IM99`, and
 Gibraltar's single `GX11 1AA` — rather than the whole UK postcode space, so a mainland code
 submitted under `GI`, `JE`, `GG` or `IM` answers `found: false`. A well-formed code for the
 territory returns `200` with a `context` block and null NUTS.

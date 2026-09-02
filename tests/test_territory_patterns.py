@@ -154,3 +154,20 @@ def test_uk_pattern_still_accepts_the_crown_dependency_formats():
     rx = re.compile(POSTAL_PATTERNS["UK"]["regex"], re.IGNORECASE)
     for code in ("SW1A 2AA", "GY1 1AA", "JE2 3XP", "IM1 1AA", "GX11 1AA"):
         assert rx.match(code)
+
+
+# IM1-IM9 are geographic; IM86, IM87 and IM99 are the only non-geographic
+# districts Royal Mail allocates. Everything else in the 10-99 range is unused,
+# and accepting it re-opens the false positives this pattern exists to close.
+IM_ALLOCATED = ["IM1 1AA", "IM9 4EB", "IM86 1AA", "IM87 1AA", "IM99 1PS", "IM991PS"]
+IM_UNALLOCATED = ["IM10 1AA", "IM85 1AA", "IM88 1AA", "IM89 1AA", "IM90 1AA", "IM98 1AA"]
+
+
+@pytest.mark.parametrize("code", IM_ALLOCATED)
+def test_isle_of_man_accepts_allocated_districts(code):
+    assert re.match(POSTAL_PATTERNS["IM"]["regex"], code, re.IGNORECASE)
+
+
+@pytest.mark.parametrize("code", IM_UNALLOCATED)
+def test_isle_of_man_rejects_unallocated_districts(code):
+    assert not re.match(POSTAL_PATTERNS["IM"]["regex"], code, re.IGNORECASE)
