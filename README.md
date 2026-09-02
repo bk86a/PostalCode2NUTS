@@ -73,7 +73,7 @@ ITL is **not** a drop-in for NUTS-2016 UK: it diverges at L2 (41 vs 40 regions) 
 
 UK coverage is **optional and operator-configured** — the ~178 MB NSPL ZIP is not bundled. When `PC2NUTS_NSPL_URL` is unset (the default), UK is not served and `/lookup` answers `200` with `found: false`. Outward-code-only input (e.g. `SW1A`) resolves to the majority ITL3 for that outward code with `estimated`/medium confidence.
 
-> **Out of scope for ITL:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL. They are registered territories (see [Overseas regions and territories](#overseas-regions-and-territories)): a well-formed UK-pattern code returns `200` with a `context` block and `nuts_coverage: "none"`, not an ITL result.
+> **Out of scope for ITL:** Crown Dependencies (Jersey JE, Guernsey GG, Isle of Man IM) and Gibraltar (GI) use UK-style postcodes but are not in ITL geography or NSPL. They are registered territories (see [Overseas regions and territories](#overseas-regions-and-territories)) with postal patterns of their own (`GY`, `JE`, `IM`, `GX11 1AA`): a well-formed code returns `200` with a `context` block and `nuts_coverage: "none"`, not an ITL result. A mainland UK code submitted under one of them answers `found: false`.
 
 ## Upgrading to 3.0.0
 
@@ -483,9 +483,10 @@ Only the digits are restricted; the parent country's accepted prefixes (`F-`, `F
 validate. So `/pattern?country=RE` no longer accepts Paris's `75001` as a Réunion code, which
 matches what `/lookup?country=RE&postal_code=75001` has always answered.
 
-Every other territory code still returns the administering country's pattern unchanged: the OCTs
-and Saint-Martin have postal codes but no NUTS link, and the Crown Dependencies have no prefix
-range to narrow to. Aruba, Curaçao, Sint Maarten and Bonaire/Saba/Sint Eustatius (`AW`, `CW`,
+The Crown Dependencies and Gibraltar (`GG`, `JE`, `IM`, `GI`) have no prefix range to narrow to —
+they are whole-country entries — so each carries a pattern of its own instead, the shape the Faroe
+Islands already had. Every other territory code still returns the administering country's pattern
+unchanged: the OCTs and Saint-Martin have postal codes but no NUTS link. Aruba, Curaçao, Sint Maarten and Bonaire/Saba/Sint Eustatius (`AW`, `CW`,
 `SX`, `BQ`) use no postal codes at all, so this endpoint answers `found: false` with a null
 `regex` for them rather than a pattern.
 
@@ -724,11 +725,15 @@ User input: "Traiskirchen"
 | FI | 5 digits | FI- | `00100`, `FI-00100` |
 | FO | 3 digits (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | FO- | `100`, `FO-100`, `FO 100` |
 | FR | 5 digits | F- | `75001`, `F-75001` |
+| GG | Guernsey: `GY1`–`GY10` + optional space + digit + 2 letters (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | — | `GY1 1AA`, `GY9 3TQ`, `GY10 1SD` |
+| GI | Gibraltar: the single code `GX11 1AA` (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | — | `GX11 1AA`, `GX111AA` |
 | HR | 5 digits | HR- | `10000`, `HR-10000` |
 | HU | 4 digits | H- | `1011`, `H-1011` |
 | IE | Eircode: letter + 2 digits (or 6W) + optional space + 4 alphanumerics; lookup uses routing key (first 3 chars) | — | `D02 X285`, `D02X285`, `A65 F4E2` |
 | IS | 3 digits | IS- | `101`, `IS-101` |
 | IT | 5 digits | I-, IT- | `00118`, `I-00118`, `IT-00118` |
+| IM | Isle of Man: `IM1`–`IM9`, `IM86`–`IM99` + optional space + digit + 2 letters (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | — | `IM1 1AA`, `IM9 4EB`, `IM99 1PS` |
+| JE | Jersey: `JE1`–`JE5` + optional space + digit + 2 letters (outside NUTS — returns a `context` block, `nuts_coverage: "none"`) | — | `JE2 3XP`, `JE1 1BD` |
 | LI | 4 digits | FL- | `9490`, `FL-9490` |
 | LT | 5 digits | LT- | `01100`, `LT-01100` |
 | LU | 4 digits | L- | `1009`, `L-1009` |

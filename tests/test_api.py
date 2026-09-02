@@ -266,7 +266,7 @@ class TestHealthEndpoint:
         resp = client.get("/health")
         data = resp.json()
         assert "patterns_version" in data
-        assert data["patterns_version"] == "1.3"
+        assert data["patterns_version"] == "1.4"
 
     def test_includes_nuts_names(self, client):
         resp = client.get("/health")

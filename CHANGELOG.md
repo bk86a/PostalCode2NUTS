@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-09-02
+
+### Added
+
+- Postal-code patterns of their own for Guernsey (`GY1`–`GY10`), Jersey
+  (`JE1`–`JE5`), the Isle of Man (`IM1`–`IM9`, `IM86`–`IM99`) and Gibraltar
+  (`GX11 1AA`). All four sit inside the UK postcode *format* but not inside its
+  numbering, and as `whole_country` registry entries they have no ranges to
+  narrow to — so `/pattern` advertised the whole UK postcode space and a form
+  validating Jersey accepted `SW1A 2AA`. They now validate against their own
+  scheme, the shape the Faroe Islands already had (`validate_as` pointing at the
+  territory itself). `/lookup` behaviour is unchanged for codes that belong to
+  the territory; a mainland UK code submitted under `GG`/`GI`/`IM`/`JE` now
+  answers `found: false` instead of a territory statement. Patterns version
+  1.3 → 1.4.
+
 ## [3.0.1] - 2026-08-29
 
 ### Fixed
