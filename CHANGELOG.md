@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-09-02
+
+### Fixed
+
+- The Isle of Man pattern accepted every district from `IM86` to `IM98`. Royal
+  Mail allocates `IM1`–`IM9` plus the non-geographic `IM86`, `IM87` and `IM99`
+  only, so `IM88 1AA` and friends validated and `/lookup` answered `found: true`
+  with an Isle of Man context — the false positives 3.1.0 set out to close.
+  Patterns version 1.4 → 1.5.
+
 ## [3.1.0] - 2026-09-02
 
 ### Added
