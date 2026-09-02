@@ -167,7 +167,7 @@
       "legal_basis": null,
       "note": "Outside the EU since the United Kingdom's withdrawal. Not in NUTS, not in ITL, not in NSPL.",
       "in_nuts": false,
-      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+      "postal": {"validate_as": "GI", "exact": [], "prefixes": [], "whole_country": true}
     },
     {
       "id": "JE", "iso": "JE", "name": "Jersey",
@@ -175,7 +175,7 @@
       "legal_basis": null,
       "note": "Crown Dependency. Not in NUTS, not in ITL geography, not in NSPL.",
       "in_nuts": false,
-      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+      "postal": {"validate_as": "JE", "exact": [], "prefixes": [], "whole_country": true}
     },
     {
       "id": "GG", "iso": "GG", "name": "Guernsey",
@@ -183,7 +183,7 @@
       "legal_basis": null,
       "note": "Crown Dependency. Not in NUTS, not in ITL geography, not in NSPL.",
       "in_nuts": false,
-      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+      "postal": {"validate_as": "GG", "exact": [], "prefixes": [], "whole_country": true}
     },
     {
       "id": "IM", "iso": "IM", "name": "Isle of Man",
@@ -191,7 +191,7 @@
       "legal_basis": null,
       "note": "Crown Dependency. Not in NUTS, not in ITL geography, not in NSPL.",
       "in_nuts": false,
-      "postal": {"validate_as": "UK", "exact": [], "prefixes": [], "whole_country": true}
+      "postal": {"validate_as": "IM", "exact": [], "prefixes": [], "whole_country": true}
     }
   ]
 }

@@ -148,8 +148,8 @@ def test_dutch_octs_never_reach_the_netherlands_rows(mock_data):
 # ── Tier 6 is gone ───────────────────────────────────────────────────────────
 
 def test_crown_dependency_codes_reach_the_territory_statement(mock_data):
-    # Validation runs against the UK pattern; a Jersey code must survive it and
-    # come back as a territory rather than a 404.
+    # Validation runs against Jersey's own pattern (GG/GI/IM/JE each have one);
+    # a Jersey code must survive it and come back as a territory, not a miss.
     r = data_loader.lookup("JE", "JE2 3XP")
     assert r is not None, "UK pattern rejected a Jersey code"
     assert r["context"]["id"] == "JE"

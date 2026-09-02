@@ -109,3 +109,48 @@ class TestNarrowToRanges:
     def test_narrowed_pattern_keeps_the_parents_other_keys(self):
         out = narrow_to_ranges(POSTAL_PATTERNS["FR"], (), ("974",))
         assert out["expected_digits"] == POSTAL_PATTERNS["FR"]["expected_digits"]
+
+
+# (iso, its own code, a mainland code of the country it used to validate against)
+OWN_SCHEME = [
+    ("FO", "100", None),
+    ("GG", "GY1 1AA", "SW1A 2AA"),
+    ("GI", "GX11 1AA", "SW1A 2AA"),
+    ("IM", "IM1 1AA", "SW1A 2AA"),
+    ("JE", "JE2 3XP", "SW1A 2AA"),
+]
+
+
+@pytest.mark.parametrize("iso,own_code,foreign_code", OWN_SCHEME)
+def test_whole_country_territory_advertises_its_own_scheme(client, iso, own_code, foreign_code):
+    """A territory with a postal system of its own validates against that system.
+
+    Guernsey, Gibraltar, the Isle of Man and Jersey sit inside the UK postcode
+    *format* but not inside its numbering: GY, GX, IM and JE prefixes are theirs
+    alone. They are whole_country entries with no ranges to narrow to, so the
+    only way to validate them accurately is a pattern of their own — the shape
+    the Faroe Islands already had.
+    """
+    body = client.get("/pattern", params={"country": iso}).json()
+    assert body["found"] is True
+    assert body["regex"] == POSTAL_PATTERNS[iso]["regex"]
+    assert re.match(body["regex"], own_code, re.IGNORECASE)
+    if foreign_code is not None:
+        assert not re.match(body["regex"], foreign_code, re.IGNORECASE), (
+            f"{iso} must reject {foreign_code}, which is a mainland UK postcode"
+        )
+
+
+@pytest.mark.parametrize("iso,own_code,foreign_code", OWN_SCHEME)
+def test_own_scheme_territories_are_not_validated_against_their_parent(iso, own_code, foreign_code):
+    t = territories.get_by_iso(iso)
+    assert t.validate_as == iso, f"{iso} must validate against its own pattern, not {t.validate_as}"
+    assert t.whole_country is True
+    assert iso in POSTAL_PATTERNS
+
+
+def test_uk_pattern_still_accepts_the_crown_dependency_formats():
+    """The UK pattern is unchanged: it is a superset, and UK lookups keep working."""
+    rx = re.compile(POSTAL_PATTERNS["UK"]["regex"], re.IGNORECASE)
+    for code in ("SW1A 2AA", "GY1 1AA", "JE2 3XP", "IM1 1AA", "GX11 1AA"):
+        assert rx.match(code)

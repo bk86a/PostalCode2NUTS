@@ -210,8 +210,9 @@ class TestUKExtraction:
 
 
 def test_patterns_meta_version_bumped():
-    # Adding UK is an additive coverage change; minor version bump.
-    assert PATTERNS_META["version"] == "1.3"
+    # Adding the Crown Dependencies and Gibraltar is an additive coverage change;
+    # minor version bump.
+    assert PATTERNS_META["version"] == "1.4"
 
 
 class TestExtractOutward:
