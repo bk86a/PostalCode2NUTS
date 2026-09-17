@@ -4,6 +4,7 @@ import csv
 import hashlib
 import io
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -439,6 +440,18 @@ def _download_zip(client: httpx.Client, url: str) -> bytes | None:
     return None
 
 
+def _write_atomic(path: Path, content: bytes) -> None:
+    """Write via a per-process temp file and rename, so workers sharing the
+    cache dir never read a half-written file."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(content)
+        tmp.replace(path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _download_and_parse_zip(
     client: httpx.Client,
     url: str,
@@ -458,20 +471,26 @@ def _download_and_parse_zip(
     content: bytes | None = None
 
     if cached.exists():
-        # Check cache TTL — re-download if older than 30 days
-        age = time.time() - cached.stat().st_mtime
-        if age > settings.db_cache_ttl_days * 86400:
-            logger.info("Cache expired for %s (%.0f days old), re-downloading", cached.name, age / 86400)
-            cached.unlink()
-        else:
-            content = cached.read_bytes()
-            # Validate cached file is a real ZIP
-            if not zipfile.is_zipfile(io.BytesIO(content)):
-                logger.warning("Corrupt cached file %s, deleting and re-downloading", cached.name)
-                cached.unlink()
-                content = None
+        # Every worker loads at startup from the same cache dir, so another one
+        # may delete the file (expired or corrupt) between any two of these calls.
+        try:
+            # Check cache TTL — re-download if older than 30 days
+            age = time.time() - cached.stat().st_mtime
+            if age > settings.db_cache_ttl_days * 86400:
+                logger.info("Cache expired for %s (%.0f days old), re-downloading", cached.name, age / 86400)
+                cached.unlink(missing_ok=True)
             else:
-                logger.info("Using cached file %s", cached)
+                content = cached.read_bytes()
+                # Validate cached file is a real ZIP
+                if not zipfile.is_zipfile(io.BytesIO(content)):
+                    logger.warning("Corrupt cached file %s, deleting and re-downloading", cached.name)
+                    cached.unlink(missing_ok=True)
+                    content = None
+                else:
+                    logger.info("Using cached file %s", cached)
+        except FileNotFoundError:
+            logger.info("Cached file %s removed by another worker, re-downloading", cached.name)
+            content = None
 
     if content is None:
         logger.info("Downloading %s", url)
@@ -483,7 +502,7 @@ def _download_and_parse_zip(
             logger.warning("Downloaded file from %s is not a valid ZIP, skipping", url)
             return 0
         try:
-            cached.write_bytes(content)
+            _write_atomic(cached, content)
         except OSError as exc:
             logger.error("Failed to cache %s: %s", cached, exc)
 
@@ -613,7 +632,7 @@ def _load_nspl(client: httpx.Client, url: str, cache_dir: Path, lad_to_itl3: dic
             logger.warning("NSPL response from %s is not a valid ZIP", url)
             return _load_nspl_from_cache(cache_path, lad_to_itl3)
         try:
-            cache_path.write_bytes(content)
+            _write_atomic(cache_path, content)
         except OSError as exc:
             logger.warning("Failed to cache NSPL ZIP: %s", exc)
         total = _parse_nspl_zip(content, lad_to_itl3)

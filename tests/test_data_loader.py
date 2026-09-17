@@ -1,5 +1,8 @@
 """Tests for data_loader.py — normalize functions and lookup tiers."""
 
+import time
+from pathlib import Path
+
 import httpx2 as httpx
 import pytest
 
@@ -607,3 +610,79 @@ class TestDownloadCap:
         assert data_loader._discover_zip_urls(self._client(handler), "https://x/") == [
             "https://x/pc2024_DE.zip"
         ]
+
+
+class TestZipCacheWorkerRace:
+    """Several uvicorn workers load data at startup and share one cache dir, so
+    a cached ZIP can vanish or be half-written under a worker's feet (prod
+    2026-09-17: expired cache + restart → FileNotFoundError → startup failed)."""
+
+    URL = "https://x/pc2025_AT_NUTS-2024_v1.0.zip"
+
+    @staticmethod
+    def _zip_bytes():
+        import io as _io
+        import zipfile
+
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("pc2025_AT_NUTS-2024_v1.0.csv", "CODE;NUTS3_2024\n1010;AT130\n")
+        return buf.getvalue()
+
+    @pytest.fixture
+    def downloads(self, monkeypatch):
+        monkeypatch.setattr(data_loader, "_lookup", {})
+        calls = []
+
+        def fake_download(client, url):
+            calls.append(url)
+            return self._zip_bytes()
+
+        monkeypatch.setattr(data_loader, "_download_zip", fake_download)
+        return calls
+
+    def _cached(self, tmp_path, *, age_days=0):
+        import os
+
+        path = tmp_path / self.URL.rsplit("/", 1)[-1]
+        path.write_bytes(self._zip_bytes())
+        mtime = time.time() - age_days * 86400
+        os.utime(path, (mtime, mtime))
+        return path
+
+    def test_expired_cache_removed_by_another_worker(self, tmp_path, monkeypatch, downloads):
+        cached = self._cached(tmp_path, age_days=data_loader.settings.db_cache_ttl_days + 1)
+        real_unlink = Path.unlink
+
+        def racing_unlink(self, *args, **kwargs):
+            if self == cached and self.exists():
+                real_unlink(self)  # the other worker got there first
+            return real_unlink(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", racing_unlink)
+        assert data_loader._download_and_parse_zip(None, self.URL, "AT", tmp_path) == 1
+        assert downloads == [self.URL]
+
+    def test_fresh_cache_removed_before_read(self, tmp_path, monkeypatch, downloads):
+        cached = self._cached(tmp_path)
+        real_read = Path.read_bytes
+
+        def racing_read(self):
+            if self == cached:
+                self.unlink(missing_ok=True)
+            return real_read(self)
+
+        monkeypatch.setattr(Path, "read_bytes", racing_read)
+        assert data_loader._download_and_parse_zip(None, self.URL, "AT", tmp_path) == 1
+        assert downloads == [self.URL]
+
+    def test_failed_cache_write_leaves_no_partial_file(self, tmp_path, monkeypatch, downloads):
+        real_write = Path.write_bytes
+
+        def dying_write(self, data):
+            real_write(self, data[: len(data) // 2])
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "write_bytes", dying_write)
+        assert data_loader._download_and_parse_zip(None, self.URL, "AT", tmp_path) == 1
+        assert list(tmp_path.iterdir()) == []
