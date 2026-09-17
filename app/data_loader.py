@@ -4,11 +4,11 @@ import csv
 import hashlib
 import io
 import logging
-import os
 import re
 import sqlite3
 import threading
 import time
+import uuid
 import zipfile
 from collections import Counter
 from contextlib import contextmanager
@@ -441,9 +441,10 @@ def _download_zip(client: httpx.Client, url: str) -> bytes | None:
 
 
 def _write_atomic(path: Path, content: bytes) -> None:
-    """Write via a per-process temp file and rename, so workers sharing the
-    cache dir never read a half-written file."""
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    """Write via a uniquely named temp file and rename, so workers sharing the
+    cache dir never read a half-written file. Not PID-based: workers in separate
+    containers on one cache volume can share a PID."""
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         tmp.write_bytes(content)
         tmp.replace(path)

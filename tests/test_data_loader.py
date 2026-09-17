@@ -1,5 +1,6 @@
 """Tests for data_loader.py — normalize functions and lookup tiers."""
 
+import os
 import time
 from pathlib import Path
 
@@ -686,3 +687,15 @@ class TestZipCacheWorkerRace:
         monkeypatch.setattr(Path, "write_bytes", dying_write)
         assert data_loader._download_and_parse_zip(None, self.URL, "AT", tmp_path) == 1
         assert list(tmp_path.iterdir()) == []
+
+    def test_failed_write_spares_a_writer_from_another_container(self, tmp_path, monkeypatch, downloads):
+        # Workers in separate containers sharing a cache volume can have the same PID.
+        other = tmp_path / f".pc2025_AT_NUTS-2024_v1.0.zip.{os.getpid()}.tmp"
+        other.write_bytes(b"in progress")
+
+        def dying_write(self, data):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "write_bytes", dying_write)
+        assert data_loader._download_and_parse_zip(None, self.URL, "AT", tmp_path) == 1
+        assert other.read_bytes() == b"in progress"
