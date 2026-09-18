@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-09-17
+
+### Fixed
+
+- A multi-worker deployment could fail to start once its cached TERCET ZIPs were
+  past `PC2NUTS_DB_CACHE_TTL_DAYS`. Every worker loads data at startup from the
+  same cache directory: one deleted the expired file while another was about to
+  read or delete it, the `FileNotFoundError` was not caught and the application
+  exited. A worker that loses the file to another one now downloads it instead.
+  Cached ZIPs (TERCET and NSPL) are also written to a uniquely named temporary file and renamed,
+  so no worker reads a half-written file and deletes it as corrupt.
+
 ## [3.1.1] - 2026-09-02
 
 ### Fixed
