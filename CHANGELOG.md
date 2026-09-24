@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.3] - 2026-09-24
+
+### Changed
+
+- The container image now ships uvicorn 0.53.0, httpx2 2.13.1 (with httpcore2
+  2.13.1) and idna 3.20. The bumps merged in #182 raised the minimums in
+  `requirements.txt` but left `requirements.lock`, which the image installs
+  from, on the old versions.
+
 ## [3.1.2] - 2026-09-17
 
 ### Fixed
