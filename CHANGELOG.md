@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.4] - 2026-10-01
+
+### Changed
+
+- The container image now ships uvicorn 0.54.0, following the bump merged in
+  #185. httpx2 was already locked at 2.13.1.
+
 ## [3.1.3] - 2026-09-24
 
 ### Changed
