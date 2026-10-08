@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.5] - 2026-10-08
+
+### Changed
+
+- The container image now ships fastapi 0.142.2 (which adds opentelemetry-api
+  1.45.1 as a dependency) and python-dotenv 1.2.4, following the bumps merged
+  in #188.
+
 ## [3.1.4] - 2026-10-01
 
 ### Changed
