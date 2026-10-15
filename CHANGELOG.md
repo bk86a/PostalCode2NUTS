@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.6] - 2026-10-15
+
+### Changed
+
+- The container image now ships fastapi 0.143.2, pydantic 2.14.1 (pydantic-core
+  2.50.1) and shapely 2.2.0, following the bumps merged in #191.
+
 ## [3.1.5] - 2026-10-08
 
 ### Changed
