@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.1.7] - 2026-10-22
+
+### Changed
+
+- The container image now ships fastapi 0.146.0, httpx2 2.14.0 (httpcore2
+  2.14.0) and pydantic-settings 2.16.0, following the bumps merged in #194.
+
 ## [3.1.6] - 2026-10-15
 
 ### Changed
