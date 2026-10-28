@@ -17,6 +17,8 @@ the correct NUTS-3 region.
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import httpx2 as httpx
 
@@ -33,10 +35,26 @@ _NO_COMPRESSION = {"Accept-Encoding": "identity"}
 
 
 class PhotonClient:
-    def __init__(self, base_url: str, client: httpx.Client, timeout: float = 5.0):
+    """`timeout` bounds each Photon request; `total_timeout` bounds the whole
+    geocode() call across its fallback queries. `max_concurrency` caps how many
+    geocodes run at once: /resolve is a sync handler on the shared threadpool,
+    so a slow Photon must not be able to tie up every thread that /lookup needs.
+    Past the cap, geocode() returns None and /resolve answers postal-only."""
+
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        timeout: float = 5.0,
+        *,
+        total_timeout: float = 10.0,
+        max_concurrency: int = 16,
+    ):
         self._base = base_url.rstrip("/")
         self._client = client
         self._timeout = timeout
+        self._total_timeout = total_timeout
+        self._slots = threading.BoundedSemaphore(max_concurrency)
 
     @staticmethod
     def _candidates(street: str, city: str, postal_code: str) -> list[str]:
@@ -55,20 +73,25 @@ class PhotonClient:
         seen: set[str] = set()
         return [q for q in out if not (q in seen or seen.add(q))]
 
-    def _query(self, q: str) -> tuple[float, float] | None:
+    def _query(self, q: str, deadline: float) -> tuple[float, float] | None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
         try:
             with self._client.stream(
                 "GET",
                 f"{self._base}/api",
                 params={"q": q, "limit": 1},
                 headers=_NO_COMPRESSION,
-                timeout=self._timeout,
+                # httpx timeouts are per operation, so a body that trickles in
+                # can outlast them; the deadline check below closes that gap.
+                timeout=min(self._timeout, remaining),
             ) as resp:
                 resp.raise_for_status()
                 body = bytearray()
                 for chunk in resp.iter_bytes():
                     body += chunk
-                    if len(body) > _MAX_RESPONSE_BYTES:
+                    if len(body) > _MAX_RESPONSE_BYTES or time.monotonic() > deadline:
                         return None
             data = json.loads(bytes(body))
             feats = data.get("features") or []
@@ -89,8 +112,14 @@ class PhotonClient:
         candidates = self._candidates(
             (street or "").strip(), (city or "").strip(), (postal_code or "").strip()
         )
-        for q in candidates:
-            coord = self._query(q)
-            if coord is not None:
-                return coord
-        return None
+        if not candidates or not self._slots.acquire(blocking=False):
+            return None
+        try:
+            deadline = time.monotonic() + self._total_timeout
+            for q in candidates:
+                coord = self._query(q, deadline)
+                if coord is not None:
+                    return coord
+            return None
+        finally:
+            self._slots.release()

@@ -264,7 +264,34 @@ def _sniff_dialect(text: str) -> csv.Dialect | None:
 
 def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False) -> int:
     """Parse CSV/TSV content and populate the lookup table. Returns row count."""
+    return _apply_rows(_parse_csv_rows(text, country_code), overwrite=overwrite)
+
+
+def _apply_rows(rows: list[tuple[tuple[str, str], str]], *, overwrite: bool) -> int:
+    """Write parsed (key, nuts3) rows into _lookup. Returns the number of new keys."""
     count = 0
+    for key, nuts3 in rows:
+        if overwrite:
+            # Last-write-wins: extra sources overwrite TERCET data
+            is_new = key not in _lookup
+            _lookup[key] = nuts3
+            if is_new:
+                count += 1
+        elif key not in _lookup:
+            # First-write-wins: discovery-phase data takes priority
+            _lookup[key] = nuts3
+            count += 1
+    return count
+
+
+def _parse_csv_rows(text: str, country_code: str) -> list[tuple[tuple[str, str], str]]:
+    """Parse CSV/TSV content into (key, nuts3) rows without touching _lookup.
+
+    Raises whatever the csv module raises on malformed input; callers apply
+    the rows only once a whole file has parsed, so a rejected file leaves no
+    partial rows behind.
+    """
+    rows: list[tuple[tuple[str, str], str]] = []
     skipped = 0
 
     dialect = _sniff_dialect(text)
@@ -297,7 +324,7 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
             country_code,
             fieldnames,
         )
-        return 0
+        return rows
 
     # Detect optional COUNTRY_CODE column
     cc_col = None
@@ -314,7 +341,7 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
 
     if not country_code and cc_col is None:
         logger.warning("No country code available (not in URL or CSV columns), skipping file")
-        return 0
+        return rows
 
     for row in reader:
         pc = row.get(pc_orig, "")
@@ -328,22 +355,11 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
         # Resolve country code: per-row CSV column takes priority, then function param
         row_cc = row.get(cc_orig, "").strip().upper() if cc_orig else ""
         cc = row_cc if row_cc else country_code.upper()
-        key = (cc, normalize_postal_code(pc))
-        if overwrite:
-            # Last-write-wins: extra sources overwrite TERCET data
-            is_new = key not in _lookup
-            _lookup[key] = nuts3
-            if is_new:
-                count += 1
-        else:
-            # First-write-wins: discovery-phase data takes priority
-            if key not in _lookup:
-                _lookup[key] = nuts3
-                count += 1
+        rows.append(((cc, normalize_postal_code(pc)), nuts3))
 
     if skipped:
         logger.warning("Skipped %d rows with invalid NUTS3 codes for %s", skipped, country_code)
-    return count
+    return rows
 
 
 # Describe the wire body, not the buffered copy we hand back.
@@ -440,6 +456,20 @@ def _download_zip(client: httpx.Client, url: str) -> bytes | None:
     return None
 
 
+# What the stdlib zip/csv parsers raise on broken or hostile input that still
+# passes zipfile.is_zipfile(): over-long CSV fields (csv.Error), encrypted
+# members (RuntimeError), unsupported compression (NotImplementedError),
+# truncated streams (EOFError) and bad member data (ValueError).
+_UPSTREAM_PARSE_ERRORS = (
+    zipfile.BadZipFile,
+    csv.Error,
+    RuntimeError,
+    NotImplementedError,
+    EOFError,
+    ValueError,
+)
+
+
 def _write_atomic(path: Path, content: bytes) -> None:
     """Write via a uniquely named temp file and rename, so workers sharing the
     cache dir never read a half-written file. Not PID-based: workers in separate
@@ -507,7 +537,7 @@ def _download_and_parse_zip(
         except OSError as exc:
             logger.error("Failed to cache %s: %s", cached, exc)
 
-    total = 0
+    staged: list[tuple[tuple[str, str], str]] = []
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             for name in zf.namelist():
@@ -529,10 +559,17 @@ def _download_and_parse_zip(
                             break
                         except UnicodeDecodeError:
                             continue
-                    total += _parse_csv_content(text, country_code, overwrite=overwrite)
-    except zipfile.BadZipFile:
-        logger.warning("Bad ZIP file from %s", url)
-    return total
+                    staged += _parse_csv_rows(text, country_code)
+    except _UPSTREAM_PARSE_ERRORS as exc:
+        # Drop the cached copy so a restart re-downloads instead of failing on
+        # the same file for the rest of the cache TTL.
+        logger.warning("Unusable ZIP from %s (%s); discarding cached copy", url, exc)
+        cached.unlink(missing_ok=True)
+        return 0
+    # Apply only once every member parsed: a file rejected half-way must not
+    # leave some of its rows in place (that would also hide the country from
+    # the carry-forward of an incomplete rebuild).
+    return _apply_rows(staged, overwrite=overwrite)
 
 
 def _parse_nspl_csv(text: str, lad_to_itl3: dict[str, str]) -> int:
@@ -639,7 +676,7 @@ def _load_nspl(client: httpx.Client, url: str, cache_dir: Path, lad_to_itl3: dic
         total = _parse_nspl_zip(content, lad_to_itl3)
         logger.info("NSPL loaded: %d live UK postcodes", total)
         return total
-    except (httpx.HTTPError, DownloadTooLarge, zipfile.BadZipFile, OSError) as exc:
+    except (httpx.HTTPError, DownloadTooLarge, OSError, *_UPSTREAM_PARSE_ERRORS) as exc:
         logger.warning("NSPL fetch failed (%s); trying cached copy", exc)
         return _load_nspl_from_cache(cache_path, lad_to_itl3)
 
@@ -655,7 +692,7 @@ def _load_nspl_from_cache(cache_path: Path, lad_to_itl3: dict[str, str]) -> int:
         total = _parse_nspl_zip(content, lad_to_itl3)
         logger.info("NSPL loaded from cache: %d live UK postcodes", total)
         return total
-    except (zipfile.BadZipFile, OSError) as exc:
+    except (OSError, *_UPSTREAM_PARSE_ERRORS) as exc:
         logger.warning("Cached NSPL ZIP unusable: %s", exc)
         return 0
 
@@ -681,6 +718,9 @@ def _db_is_valid(db: Path) -> bool:
             return False
         created = datetime.fromisoformat(meta["created_at"])
         age_days = (datetime.now(timezone.utc) - created).total_seconds() / 86400
+        if meta.get("partial") == "1" and age_days * 24 >= settings.db_partial_retry_hours:
+            logger.info("DB cache is from an incomplete rebuild (%.1f h old), will retry", age_days * 24)
+            return False
         if age_days > settings.db_cache_ttl_days:
             logger.info("DB cache expired (%.0f days old), will rebuild", age_days)
             return False
@@ -782,11 +822,33 @@ def _load_estimates_from_csv(csv_path: Path) -> bool:
 def _revalidate_estimates() -> int:
     """Remove estimates that now have exact matches and warn about inconsistencies.
 
+    Mutates _estimates in place, so only call it while no request is being
+    served (startup); runtime swaps go through publish_estimates().
     Returns count removed.
     """
+    return _drop_exact_matches(_estimates)
+
+
+def publish_estimates(new_table: dict) -> int:
+    """Replace the served estimates table while requests are in flight.
+
+    The new table is filtered off to the side and published with a single
+    reference rebind, so a concurrent reader sees either the whole old table
+    or the whole new one, never one that changes while it iterates.
+    Returns the size of the published table.
+    """
+    global _estimates
+    table = dict(new_table)
+    _drop_exact_matches(table)
+    with _data_lock:
+        _estimates = table
+    return len(table)
+
+
+def _drop_exact_matches(table: dict) -> int:
     to_remove = []
     inconsistent = 0
-    for key, est in _estimates.items():
+    for key, est in table.items():
         exact = _lookup.get(key)
         if exact is not None:
             to_remove.append(key)
@@ -794,7 +856,7 @@ def _revalidate_estimates() -> int:
             if est["nuts3"] != exact:
                 inconsistent += 1
     for key in to_remove:
-        del _estimates[key]
+        del table[key]
     if to_remove:
         logger.info("Removed %d estimates that now have exact TERCET matches", len(to_remove))
     if inconsistent:
@@ -841,12 +903,15 @@ def _download_nuts_names(client: httpx.Client) -> int:
         return 0
 
     count = 0
-    for row in reader:
-        nuts_id = row.get(nuts_id_col, "").strip()
-        name = row.get(name_col, "").strip()
-        if nuts_id and name:
-            _nuts_names[nuts_id] = name
-            count += 1
+    try:
+        for row in reader:
+            nuts_id = (row.get(nuts_id_col) or "").strip()
+            name = (row.get(name_col) or "").strip()
+            if nuts_id and name:
+                _nuts_names[nuts_id] = name
+                count += 1
+    except csv.Error as exc:
+        logger.warning("NUTS names CSV from %s unparseable after %d rows: %s", url, count, exc)
 
     logger.info("Loaded %d NUTS region names from %s", count, url)
     return count
@@ -1071,11 +1136,62 @@ def _load_from_db(db: Path) -> bool:
         return False
 
 
-def _save_to_db(db: Path) -> None:
-    """Persist the lookup table and estimates to SQLite cache with atomic rename."""
-    tmp = db.with_suffix(".db.tmp")
+def _db_is_partial(db: Path) -> bool:
     try:
-        tmp.unlink(missing_ok=True)
+        with _db_connection(db) as con:
+            row = con.execute("SELECT value FROM metadata WHERE key = 'partial'").fetchone()
+    except sqlite3.Error:
+        return False
+    return row is not None and row[0] == "1"
+
+
+def _carry_forward_missing_countries(db: Path) -> set[str]:
+    """Copy rows for countries the previous cache had but this rebuild lacks.
+
+    A rebuild where some upstream files failed must not shrink the served
+    mapping: the previous snapshot's rows for those countries are kept until a
+    later rebuild fetches them again. Returns the carried-forward countries.
+    """
+    if not db.is_file():
+        return set()
+    have = {cc for cc, _ in _lookup}
+    try:
+        with _db_connection(db) as con:
+            meta = dict(con.execute("SELECT key, value FROM metadata").fetchall())
+            rows = con.execute("SELECT country_code, postal_code, nuts3 FROM lookup").fetchall()
+    except sqlite3.Error as exc:
+        logger.warning("Previous DB cache unreadable, nothing to carry forward: %s", exc)
+        return set()
+    # Only countries the current configuration still asks for: a source the
+    # operator removed (NSPL unset, extra source dropped, country delisted)
+    # must not be resurrected from the old snapshot.
+    wanted = set(settings.countries)
+    if settings.nspl_url:
+        wanted.add("UK")
+    if settings.extra_source_urls and meta.get("extra_sources_hash") == _extra_sources_hash():
+        # Unchanged extra sources may supply any country.
+        wanted |= {cc for cc, _, _ in rows}
+    missing: set[str] = set()
+    for cc, pc, nuts3 in rows:
+        if cc not in have and cc in wanted:
+            _lookup[(cc, pc)] = nuts3
+            missing.add(cc)
+    if missing:
+        logger.warning("Rebuild incomplete: carried forward %s from the previous cache", sorted(missing))
+    return missing
+
+
+def _save_to_db(db: Path, *, partial: bool = False) -> None:
+    """Persist the lookup table and estimates to SQLite cache with atomic rename.
+
+    partial=True marks a snapshot from an incomplete rebuild: _db_is_valid()
+    trusts it only for db_partial_retry_hours, so the download is retried soon
+    rather than after the whole TTL, and it is served as stale meanwhile.
+    """
+    # Unique per writer: workers cold-starting together must not unlink or
+    # rename each other's in-progress file.
+    tmp = db.with_name(f".{db.name}.{uuid.uuid4().hex}.tmp")
+    try:
         with _db_connection(tmp, readonly=False) as con:
             con.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             con.execute(
@@ -1135,6 +1251,7 @@ def _save_to_db(db: Path) -> None:
                     ("nuts_names_count", str(len(_nuts_names))),
                     ("extra_sources_hash", _extra_sources_hash()),
                     ("nspl_config_hash", _nspl_config_hash()),
+                    ("partial", "1" if partial else "0"),
                 ],
             )
             con.commit()
@@ -1149,6 +1266,66 @@ def _save_to_db(db: Path) -> None:
     except (sqlite3.Error, OSError) as exc:
         logger.error("Failed to save DB cache: %s", exc)
         tmp.unlink(missing_ok=True)
+
+
+class _DownloadTimeout(Exception):
+    """startup_timeout passed while fetching upstream files."""
+
+
+def _fetch_all(
+    base_url: str, countries: list[str], cache_dir: Path, deadline: float, loaded: set[str]
+) -> None:
+    """Fetch and parse every upstream source into the module tables.
+
+    Raises _DownloadTimeout once the deadline passes; rows parsed so far stay in
+    place. `loaded` collects the TERCET countries that produced rows.
+    """
+    with httpx.Client() as client:
+        # Strategy 1: discover files from directory listing
+        discovered = _discover_zip_urls(client, base_url)
+        if discovered:
+            logger.info("Discovered %d ZIP files from directory listing", len(discovered))
+            for url in discovered:
+                if time.monotonic() > deadline:
+                    logger.warning("Startup timeout reached during discovery downloads")
+                    raise _DownloadTimeout
+                cc = _infer_country_from_url(url)
+                if not cc:
+                    continue
+                count = _download_and_parse_zip(client, url, cc, cache_dir, deadline=deadline)
+                if count > 0:
+                    loaded.add(cc)
+                    logger.info("Loaded %d entries for %s", count, cc)
+
+        # Strategy 2: for countries not yet loaded, try guessed URLs per-country
+        remaining = [c for c in countries if c not in loaded]
+        if remaining:
+            logger.info("Trying guessed URLs for %d remaining countries", len(remaining))
+            for cc in remaining:
+                if time.monotonic() > deadline:
+                    logger.warning("Startup timeout reached during country downloads")
+                    raise _DownloadTimeout
+                for url in _guess_zip_urls_for_country(base_url, cc):
+                    count = _download_and_parse_zip(client, url, cc, cache_dir, deadline=deadline)
+                    if count > 0:
+                        loaded.add(cc)
+                        logger.info("Loaded %d entries for %s", count, cc)
+                        break
+
+        # Extra data sources (overwrite TERCET entries)
+        extra_count = _load_extra_sources(client, cache_dir, deadline=deadline)
+        if extra_count:
+            logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
+
+        # NSPL (UK postcodes → ITL via the LAD bridge) — no-op when nspl_url unset
+        if settings.nspl_url:
+            lad_to_itl3 = _load_uk_itl_bridge(client)
+            nspl_count = _load_nspl(client, settings.nspl_url, cache_dir, lad_to_itl3)
+            if nspl_count > 0:
+                logger.info("Loaded %d entries for UK from NSPL", nspl_count)
+
+        # NUTS region names
+        _download_nuts_names(client)
 
 
 def load_data() -> None:
@@ -1188,6 +1365,9 @@ def load_data() -> None:
         db = _db_path()
         if _db_is_valid(db) and _load_from_db(db):
             _data_loaded_at = _read_db_created_at(db)
+            # Still within the retry window of an incomplete rebuild: serve it,
+            # but keep reporting it as stale.
+            _data_stale = _db_is_partial(db)
             if not _load_estimates_from_csv(estimates_csv):
                 _load_estimates_from_db(db)
             _revalidate_estimates()
@@ -1203,59 +1383,16 @@ def load_data() -> None:
         base_url = settings.tercet_base_url
         countries = settings.countries
         timed_out = False
+        failed = False
+        loaded_countries: set[str] = set()
 
-        with httpx.Client() as client:
-            # Strategy 1: discover files from directory listing
-            discovered = _discover_zip_urls(client, base_url)
-            loaded_countries: set[str] = set()
-
-            if discovered:
-                logger.info("Discovered %d ZIP files from directory listing", len(discovered))
-                for url in discovered:
-                    if time.monotonic() > deadline:
-                        logger.warning("Startup timeout reached during discovery downloads")
-                        timed_out = True
-                        break
-                    cc = _infer_country_from_url(url)
-                    if not cc:
-                        continue
-                    count = _download_and_parse_zip(client, url, cc, cache_dir, deadline=deadline)
-                    if count > 0:
-                        loaded_countries.add(cc)
-                        logger.info("Loaded %d entries for %s", count, cc)
-
-            # Strategy 2: for countries not yet loaded, try guessed URLs per-country
-            remaining = [c for c in countries if c not in loaded_countries]
-            if remaining and not timed_out:
-                logger.info("Trying guessed URLs for %d remaining countries", len(remaining))
-                for cc in remaining:
-                    if time.monotonic() > deadline:
-                        logger.warning("Startup timeout reached during country downloads")
-                        timed_out = True
-                        break
-                    for url in _guess_zip_urls_for_country(base_url, cc):
-                        count = _download_and_parse_zip(client, url, cc, cache_dir, deadline=deadline)
-                        if count > 0:
-                            loaded_countries.add(cc)
-                            logger.info("Loaded %d entries for %s", count, cc)
-                            break
-
-            # Extra data sources (overwrite TERCET entries)
-            if not timed_out:
-                extra_count = _load_extra_sources(client, cache_dir, deadline=deadline)
-                if extra_count:
-                    logger.info("Extra sources added %d entries (overwrite mode)", extra_count)
-
-            # NSPL (UK postcodes → ITL via the LAD bridge) — no-op when nspl_url unset
-            if not timed_out and settings.nspl_url:
-                lad_to_itl3 = _load_uk_itl_bridge(client)
-                nspl_count = _load_nspl(client, settings.nspl_url, cache_dir, lad_to_itl3)
-                if nspl_count > 0:
-                    logger.info("Loaded %d entries for UK from NSPL", nspl_count)
-
-            # NUTS region names
-            if not timed_out:
-                _download_nuts_names(client)
+        try:
+            _fetch_all(base_url, countries, cache_dir, deadline, loaded_countries)
+        except _DownloadTimeout:
+            timed_out = True
+        except Exception:  # noqa: BLE001 — any upstream surprise must still reach the stale-cache fallback
+            logger.exception("TERCET refresh aborted by an unexpected error")
+            failed = True
 
         elapsed = time.monotonic() - start_time
         logger.info(
@@ -1266,15 +1403,22 @@ def load_data() -> None:
         )
 
         if _lookup:
-            # Fresh download succeeded (possibly partial on timeout)
+            # Fresh download succeeded, possibly only in part (timeout, failed
+            # files, aborted run). Keep the previous snapshot's countries rather
+            # than shrinking the mapping, and mark the result so it is retried.
+            carried = _carry_forward_missing_countries(db)
+            incomplete = timed_out or failed or bool(carried)
             _data_loaded_at = datetime.now(timezone.utc).isoformat()
             if not _load_estimates_from_csv(estimates_csv):
                 _load_estimates_from_db(db)
             _revalidate_estimates()
-            _save_to_db(db)
-            if timed_out:
+            _save_to_db(db, partial=incomplete)
+            if incomplete:
                 _data_stale = True
-                logger.warning("Startup timed out — partial data loaded")
+                logger.warning(
+                    "Rebuild incomplete — serving partial data, retrying after %d h",
+                    settings.db_partial_retry_hours,
+                )
         elif db.is_file():
             # Download failed but stale DB exists — fallback
             _load_from_db(db)

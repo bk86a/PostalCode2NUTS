@@ -22,7 +22,8 @@ from typing import Optional
 import httpx2 as httpx
 
 from app.config import settings
-from app.data_loader import _data_lock, _estimates, _revalidate_estimates, parse_estimates_from_text
+from app import data_loader
+from app.data_loader import parse_estimates_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ async def refresh_estimates_once(
     """
     global _last_hash, _last_etag, _last_modified, _stale
 
-    previous_count = len(_estimates)
+    previous_count = len(data_loader._estimates)
 
     if not settings.estimates_refresh_url:
         return RefreshResult(
@@ -139,7 +140,7 @@ async def refresh_estimates_once(
         # Recompute previous_count under the lock so the result reflects the
         # state we're actually transitioning from (a previous concurrent call
         # may have just finished and changed _estimates while we were waiting).
-        previous_count = len(_estimates)
+        previous_count = len(data_loader._estimates)
 
         own_client = client is None
         if own_client:
@@ -211,13 +212,9 @@ async def refresh_estimates_once(
                 reason=f"sanity guard: {len(new_dict)} < 50% of {previous_count}",
             )
 
-        # Swap. _data_lock is a threading.Lock; acquiring it briefly from an async
-        # context is fine — the swap is microseconds.
-        with _data_lock:
-            _estimates.clear()
-            _estimates.update(new_dict)
-            _revalidate_estimates()
-        new_count = len(_estimates)
+        # Readers in the threadpool never take _data_lock, so the table must be
+        # swapped as one reference, not cleared and refilled in place.
+        new_count = data_loader.publish_estimates(new_dict)
 
         _last_hash = new_hash
         _last_etag = headers.get("etag")

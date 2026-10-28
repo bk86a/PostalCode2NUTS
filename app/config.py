@@ -29,13 +29,27 @@ def _fatal(message: str) -> None:
     raise SystemExit(f"Fatal: {message}")
 
 
+def _parse_token_list(raw: str) -> frozenset[str]:
+    if not raw.strip():
+        return frozenset()
+    return frozenset(t.strip() for t in raw.split(",") if t.strip())
+
+
 class Settings(BaseSettings):
     tercet_base_url: str = _defaults["tercet_base_url"]
     data_dir: str = "./data"
     db_cache_ttl_days: int = 30
+    # A cache saved from an incomplete rebuild (some upstream files failed and
+    # their countries were carried forward) is retried after this many hours
+    # instead of after the full TTL — but not on every restart, so one
+    # permanently broken upstream file cannot make each boot re-download all.
+    db_partial_retry_hours: int = Field(default=24, ge=0)
     estimates_csv: str = "./tercet_missing_codes.csv"
     extra_sources: str = ""
     trusted_tokens_raw: str = Field(default="", validation_alias="PC2NUTS_TRUSTED_TOKENS")
+    # Operator credentials for /admin/*. Kept apart from the bypass tokens above,
+    # which are handed to API consumers and must not reach operator endpoints.
+    admin_tokens_raw: str = Field(default="", validation_alias="PC2NUTS_ADMIN_TOKENS")
     token_db_url: str = ""
     token_db_auth_token: str = ""
     token_refresh_seconds: int = Field(default=60, ge=1)
@@ -62,6 +76,11 @@ class Settings(BaseSettings):
     uk_itl_lookup_url: str = ""
     photon_url: str = ""
     photon_timeout_seconds: float = 5.0
+    # Whole-call budget for one /resolve geocode across its fallback queries,
+    # and how many geocodes may run at once per worker (the rest answer
+    # postal-only rather than queue on the shared threadpool, 40 threads).
+    photon_total_timeout_seconds: float = Field(default=10.0, gt=0)
+    photon_max_concurrency: int = Field(default=16, ge=1)
     nuts_geojson_url: str = (
         "https://gisco-services.ec.europa.eu/distribution/v2/nuts/download/ref-nuts-2024-01m.geojson.zip"
     )
@@ -94,10 +113,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_trusted_token_length(self) -> "Settings":
-        weak = sum(1 for t in self.trusted_tokens if len(t) < MIN_TRUSTED_TOKEN_LENGTH)
-        if weak:
+        for var, tokens in (
+            ("PC2NUTS_TRUSTED_TOKENS", self.trusted_tokens),
+            ("PC2NUTS_ADMIN_TOKENS", self.admin_tokens),
+        ):
+            weak = sum(1 for t in tokens if len(t) < MIN_TRUSTED_TOKEN_LENGTH)
+            if not weak:
+                continue
             _fatal(
-                f"PC2NUTS_TRUSTED_TOKENS contains {weak} token(s) shorter than "
+                f"{var} contains {weak} token(s) shorter than "
                 f"{MIN_TRUSTED_TOKEN_LENGTH} characters. An invalid token is rejected "
                 "before the rate limiter runs, so a short one can be guessed without "
                 "limit. Generate a strong token with "
@@ -119,10 +143,15 @@ class Settings(BaseSettings):
         Whitespace around tokens is stripped; empty entries are dropped.
         Returns an empty frozenset when unset or empty (auth bypass disabled).
         """
-        raw = self.trusted_tokens_raw
-        if not raw.strip():
-            return frozenset()
-        return frozenset(t.strip() for t in raw.split(",") if t.strip())
+        return _parse_token_list(self.trusted_tokens_raw)
+
+    @property
+    def admin_tokens(self) -> frozenset[str]:
+        """Parse PC2NUTS_ADMIN_TOKENS (same format as PC2NUTS_TRUSTED_TOKENS).
+
+        Empty → /admin/* is unreachable (every caller gets 401/403).
+        """
+        return _parse_token_list(self.admin_tokens_raw)
 
     @property
     def nuts_version(self) -> str:

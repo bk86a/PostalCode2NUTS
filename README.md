@@ -762,6 +762,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_TERCET_BASE_URL` | *(from `settings.json`, currently NUTS-2024)* | GISCO TERCET base URL. The NUTS version is derived from this URL. |
 | `PC2NUTS_DATA_DIR` | `./data` | Cache directory for downloaded ZIPs and SQLite DB |
 | `PC2NUTS_DB_CACHE_TTL_DAYS` | `30` | Days between automatic TERCET data refreshes. If the refresh fails, the service falls back to the previous data and sets `data_stale: true` in the health endpoint. |
+| `PC2NUTS_DB_PARTIAL_RETRY_HOURS` | `24` | If a refresh loads only some countries, the missing ones are kept from the previous data, `data_stale` is `true`, and the download is retried after this many hours instead of after the full TTL. |
 | `PC2NUTS_ESTIMATES_CSV` | `./tercet_missing_codes.csv` | Path to the estimates CSV. Loaded automatically at startup if the file exists. |
 | `PC2NUTS_EXTRA_SOURCES` | *(empty)* | Comma-separated list of ZIP URLs containing additional postal code data. Loaded after TERCET; entries overwrite TERCET data. |
 | `PC2NUTS_NSPL_URL` | *(empty)* | URL to the latest [NSPL](https://geoportal.statistics.gov.uk/) ZIP from the ONS Open Geography Portal. Enables UK (ITL) support; when unset, UK is unsupported. The URL changes each quarterly release, so update it accordingly. |
@@ -787,6 +788,8 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_ESTIMATES_REFRESH_INTERVAL_SECONDS` | `86400` (24 h) | How often the periodic task fetches the URL. Set to `0` to disable the periodic loop while keeping the bootstrap fetch on startup. |
 | `PC2NUTS_PHOTON_URL` | _(unset)_ | Photon geocoder base URL. **Unset ⇒ Lite tier.** Set ⇒ Full tier. |
 | `PC2NUTS_PHOTON_TIMEOUT_SECONDS` | `5.0` | Request timeout (seconds) for calls to the Photon geocoder (Full tier). |
+| `PC2NUTS_PHOTON_TOTAL_TIMEOUT_SECONDS` | `10.0` | Budget (seconds) for one `/resolve` geocode across all its fallback queries. Once it is spent, `/resolve` answers from the postal-code result. |
+| `PC2NUTS_PHOTON_MAX_CONCURRENCY` | `16` | Maximum concurrent geocodes per worker. Above it, `/resolve` answers postal-only instead of queueing, so a slow Photon cannot tie up the threads `/lookup` needs. |
 | `PC2NUTS_NUTS_GEOJSON_URL` | GISCO NUTS-2024 1M zip | Source for NUTS polygons (Full tier); auto-downloaded + cached. |
 | `PC2NUTS_NUTS_GEOJSON_PATH` | _(unset)_ | Pre-seeded polygon file; skips the download when set. |
 | `PC2NUTS_RESOLVE_CONFIDENCE_THRESHOLD` | `0.85` | Geocode only when the postal `nuts3_confidence` is below this. |
@@ -827,6 +830,7 @@ The service applies a per-IP rate limit (`120/minute` by default) to `/lookup` a
 | Env var | Default | Purpose |
 |---|---|---|
 | `PC2NUTS_TRUSTED_TOKENS` | `""` (unset) | Comma-separated list of valid bypass tokens. Empty → bypass disabled (current default). Whitespace and empty entries between commas are tolerated. |
+| `PC2NUTS_ADMIN_TOKENS` | `""` (unset) | Comma-separated operator tokens for `/admin/*` (at least 32 characters each). Bypass tokens — from the env var or the token DB — get `403` on `/admin/*`. Admin tokens also bypass the rate limit. Empty → `/admin/*` is unreachable. |
 
 ### Storage backend
 
@@ -906,7 +910,7 @@ Then remove that token from `PC2NUTS_TRUSTED_TOKENS` on the next config edit.
 When you've merged a new entry into `tercet_missing_codes.csv` on `main` and want to verify it's live in production without waiting up to 24 hours for the next periodic refresh:
 
 ```bash
-curl -X POST -H "Authorization: Bearer $PC2NUTS_TRUSTED_TOKEN" \
+curl -X POST -H "Authorization: Bearer $PC2NUTS_ADMIN_TOKEN" \
   https://api.example.invalid/admin/refresh-estimates
 ```
 
@@ -917,6 +921,7 @@ Possible responses:
 | 200 | `refreshed` | Upstream content changed, sanity guard passed, in-memory state updated. Body includes `previous_count` and `new_count`. |
 | 200 | `unchanged` | Upstream content identical to current state (matched by SHA-256 hash or 304 Not Modified). |
 | 401 | — | Missing or invalid `Authorization` header. |
+| 403 | — | The token is a rate-limit bypass token, not one of `PC2NUTS_ADMIN_TOKENS`. |
 | 409 | `rejected` | Sanity guard refused the candidate CSV (< 50 % of current row count). Live state is untouched. |
 | 502 | `failed` | Upstream fetch or parse failed. Live state is untouched. |
 | 503 | `disabled` | `PC2NUTS_ESTIMATES_REFRESH_URL` is unset on the deployed pod. |

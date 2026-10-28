@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+
+- `/admin/*` now requires an operator token from the new
+  `PC2NUTS_ADMIN_TOKENS`. Rate-limit bypass tokens, which are handed to API
+  consumers, get `403` there. **Deployments that call `/admin/*` must set
+  `PC2NUTS_ADMIN_TOKENS` before upgrading.**
+- CI grants `packages: write` only to the `publish` job, and the other jobs
+  check out without persisting the token.
+
+### Fixed
+
+- A malformed upstream ZIP (over-long CSV field, encrypted or unsupported
+  member) no longer stops the service from starting. The file is skipped and
+  its cached copy deleted, and any unexpected loader error still falls back
+  to the stale cache.
+- A refresh that loads only some countries no longer replaces the complete
+  cache. Missing countries are kept from the previous data, the result is
+  reported as stale, and the download is retried after
+  `PC2NUTS_DB_PARTIAL_RETRY_HOURS` (default 24).
+- A runtime estimates refresh no longer races `/lookup` and `/resolve`.
+  Requests during the swap could get a 500, a false 404 or a lower-tier answer.
+- The NUTS polygon archive is checked to be a ZIP before it is cached, written
+  atomically, refused above 256 MiB uncompressed, and replaced if the cached
+  copy is corrupt.
+- `/resolve` geocoding has a total time budget across its fallback queries
+  (`PC2NUTS_PHOTON_TOTAL_TIMEOUT_SECONDS`, default 10) and a per-worker
+  concurrency cap (`PC2NUTS_PHOTON_MAX_CONCURRENCY`, default 16).
+- A non-ASCII bearer token gets `401` rather than `500`.
+
 ## [3.1.7] - 2026-10-22
 
 ### Changed

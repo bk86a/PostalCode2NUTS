@@ -154,12 +154,13 @@ def client(mock_data):
 
 @pytest.fixture()
 def trusted_client(mock_data, monkeypatch):
-    """TestClient with one configured trusted token: 'test-token-aaa'."""
+    """TestClient with one bypass token ('test-token-aaa') and one admin token ('test-admin-bbb')."""
     from unittest.mock import patch
 
     from app import auth, data_loader
 
     monkeypatch.setattr(auth, "_get_trusted_tokens", lambda: frozenset({"test-token-aaa"}))
+    monkeypatch.setattr(auth, "_get_admin_tokens", lambda: frozenset({"test-admin-bbb"}))
 
     from fastapi.testclient import TestClient
 

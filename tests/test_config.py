@@ -92,6 +92,26 @@ class TestNSPLSettings:
         assert "UK" not in Settings().countries
 
 
+class TestAdminTokens:
+    def test_unset_is_empty(self, monkeypatch):
+        monkeypatch.delenv("PC2NUTS_ADMIN_TOKENS", raising=False)
+        assert Settings().admin_tokens == frozenset()
+
+    def test_parsed_separately_from_bypass_tokens(self, monkeypatch):
+        monkeypatch.setenv("PC2NUTS_TRUSTED_TOKENS", "a" * 32)
+        monkeypatch.setenv("PC2NUTS_ADMIN_TOKENS", " " + "b" * 32 + " ,")
+        s = Settings()
+        assert s.admin_tokens == frozenset({"b" * 32})
+        assert s.trusted_tokens == frozenset({"a" * 32})
+
+    def test_short_admin_token_fails_startup(self, monkeypatch):
+        monkeypatch.setenv("PC2NUTS_ADMIN_TOKENS", "hunter2")
+        with pytest.raises(SystemExit) as excinfo:
+            Settings()
+        assert "PC2NUTS_ADMIN_TOKENS" in str(excinfo.value)
+        assert "hunter2" not in str(excinfo.value)
+
+
 class TestTrustedTokenLength:
     """A short env-var token is brute-forceable: AuthMiddleware answers 401
     before the rate limiter runs, so failed attempts are never metered."""

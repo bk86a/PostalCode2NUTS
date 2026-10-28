@@ -9,10 +9,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def reset_module_state():
-    """Reload the module before each test so module-scoped state doesn't leak."""
-    import app.estimates_refresh
+def reset_module_state(monkeypatch):
+    """Reload the module before each test so module-scoped state doesn't leak.
 
+    A refresh publishes a new estimates table by rebinding
+    data_loader._estimates, so give each test its own and restore it after.
+    """
+    import app.estimates_refresh
+    from app import data_loader
+
+    monkeypatch.setattr(data_loader, "_estimates", {})
     importlib.reload(app.estimates_refresh)
     yield
 
@@ -563,3 +569,62 @@ def _stub_settings(*, url: str = "", interval: int = 86400, max_mb: int = 64):
         max_estimates_download_mb = max_mb
 
     return _S()
+
+class TestSwapIsAtomicForReaders:
+    """Readers run in the threadpool without _data_lock; a swap must never let
+    them see an empty table or a dict that changes while they iterate it."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_readers_never_fail(self, monkeypatch):
+        import threading
+
+        from app import data_loader, estimates_refresh
+
+        monkeypatch.setattr(
+            "app.estimates_refresh.settings", _stub_settings(url="https://example.invalid/tercet.csv")
+        )
+        row = {
+            "nuts3": "MT001",
+            "nuts2": "MT00",
+            "nuts1": "MT0",
+            "nuts3_confidence": 0.9,
+            "nuts2_confidence": 0.95,
+            "nuts1_confidence": 0.98,
+        }
+        n = 200_000
+        # Fill the table the autouse fixture installed (in place, so a module
+        # that from-imported it sees the same object).
+        data_loader._estimates.update({("MT", f"{i:06d}"): dict(row) for i in range(n)})
+        header = "COUNTRY_CODE,POSTAL_CODE,ESTIMATED_NUTS3,ESTIMATED_NUTS2,ESTIMATED_NUTS1,CONFIDENCE\n"
+        body = (header + "".join(f"MT,{i:06d},MT001,MT00,MT0,high\n" for i in range(n + 1))).encode()
+
+        errors: list[BaseException] = []
+        missing = 0
+        stop = threading.Event()
+
+        def reader():
+            nonlocal missing
+            while not stop.is_set():
+                try:
+                    if "MT" not in data_loader.get_loaded_countries():
+                        missing += 1
+                except BaseException as exc:  # noqa: BLE001
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=reader) for _ in range(2)]
+        for t in threads:
+            t.start()
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body))
+            ) as client:
+                result = await estimates_refresh.refresh_estimates_once(client=client)
+        finally:
+            stop.set()
+            for t in threads:
+                t.join()
+
+        assert result.status == "refreshed"
+        assert result.new_count == n + 1
+        assert errors == []
+        assert missing == 0
