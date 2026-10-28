@@ -264,7 +264,34 @@ def _sniff_dialect(text: str) -> csv.Dialect | None:
 
 def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False) -> int:
     """Parse CSV/TSV content and populate the lookup table. Returns row count."""
+    return _apply_rows(_parse_csv_rows(text, country_code), overwrite=overwrite)
+
+
+def _apply_rows(rows: list[tuple[tuple[str, str], str]], *, overwrite: bool) -> int:
+    """Write parsed (key, nuts3) rows into _lookup. Returns the number of new keys."""
     count = 0
+    for key, nuts3 in rows:
+        if overwrite:
+            # Last-write-wins: extra sources overwrite TERCET data
+            is_new = key not in _lookup
+            _lookup[key] = nuts3
+            if is_new:
+                count += 1
+        elif key not in _lookup:
+            # First-write-wins: discovery-phase data takes priority
+            _lookup[key] = nuts3
+            count += 1
+    return count
+
+
+def _parse_csv_rows(text: str, country_code: str) -> list[tuple[tuple[str, str], str]]:
+    """Parse CSV/TSV content into (key, nuts3) rows without touching _lookup.
+
+    Raises whatever the csv module raises on malformed input; callers apply
+    the rows only once a whole file has parsed, so a rejected file leaves no
+    partial rows behind.
+    """
+    rows: list[tuple[tuple[str, str], str]] = []
     skipped = 0
 
     dialect = _sniff_dialect(text)
@@ -297,7 +324,7 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
             country_code,
             fieldnames,
         )
-        return 0
+        return rows
 
     # Detect optional COUNTRY_CODE column
     cc_col = None
@@ -314,7 +341,7 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
 
     if not country_code and cc_col is None:
         logger.warning("No country code available (not in URL or CSV columns), skipping file")
-        return 0
+        return rows
 
     for row in reader:
         pc = row.get(pc_orig, "")
@@ -328,22 +355,11 @@ def _parse_csv_content(text: str, country_code: str, *, overwrite: bool = False)
         # Resolve country code: per-row CSV column takes priority, then function param
         row_cc = row.get(cc_orig, "").strip().upper() if cc_orig else ""
         cc = row_cc if row_cc else country_code.upper()
-        key = (cc, normalize_postal_code(pc))
-        if overwrite:
-            # Last-write-wins: extra sources overwrite TERCET data
-            is_new = key not in _lookup
-            _lookup[key] = nuts3
-            if is_new:
-                count += 1
-        else:
-            # First-write-wins: discovery-phase data takes priority
-            if key not in _lookup:
-                _lookup[key] = nuts3
-                count += 1
+        rows.append(((cc, normalize_postal_code(pc)), nuts3))
 
     if skipped:
         logger.warning("Skipped %d rows with invalid NUTS3 codes for %s", skipped, country_code)
-    return count
+    return rows
 
 
 # Describe the wire body, not the buffered copy we hand back.
@@ -521,7 +537,7 @@ def _download_and_parse_zip(
         except OSError as exc:
             logger.error("Failed to cache %s: %s", cached, exc)
 
-    total = 0
+    staged: list[tuple[tuple[str, str], str]] = []
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             for name in zf.namelist():
@@ -543,14 +559,17 @@ def _download_and_parse_zip(
                             break
                         except UnicodeDecodeError:
                             continue
-                    total += _parse_csv_content(text, country_code, overwrite=overwrite)
+                    staged += _parse_csv_rows(text, country_code)
     except _UPSTREAM_PARSE_ERRORS as exc:
         # Drop the cached copy so a restart re-downloads instead of failing on
         # the same file for the rest of the cache TTL.
         logger.warning("Unusable ZIP from %s (%s); discarding cached copy", url, exc)
         cached.unlink(missing_ok=True)
         return 0
-    return total
+    # Apply only once every member parsed: a file rejected half-way must not
+    # leave some of its rows in place (that would also hide the country from
+    # the carry-forward of an incomplete rebuild).
+    return _apply_rows(staged, overwrite=overwrite)
 
 
 def _parse_nspl_csv(text: str, lad_to_itl3: dict[str, str]) -> int:
@@ -1138,13 +1157,23 @@ def _carry_forward_missing_countries(db: Path) -> set[str]:
     have = {cc for cc, _ in _lookup}
     try:
         with _db_connection(db) as con:
+            meta = dict(con.execute("SELECT key, value FROM metadata").fetchall())
             rows = con.execute("SELECT country_code, postal_code, nuts3 FROM lookup").fetchall()
     except sqlite3.Error as exc:
         logger.warning("Previous DB cache unreadable, nothing to carry forward: %s", exc)
         return set()
+    # Only countries the current configuration still asks for: a source the
+    # operator removed (NSPL unset, extra source dropped, country delisted)
+    # must not be resurrected from the old snapshot.
+    wanted = set(settings.countries)
+    if settings.nspl_url:
+        wanted.add("UK")
+    if settings.extra_source_urls and meta.get("extra_sources_hash") == _extra_sources_hash():
+        # Unchanged extra sources may supply any country.
+        wanted |= {cc for cc, _, _ in rows}
     missing: set[str] = set()
     for cc, pc, nuts3 in rows:
-        if cc not in have:
+        if cc not in have and cc in wanted:
             _lookup[(cc, pc)] = nuts3
             missing.add(cc)
     if missing:

@@ -165,3 +165,42 @@ class TestPartialRebuild:
             meta = dict(con.execute("SELECT key, value FROM metadata"))
         assert meta["partial"] == "0"
         assert data_loader.get_data_stale() is False
+
+
+class TestCodexReviewRegressions:
+    def test_rejected_file_leaves_no_rows_so_country_is_carried_forward(self, loader, tmp_path):
+        """Valid rows before an over-long field must not stay in _lookup: they
+        would make FR look loaded and block restoring the rest of FR."""
+        serve, _ = loader
+        serve["FR"] = _zip("CODE;NUTS3\n75001;FR101\n75002;FR101\n")
+        data_loader.load_data()
+        _expire_caches(tmp_path)
+
+        serve["FR"] = _zip("CODE;NUTS3\n75001;FR101\n" + "7" * 200_000 + ";FR101\n")
+        data_loader.load_data()
+        assert data_loader.lookup("FR", "75002")["nuts3"] == "FR101"
+        assert data_loader.get_data_stale() is True
+
+    def test_country_removed_from_config_is_not_resurrected(self, loader, monkeypatch, tmp_path):
+        data_loader.load_data()
+        _expire_caches(tmp_path)
+
+        monkeypatch.setattr(data_loader.settings, "countries", ["DE"])
+        serve, _ = loader
+        del serve["FR"]
+        # The listing still links FR; serve a 404 so only config decides.
+        serve["FR"] = 404
+        data_loader.load_data()
+        assert _countries() == ["DE"]
+        assert data_loader.get_data_stale() is False
+
+    def test_disabled_nspl_does_not_resurrect_uk(self, loader, tmp_path):
+        data_loader.load_data()
+        # Simulate an old snapshot that also held NSPL-sourced UK rows.
+        with sqlite3.connect(_db()) as con:
+            con.execute("INSERT INTO lookup VALUES ('UK', 'SW1A2AA', 'TLI32')")
+        _expire_caches(tmp_path)
+
+        data_loader.load_data()  # NSPL is unset in the fixture
+        assert "UK" not in _countries()
+        assert data_loader.get_data_stale() is False
