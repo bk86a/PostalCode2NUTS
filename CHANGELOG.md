@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-10-28
+
 ### Security
 
 - `/admin/*` now requires an operator token from the new
