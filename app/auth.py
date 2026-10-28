@@ -1,4 +1,5 @@
-"""Token-based rate-limit bypass for /lookup and /pattern.
+"""Token-based rate-limit bypass for /lookup and /pattern, and operator
+tokens (PC2NUTS_ADMIN_TOKENS) for /admin/*.
 
 See docs/superpowers/specs/2026-04-29-auth-token-bypass-design.md for the design.
 """
@@ -45,15 +46,32 @@ def _get_trusted_tokens() -> frozenset[str]:
     return _db_tokens | settings.trusted_tokens
 
 
+def _get_admin_tokens() -> frozenset[str]:
+    """Indirection seam for tests; returns the operator tokens for /admin/*."""
+    return settings.admin_tokens
+
+
+def _matches_any(candidate: str, tokens: frozenset[str]) -> bool:
+    if not candidate:
+        return False
+    # Compare bytes: compare_digest raises TypeError on non-ASCII str, which
+    # would turn a junk Authorization header into a 500 instead of a 401.
+    raw = candidate.encode()
+    return any(hmac.compare_digest(raw, t.encode()) for t in tokens)
+
+
 def is_trusted(candidate: str) -> bool:
     """Constant-time membership test against the configured trusted tokens.
 
     Uses hmac.compare_digest in a loop. Returns False for empty input or when
     no tokens are configured.
     """
-    if not candidate:
-        return False
-    return any(hmac.compare_digest(candidate, t) for t in _get_trusted_tokens())
+    return _matches_any(candidate, _get_trusted_tokens())
+
+
+def is_admin(candidate: str) -> bool:
+    """Constant-time membership test against PC2NUTS_ADMIN_TOKENS."""
+    return _matches_any(candidate, _get_admin_tokens())
 
 
 _request_var: contextvars.ContextVar[Request | None] = contextvars.ContextVar("pc2nuts_request", default=None)
@@ -64,6 +82,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     - No header → request.state.trusted = False, normal flow.
     - Valid bearer token → request.state.trusted = True, request.state.token_id set.
+      request.state.admin is True only for a PC2NUTS_ADMIN_TOKENS token; admin
+      tokens also bypass the rate limit.
     - Invalid token → 401 short-circuit (no rate-limit consumed).
     - Malformed header → 400 short-circuit.
     - /health is exempt entirely — header is ignored, request flows through.
@@ -81,6 +101,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     EXEMPT_PATHS = frozenset({"/health"})
 
     async def dispatch(self, request: Request, call_next):
+        request.state.admin = False
         if request.url.path in self.EXEMPT_PATHS:
             request.state.trusted = False
             request.state.token_id = None
@@ -88,7 +109,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Bypass disabled (no tokens configured) → ignore Authorization header
         # entirely; behaviour identical to pre-feature (per-IP rate limit only).
-        if not _get_trusted_tokens():
+        if not _get_trusted_tokens() and not _get_admin_tokens():
             request.state.trusted = False
             request.state.token_id = None
             return await call_next(request)
@@ -99,9 +120,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
         if token is not None:
-            if not is_trusted(token):
+            admin = is_admin(token)
+            if not admin and not is_trusted(token):
                 return JSONResponse({"detail": "invalid token"}, status_code=401)
             request.state.trusted = True
+            request.state.admin = admin
             request.state.token_id = token_id(token)
         else:
             request.state.trusted = False

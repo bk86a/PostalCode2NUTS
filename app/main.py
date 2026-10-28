@@ -151,7 +151,11 @@ async def lifespan(app: FastAPI):
     if _config.settings.photon_url:
         _geo_http = _httpx.Client()
         _photon_client = PhotonClient(
-            _config.settings.photon_url, _geo_http, _config.settings.photon_timeout_seconds
+            _config.settings.photon_url,
+            _geo_http,
+            _config.settings.photon_timeout_seconds,
+            total_timeout=_config.settings.photon_total_timeout_seconds,
+            max_concurrency=_config.settings.photon_max_concurrency,
         )
         logger.info("Photon geocoder configured.")
 
@@ -615,18 +619,27 @@ def health(response: Response):
     )
 
 
+def _require_admin(request: Request) -> None:
+    """401 without a valid token; 403 for a bypass token that is not an admin token."""
+    if not getattr(request.state, "trusted", False):
+        raise HTTPException(status_code=401, detail="Admin token required")
+    if not getattr(request.state, "admin", False):
+        raise HTTPException(status_code=403, detail="Admin token required")
+
+
 @app.post(
     "/admin/refresh-estimates",
     summary="Force-refresh estimates from the configured remote URL",
     description=(
-        "Operator-only — requires `Authorization: Bearer <trusted-token>`. "
+        "Operator-only — requires `Authorization: Bearer <admin-token>` (PC2NUTS_ADMIN_TOKENS). "
         "Synchronously fetches the configured `PC2NUTS_ESTIMATES_REFRESH_URL` and, "
         "if the content has changed and passes the sanity guard, replaces the "
         "in-memory estimates table. No body."
     ),
     responses={
         200: {"description": "Refresh succeeded (content changed and applied)"},
-        401: {"description": "Missing or invalid trusted bearer token"},
+        401: {"description": "Missing or invalid bearer token"},
+        403: {"description": "Bearer token is a rate-limit bypass token, not an admin token"},
         409: {"description": "Sanity guard rejected the candidate CSV"},
         502: {"description": "Upstream fetch or parse failed"},
         503: {"description": "Feature disabled (PC2NUTS_ESTIMATES_REFRESH_URL unset)"},
@@ -635,8 +648,7 @@ def health(response: Response):
     include_in_schema=False,
 )
 async def admin_refresh_estimates(request: Request) -> JSONResponse:
-    if not getattr(request.state, "trusted", False):
-        raise HTTPException(status_code=401, detail="Trusted token required")
+    _require_admin(request)
 
     from app import estimates_refresh as _estimates_refresh
 
@@ -677,7 +689,7 @@ async def admin_refresh_estimates(request: Request) -> JSONResponse:
     "/admin/memory",
     summary="Memory and runtime diagnostics",
     description=(
-        "Operator-only — requires `Authorization: Bearer <trusted-token>`. "
+        "Operator-only — requires `Authorization: Bearer <admin-token>` (PC2NUTS_ADMIN_TOKENS). "
         "Returns sizes of in-memory state, /proc process counters, asyncio task / "
         "thread / file-descriptor counts, and a `gc.get_objects()` type histogram. "
         "Intended for one-off leak investigations; safe to call repeatedly but "
@@ -686,8 +698,7 @@ async def admin_refresh_estimates(request: Request) -> JSONResponse:
     include_in_schema=False,
 )
 async def admin_memory(request: Request) -> JSONResponse:
-    if not getattr(request.state, "trusted", False):
-        raise HTTPException(status_code=401, detail="Trusted token required")
+    _require_admin(request)
 
     import asyncio
     import gc

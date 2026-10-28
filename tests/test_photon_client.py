@@ -175,3 +175,53 @@ def test_compressed_oversized_response_is_abandoned():
     pc = PhotonClient("http://photon", _client(handler))
     assert pc.geocode("Markt", "Tervuren", "3080") is None
     assert len(bomb) < photon_client._MAX_RESPONSE_BYTES  # the wire body alone would have passed
+
+
+def test_total_deadline_stops_the_fallback_chain():
+    """Per-request timeouts alone let 4 sequential fallbacks hold a threadpool
+    thread for 4x the timeout; the whole geocode() call has one budget."""
+    import time
+
+    calls = []
+
+    class _Slow(httpx.SyncByteStream):
+        def __iter__(self):
+            for _ in range(5):
+                time.sleep(0.05)
+                yield b" "
+
+    def handler(req):
+        calls.append(req.url.params["q"])
+        return httpx.Response(200, stream=_Slow())
+
+    pc = PhotonClient("http://photon", _client(handler), timeout=5.0, total_timeout=0.1)
+    start = time.monotonic()
+    assert pc.geocode("Markt", "Tervuren", "3080") is None
+    assert time.monotonic() - start < 0.5
+    assert len(calls) < 4
+
+
+def test_concurrency_cap_answers_none_instead_of_queueing():
+    import threading
+
+    release = threading.Event()
+    entered = threading.Event()
+
+    def handler(req):
+        entered.set()
+        release.wait(2)
+        return httpx.Response(200, json={"features": []})
+
+    pc = PhotonClient("http://photon", _client(handler), max_concurrency=1)
+    t = threading.Thread(target=pc.geocode, args=("A", "B", "1"))
+    t.start()
+    try:
+        assert entered.wait(2)
+        # The only slot is busy: the second geocode returns at once, unqueued.
+        assert pc.geocode("C", "D", "2") is None
+    finally:
+        release.set()
+        t.join()
+    # Slot released afterwards.
+    assert pc._slots.acquire(blocking=False)
+    pc._slots.release()

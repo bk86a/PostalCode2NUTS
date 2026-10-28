@@ -490,7 +490,7 @@ class TestAdminRefreshEstimatesEndpoint:
         monkeypatch.setattr(config.settings, "estimates_refresh_url", "")
         resp = trusted_client.post(
             "/admin/refresh-estimates",
-            headers={"Authorization": "Bearer test-token-aaa"},
+            headers={"Authorization": "Bearer test-admin-bbb"},
         )
         assert resp.status_code == 503
         assert resp.json()["status"] == "disabled"
@@ -512,7 +512,7 @@ class TestAdminRefreshEstimatesEndpoint:
 
         resp = trusted_client.post(
             "/admin/refresh-estimates",
-            headers={"Authorization": "Bearer test-token-aaa"},
+            headers={"Authorization": "Bearer test-admin-bbb"},
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -539,7 +539,7 @@ class TestAdminRefreshEstimatesEndpoint:
 
         resp = trusted_client.post(
             "/admin/refresh-estimates",
-            headers={"Authorization": "Bearer test-token-aaa"},
+            headers={"Authorization": "Bearer test-admin-bbb"},
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -564,7 +564,7 @@ class TestAdminRefreshEstimatesEndpoint:
 
         resp = trusted_client.post(
             "/admin/refresh-estimates",
-            headers={"Authorization": "Bearer test-token-aaa"},
+            headers={"Authorization": "Bearer test-admin-bbb"},
         )
         assert resp.status_code == 502
         assert resp.json()["status"] == "failed"
@@ -591,12 +591,60 @@ class TestAdminRefreshEstimatesEndpoint:
 
         resp = trusted_client.post(
             "/admin/refresh-estimates",
-            headers={"Authorization": "Bearer test-token-aaa"},
+            headers={"Authorization": "Bearer test-admin-bbb"},
         )
         assert resp.status_code == 409
         body = resp.json()
         assert body["status"] == "rejected"
         assert body["candidate_count"] == 12
+
+
+class TestAdminRequiresAdminToken:
+    """A rate-limit bypass token is handed to consumers; it must not reach /admin/*."""
+
+    def test_bypass_token_gets_403_on_memory(self, trusted_client):
+        resp = trusted_client.get("/admin/memory", headers={"Authorization": "Bearer test-token-aaa"})
+        assert resp.status_code == 403
+
+    def test_bypass_token_gets_403_on_refresh(self, trusted_client, monkeypatch):
+        from app import config, estimates_refresh
+
+        monkeypatch.setattr(config.settings, "estimates_refresh_url", "https://example.invalid/x.csv")
+        called = []
+
+        async def fake_refresh(client=None):
+            called.append(1)
+
+        monkeypatch.setattr(estimates_refresh, "refresh_estimates_once", fake_refresh)
+        resp = trusted_client.post(
+            "/admin/refresh-estimates", headers={"Authorization": "Bearer test-token-aaa"}
+        )
+        assert resp.status_code == 403
+        assert called == []
+
+    def test_bypass_token_still_bypasses_lookup(self, trusted_client):
+        resp = trusted_client.get(
+            "/lookup",
+            params={"postal_code": "10115", "country": "DE"},
+            headers={"Authorization": "Bearer test-token-aaa"},
+        )
+        assert resp.status_code == 200
+
+    def test_admin_token_is_also_trusted_on_lookup(self, trusted_client):
+        resp = trusted_client.get(
+            "/lookup",
+            params={"postal_code": "10115", "country": "DE"},
+            headers={"Authorization": "Bearer test-admin-bbb"},
+        )
+        assert resp.status_code == 200
+
+    def test_non_ascii_bearer_is_401_not_500(self, trusted_client):
+        resp = trusted_client.get(
+            "/lookup",
+            params={"postal_code": "10115", "country": "DE"},
+            headers={"Authorization": b"Bearer caf\xe9"},
+        )
+        assert resp.status_code == 401
 
 
 class TestAdminMemoryEndpoint:
@@ -614,7 +662,7 @@ class TestAdminMemoryEndpoint:
     def test_200_returns_diagnostic_payload(self, trusted_client):
         resp = trusted_client.get(
             "/admin/memory",
-            headers={"Authorization": "Bearer test-token-aaa"},
+            headers={"Authorization": "Bearer test-admin-bbb"},
         )
         assert resp.status_code == 200
         body = resp.json()

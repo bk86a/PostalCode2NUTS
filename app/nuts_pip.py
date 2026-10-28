@@ -29,6 +29,10 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * _EARTH_KM * math.asin(math.sqrt(a))
 
 
+# The GISCO 01M LEVL_3 member is ~28 MB uncompressed; leave generous headroom.
+MAX_GEOJSON_BYTES = 256 * 1024 * 1024
+
+
 def load_nuts3_features(geojson_path: str | Path) -> list[tuple[str, BaseGeometry]]:
     """Parse a GISCO NUTS GeoJSON (or a .zip containing one) into (nuts_id, geom)
     pairs for level-3 regions only, in EPSG:4326 (lon/lat)."""
@@ -45,6 +49,13 @@ def load_nuts3_features(geojson_path: str | Path) -> list[tuple[str, BaseGeometr
             )
             if name is None:
                 raise ValueError(f"no 4326 LEVL_3 region (_RG_) GeoJSON member in {path}")
+            # Bound the expansion, not just the download: deflate reaches ~1000x,
+            # so a small archive could otherwise inflate past the worker's memory.
+            size = zf.getinfo(name).file_size
+            if size > MAX_GEOJSON_BYTES:
+                raise ValueError(
+                    f"{name} in {path} is {size} bytes uncompressed, over the {MAX_GEOJSON_BYTES} limit"
+                )
             with zf.open(name) as fh:
                 data = json.load(fh)
     else:
