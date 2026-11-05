@@ -170,6 +170,10 @@ class Settings(BaseSettings):
         return _defaults["approximate_confidence_caps"]
 
     @property
+    def approximate_border_cap(self) -> float:
+        return _defaults.get("approximate_border_cap", 0.5)
+
+    @property
     def approximate_min_confidence(self) -> float:
         return _defaults["approximate_min_confidence"]
 

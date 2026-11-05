@@ -1,5 +1,6 @@
 """Download and parse TERCET flat files into an in-memory lookup table."""
 
+import bisect
 import csv
 import hashlib
 import io
@@ -41,6 +42,9 @@ _estimates: dict[tuple[str, str], dict] = {}
 
 # Prefix index: country_code -> prefix -> list of nuts3 codes
 _prefix_index: dict[str, dict[str, list[str]]] = {}
+
+# Sorted TERCET codes per (country_code, code length), for the Tier 3 border check
+_sorted_codes: dict[tuple[str, int], list[str]] = {}
 
 # Countries with a single NUTS3 region: country_code -> nuts3 code
 _single_nuts3: dict[str, str] = {}
@@ -987,6 +991,11 @@ def _build_prefix_index() -> None:
             if prefix not in idx:
                 idx[prefix] = []
             idx[prefix].append(nuts3)
+    _sorted_codes.clear()
+    for cc, pc in _lookup:
+        _sorted_codes.setdefault((cc, len(pc)), []).append(pc)
+    for codes in _sorted_codes.values():
+        codes.sort()
     total_prefixes = sum(len(v) for v in _prefix_index.values())
     logger.info("Built prefix index: %d prefixes across %d countries", total_prefixes, len(_prefix_index))
 
@@ -1064,6 +1073,26 @@ def _build_outward_index(country_code: str) -> None:
         logger.info("Built outward index for %s: %d outward codes", country_code, len(groups))
 
 
+def _code_neighbours(cc: str, postal_code: str) -> list[str]:
+    """NUTS3 of the nearest TERCET codes below and above *postal_code*.
+
+    Only codes of the same length count, so sort order matches numeric order
+    for digit-only codes.
+    """
+    codes = _sorted_codes.get((cc, len(postal_code)))
+    if not codes:
+        return []
+    lo = bisect.bisect_left(codes, postal_code)
+    hi = bisect.bisect_right(codes, postal_code)
+    keys = []
+    if lo > 0:
+        keys.append(codes[lo - 1])
+    if hi < len(codes):
+        keys.append(codes[hi])
+    # .get(): a refresh may swap _lookup before this index is rebuilt
+    return [n3 for pc in keys if (n3 := _lookup.get((cc, pc)))]
+
+
 def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
     """Runtime estimation via longest prefix match + majority vote.
 
@@ -1103,6 +1132,20 @@ def _estimate_by_prefix(cc: str, postal_code: str) -> dict | None:
     c3 = round(min((nuts3_count / total) * prefix_ratio, caps["nuts3"]), 2)
     c2 = round(min((nuts2_count / total) * prefix_ratio, caps["nuts2"]), 2)
     c1 = round(min((nuts1_count / total) * prefix_ratio, caps["nuts1"]), 2)
+
+    # Border check: the prefix block can agree unanimously while the nearest
+    # existing code just above or below lies in another region (HU 9497 sits
+    # between 9495/HU221 and 9500/HU222). Cap every level at which a
+    # neighbour disagrees with the winner.
+    neighbours = _code_neighbours(cc, postal_code)
+    if neighbours:
+        border_cap = settings.approximate_border_cap
+        if any(n != nuts3_winner for n in neighbours):
+            c3 = min(c3, border_cap)
+        if any(n[:4] != nuts2_winner for n in neighbours):
+            c2 = min(c2, border_cap)
+        if any(n[:3] != nuts1_winner for n in neighbours):
+            c1 = min(c1, border_cap)
 
     # Skip if NUTS1 confidence is too low to be useful
     if c1 < settings.approximate_min_confidence:

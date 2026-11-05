@@ -17,6 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   longer answered by prefix estimation. It matched whole as a prefix of longer
   codes and scored the maximum prefix ratio (DE `101` returned DE300 at 0.8).
 
+### Changed
+
+- Tier 3 (`approximate`) caps confidence at 0.50 at each NUTS level where the
+  nearest existing code below or above the queried code lies in a different
+  region. A prefix block that agrees unanimously no longer yields 0.75 for a
+  code sitting on a regional border (HU `9497` between `9495`/HU221 and
+  `9500`/HU222). Configurable as `approximate_border_cap` in `settings.json`.
+
 ## [3.2.1] - 2026-11-05
 
 ### Changed
