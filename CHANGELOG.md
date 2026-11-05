@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A postal code one digit short is no longer padded with a leading zero into
+  a code that passes the format check in countries whose codes never start
+  with 0 (AT, BG, CH, CY, CZ, HR, HU, LI, PT, SE, SI). Their regexes now
+  require a first digit of 1-9, so HU `105` no longer becomes `0105`.
+  Patterns version 1.5 → 1.6.
+
 ## [3.2.1] - 2026-11-05
 
 ### Changed
