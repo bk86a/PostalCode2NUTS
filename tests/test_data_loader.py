@@ -699,3 +699,24 @@ class TestZipCacheWorkerRace:
         monkeypatch.setattr(Path, "write_bytes", dying_write)
         assert data_loader._download_and_parse_zip(None, self.URL, "AT", tmp_path) == 1
         assert other.read_bytes() == b"in progress"
+
+
+class TestShortCodeNotEstimated:
+    """An all-digit code shorter than the country's fixed length is not a prefix
+    estimate: matching it whole against longer codes inflated confidence
+    (HU "105" -> Budapest 0.8 via 1052)."""
+
+    def test_hu_one_digit_short(self, mock_data):
+        data_loader._lookup.update(
+            {("HU", "1052"): "HU110", ("HU", "1053"): "HU110", ("HU", "2031"): "HU120"}
+        )
+        data_loader._build_prefix_index()
+        assert lookup("HU", "105") is None
+
+    def test_de_two_digits_short(self, mock_data):
+        assert lookup("DE", "101") is None
+
+    def test_full_length_code_still_estimated(self, mock_data):
+        result = lookup("DE", "10118")
+        assert result is not None
+        assert result["match_type"] == "approximate"
