@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-06
+
 ### Fixed
 
 - A postal code one digit short is no longer padded with a leading zero into
