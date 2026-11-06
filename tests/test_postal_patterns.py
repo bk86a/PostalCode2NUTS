@@ -3,7 +3,9 @@
 import pytest
 
 from app.postal_patterns import (
+    _COMPILED,
     PATTERNS_META,
+    POSTAL_PATTERNS,
     _apply_tercet_map,
     _preprocess,
     extract_outward,
@@ -212,7 +214,8 @@ class TestUKExtraction:
 def test_patterns_meta_version_bumped():
     # Adding the Crown Dependencies and Gibraltar is an additive coverage change;
     # minor version bump.
-    assert PATTERNS_META["version"] == "1.5"
+    # Countries without leading-zero codes reject a leading 0; minor bump.
+    assert PATTERNS_META["version"] == "1.6"
 
 
 class TestExtractOutward:
@@ -239,3 +242,37 @@ class TestExtractOutward:
     def test_extract_postal_code_unaffected_by_outward_only_flag(self):
         # Tier 1 lookup for UK must still yield the full normalised postcode.
         assert extract_postal_code("UK", "SW1A 2AA") == "SW1A2AA"
+
+
+# Countries whose national schemes allocate first digits 1-9 only (no TERCET
+# NUTS-2024 code starts with 0 either). LU is excluded: its 0xxx codes are
+# PackUp parcel lockers. A one-digit-short input must not be padded into a
+# code that passes the format check (EACSP-122291: HU "105" became "0105").
+NO_LEADING_ZERO = ["AT", "BG", "CH", "CY", "CZ", "HR", "HU", "LI", "PT", "SE", "SI"]
+
+
+class TestNoLeadingZeroCountries:
+    @pytest.mark.parametrize("cc", NO_LEADING_ZERO)
+    def test_leading_zero_code_fails_format(self, cc):
+        digits = POSTAL_PATTERNS[cc]["expected_digits"]
+        assert not _COMPILED[cc].match("0" * digits)
+
+    @pytest.mark.parametrize("cc", NO_LEADING_ZERO)
+    def test_one_digit_short_is_not_padded(self, cc):
+        digits = POSTAL_PATTERNS[cc]["expected_digits"]
+        short = "1" * (digits - 1)
+        assert extract_postal_code(cc, short) == short
+
+    @pytest.mark.parametrize("cc", NO_LEADING_ZERO)
+    def test_examples_still_match(self, cc):
+        for ex in POSTAL_PATTERNS[cc]["example"].split(", "):
+            assert _COMPILED[cc].match(ex.upper()), (cc, ex)
+
+    def test_hu_short_code_reported_case(self):
+        assert extract_postal_code("HU", "105") == "105"
+        assert extract_postal_code("HU", "H-1052") == "1052"
+
+    def test_padding_kept_where_leading_zeros_exist(self):
+        assert extract_postal_code("ES", "8461") == "08461"
+        assert extract_postal_code("DE", "1067") == "01067"
+        assert extract_postal_code("LU", "161") == "0161"

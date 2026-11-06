@@ -119,6 +119,12 @@ def extract_postal_code(country_code: str, raw_input: str) -> str:
     cleaned = _preprocess(raw_input.strip(), entry)
     if pattern is not None:
         m = pattern.match(cleaned.upper())
+        if m is None and len(cleaned) != len(raw_input.strip()):
+            # Leading-zero padding produced a code the country's format rejects
+            # (HU has no 0xxx codes, so "105" must not become "0105"). Undo it,
+            # keeping the other preprocessing steps.
+            cleaned = _preprocess(raw_input.strip(), None)
+            m = pattern.match(cleaned.upper())
         if m:
             groups = m.groups()
             if groups:

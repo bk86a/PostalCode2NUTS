@@ -1490,7 +1490,7 @@ def _lookup_cascade(country_code: str, postal_code: str) -> dict | None:
 
     Returns a dict with nuts1/2/3, match_type, and per-level confidence, or None.
     """
-    from app.postal_patterns import extract_outward, extract_postal_code
+    from app.postal_patterns import POSTAL_PATTERNS, extract_outward, extract_postal_code
 
     cc = normalize_country(country_code)
 
@@ -1555,10 +1555,14 @@ def _lookup_cascade(country_code: str, postal_code: str) -> dict | None:
         # character prefix (e.g. "SW" for an unknown SW99, mixing distinct ITL3s).
         return None
 
-    # Tier 3: Runtime prefix-based estimation
-    approx = _estimate_by_prefix(cc, extracted)
-    if approx is not None:
-        return approx
+    # Tier 3: Runtime prefix-based estimation. Skipped for an all-digit code
+    # shorter than the country's fixed length: it would match whole as a prefix
+    # of longer codes (HU "105" of "1052") and score a prefix ratio of 1.
+    expected = (POSTAL_PATTERNS.get(cc) or {}).get("expected_digits")
+    if not (expected and extracted.isdigit() and len(extracted) < expected):
+        approx = _estimate_by_prefix(cc, extracted)
+        if approx is not None:
+            return approx
 
     # Tier 4: Country-level majority vote (unanimous NUTS1/2, dominant NUTS3)
     fallback = _country_fallback.get(cc)

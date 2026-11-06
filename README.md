@@ -675,6 +675,8 @@ Before regex matching, raw input is preprocessed to recover postal codes mangled
 
 Leading-zero restoration uses the `expected_digits` metadata in `postal_patterns.json` and only triggers when the input is all-digit and exactly one digit short. Countries with non-numeric postal codes (IE, MT, NL) are excluded.
 
+Countries whose national schemes never start a code with 0 (AT, BG, CH, CY, CZ, HR, HU, LI, PT, SE, SI) require a first digit of 1-9 in their regex. For them the padded code fails the format check, so padding is undone and the input is kept as entered: HU `105` stays `105` and is reported as not matching the format, not padded to `0105`.
+
 ### Pattern extraction flow
 
 ```
