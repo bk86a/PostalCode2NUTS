@@ -105,6 +105,7 @@ def mock_data():
     orig_single = data_loader._single_nuts3.copy()
     orig_fallback = data_loader._country_fallback.copy()
     orig_outward = data_loader._outward_lookup.copy()
+    orig_sorted = data_loader._sorted_codes.copy()
 
     from app import territories
 
@@ -138,6 +139,8 @@ def mock_data():
     data_loader._country_fallback.update(orig_fallback)
     data_loader._outward_lookup.clear()
     data_loader._outward_lookup.update(orig_outward)
+    data_loader._sorted_codes.clear()
+    data_loader._sorted_codes.update(orig_sorted)
 
 
 @pytest.fixture()

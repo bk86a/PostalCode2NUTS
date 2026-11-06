@@ -720,3 +720,81 @@ class TestShortCodeNotEstimated:
         result = lookup("DE", "10118")
         assert result is not None
         assert result["match_type"] == "approximate"
+
+
+
+# Real HU TERCET assignments around the codes reported in EACSP-122288.
+_HU_BORDER = {
+    ("HU", "4220"): "HU321",
+    ("HU", "4224"): "HU321",
+    ("HU", "4225"): "HU321",
+    ("HU", "4231"): "HU323",
+    ("HU", "8330"): "HU213",
+    ("HU", "8341"): "HU223",
+    ("HU", "9491"): "HU221",
+    ("HU", "9495"): "HU221",
+    ("HU", "9500"): "HU222",
+    ("HU", "9501"): "HU222",
+    ("HU", "9502"): "HU222",
+    ("HU", "9505"): "HU222",
+}
+
+
+@pytest.fixture()
+def hu_border(mock_data):
+    data_loader._lookup.update(_HU_BORDER)
+    data_loader._build_prefix_index()
+    yield
+
+
+class TestApproximateBorderCap:
+    """Tier 3 caps confidence when the code sits between two regions."""
+
+    def _get(self, pc):
+        result = lookup("HU", pc)
+        assert result is not None
+        assert result["match_type"] == "approximate"
+        return result
+
+    def test_nuts3_border_caps_nuts3_only(self, hu_border):
+        # 9495 (HU221) < 9497 < 9500 (HU222): same NUTS2 HU22
+        r = self._get("9497")
+        assert r["nuts3"] == "HU221"
+        assert r["nuts3_confidence"] == 0.5
+        assert r["nuts2_confidence"] == 0.75
+        assert r["nuts1_confidence"] == 0.75
+
+    def test_nuts2_border_caps_nuts2_and_nuts3(self, hu_border):
+        # 8330 (HU213) < 8335 < 8341 (HU223): different NUTS2, same NUTS1
+        r = self._get("8335")
+        assert r["nuts3"] == "HU213"
+        assert r["nuts3_confidence"] == 0.5
+        assert r["nuts2_confidence"] == 0.5
+        assert r["nuts1_confidence"] == 0.75
+
+    def test_neighbour_below_in_other_region(self, hu_border):
+        # 4225 (HU321) < 4228 < 4231 (HU323)
+        r = self._get("4228")
+        assert r["nuts3_confidence"] == 0.5
+        assert r["nuts2_confidence"] == 0.75
+
+    def test_interior_code_not_capped(self, hu_border):
+        # 9501 < 9503 < 9505, all HU222
+        r = self._get("9503")
+        assert r["nuts3"] == "HU222"
+        assert r["nuts3_confidence"] == 0.75
+
+    def test_cap_never_raises_confidence(self, hu_border, monkeypatch):
+        from app import config
+
+        monkeypatch.setitem(config._defaults, "approximate_border_cap", 0.9)
+        r = self._get("9497")
+        assert r["nuts3_confidence"] == 0.75
+
+    def test_neighbour_of_different_length_ignored(self, hu_border):
+        # "95" sorts between 9496 and 9500; only same-length codes count,
+        # so the HU222 successor 9500 still marks the border.
+        data_loader._lookup[("HU", "95")] = "HU221"
+        data_loader._build_prefix_index()
+        r = self._get("9496")
+        assert r["nuts3_confidence"] == 0.5

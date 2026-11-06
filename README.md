@@ -1006,6 +1006,11 @@ If neither an exact match nor a pre-computed estimate exists, the service perfor
    - `agreement_ratio` = how many neighbours agree on the winning region / total neighbours
    - `prefix_ratio` = matched prefix length / full postal code length
    - Caps: 0.90 (NUTS1), 0.85 (NUTS2), 0.80 (NUTS3)
+   - Border cap: the nearest existing codes just below and just above the query (same
+     length, in sort order) are compared with the winner. At each NUTS level where either
+     one lies in a different region, confidence is capped at 0.50
+     (`approximate_border_cap`). Example: HU `9497` sits between `9495` (HU221) and
+     `9500` (HU222), so NUTS3 confidence is 0.50 while NUTS2/NUTS1 (both HU22/HU2) stay 0.75.
 
 5. If confidence at NUTS1 level is below 0.1, the result is discarded entirely and falls through to the next tier.
 
