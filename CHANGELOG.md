@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- CZ postal codes must start with 1-7, the range Česká pošta allocates (every
+  CZ code in TERCET NUTS-2024 does). `80000`, `97101` and other Slovak-range
+  codes no longer pass the CZ format check. The CZ example now leads with the
+  official `110 00` form. Patterns version 1.6 → 1.7.
+
 ## [3.3.0] - 2026-11-06
 
 ### Fixed
