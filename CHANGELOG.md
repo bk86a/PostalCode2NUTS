@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-11-11
+
 ### Changed
 
 - CZ postal codes must start with 1-7, the range Česká pošta allocates (every
