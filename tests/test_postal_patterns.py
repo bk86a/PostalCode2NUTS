@@ -215,7 +215,8 @@ def test_patterns_meta_version_bumped():
     # Adding the Crown Dependencies and Gibraltar is an additive coverage change;
     # minor version bump.
     # Countries without leading-zero codes reject a leading 0; minor bump.
-    assert PATTERNS_META["version"] == "1.6"
+    # CZ first digit narrowed to the official 1-7 range; minor bump.
+    assert PATTERNS_META["version"] == "1.7"
 
 
 class TestExtractOutward:
@@ -276,3 +277,18 @@ class TestNoLeadingZeroCountries:
         assert extract_postal_code("ES", "8461") == "08461"
         assert extract_postal_code("DE", "1067") == "01067"
         assert extract_postal_code("LU", "161") == "0161"
+
+
+class TestCzechFirstDigit:
+    # Czech postcodes (PSČ) start with 1-7; 8xxxx/9xxxx and 0xxxx are Slovak or
+    # unallocated ranges, and every CZ code in TERCET NUTS-2024 starts with 1-7.
+    @pytest.mark.parametrize("raw", ["11000", "110 00", "79999", "CZ-110 00", "cz 56943"])
+    def test_official_range_matches(self, raw):
+        assert _COMPILED["CZ"].match(raw.upper())
+
+    @pytest.mark.parametrize("raw", ["80000", "97101", "900 86", "05801", "CZ-97101"])
+    def test_outside_range_fails_format(self, raw):
+        assert not _COMPILED["CZ"].match(raw.upper())
+
+    def test_official_spaced_form_is_first_example(self):
+        assert POSTAL_PATTERNS["CZ"]["example"].split(", ")[0] == "110 00"
