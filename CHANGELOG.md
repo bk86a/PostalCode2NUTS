@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.3.2] - 2026-11-12
+
+### Changed
+
+- Dependency bumps (#210, #211). `requirements.lock` now pins fastapi
+  0.162.2 and pydantic 2.14.3 (pydantic_core 2.50.4); other pins unchanged.
+
 ## [3.3.1] - 2026-11-11
 
 ### Changed
