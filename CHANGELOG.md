@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.3.4] - 2026-11-19
+
+### Changed
+
+- `requirements.lock` pins httptools 0.9.0 and uvloop 0.23.0, the first
+  releases with Python 3.15 wheels, unblocking the python:3.15-slim base
+  image (#213). Other pins unchanged.
+
 ## [3.3.3] - 2026-11-19
 
 ### Security
