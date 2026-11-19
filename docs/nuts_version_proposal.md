@@ -23,20 +23,26 @@ GET /resolve?...&nuts_version=2024
 
 | Source | NUTS 2024 | NUTS 2027 |
 |---|---|---|
-| TERCET postal code files | `pc2025_*_NUTS-2024_v1.0.zip` | `pc2026_*_NUTS-2027_v1.0.zip`, dated 2026-10-23/26, 34 countries |
-| GISCO NUTS names (`NUTS_AT_<ver>.csv`) | yes | **404** |
+| TERCET postal code files | `pc2025_*_NUTS-2024_v1.0.zip` (FI, SI `_v2.0`), 34 countries | `pc2026_*_NUTS-2027_v1.0.zip`, dated 2026-10-23 (BG 2026-10-26), same 34 countries |
+| TERCET methodological notes | `2025-...-MET-NOTES-V4.0.pdf` | listed (`2026-GISCO-NUTS2027-PC2026-MET-NOTES-V1.0.pdf`) but the link is dead |
+| GISCO NUTS names (`NUTS_AT_<ver>.csv`) | yes | **404**; names are in Eurostat's `NUTS2024-NUTS2027.xlsx` |
 | GISCO NUTS-3 polygons (PIP oracle for `/resolve`) | yes | **404** (`datasets.json` tops out at nuts-2024) |
 | Estimates (`tercet_missing_codes.csv`) | 7,158 rows | none - must be regenerated |
 | Albania block map (`app/albania_blocks.py`) | yes | needs a 2027 review (no TERCET AL file in either version) |
 | UK (NSPL -> ITL bridge) | ITL, version-independent | same data can be shared |
 | ME (`single_nuts3_fallback`) | ME000 | no TERCET file; fallback must be confirmed |
 
-TERCET has no 2027 file for UK, ME or AL (same as 2024).
+TERCET has no file for UK, ME or AL in either version; the TERCET page has
+listed Albania and Montenegro as a known gap since 2020. NUTS 2027 is
+Delegated Regulation (EU) 2026/195 and applies from 2027-01-01. For
+comparison, NUTS 2024 geodata appeared on GISCO five months after NUTS 2024
+went into force.
 
 Consequence: 2027 can only be offered **without region names and without the
-geocode/PIP path** until GISCO publishes the 2027 names and boundaries. Names
-could be bridged from the NUTS 2024->2027 correspondence table once Eurostat
-publishes it; that is not attempted here.
+geocode/PIP path** until GISCO publishes the 2027 boundaries. Region names
+can be loaded from Eurostat's NUTS 2024->2027 correspondence workbook
+(`NUTS2024-NUTS2027.xlsx`, linked from the Eurostat NUTS history page), which
+also lists the official code changes.
 
 ## Comparison: 2027 TERCET files vs the 2024 lookup table
 
@@ -54,30 +60,59 @@ Countries with real boundary changes (new/removed NUTS3 codes):
 |---|---|---|
 | BG | 4,880 (100%) | full recode: BG3xx/BG4xx -> BG5xx (28 -> 28 regions) |
 | NO | 3,776 (73%) | 12 regions replaced (NO020, NO06x-NO09x -> NO0Cx-NO0Ex) |
-| BE | 285 (24%) | Brabant/Hainaut split: 11 regions replaced (BE21x/BE22x/BE23x -> BE226/7, BE26x, BE27x) |
-| IT | 147 (3%) | Sardinia: ITG2D-H -> ITG2I-O (4 -> 7) |
-| DE | 282 (3%) | DE719 -> DE71F/G, DEB3A, DEG06/09/0R -> DEG0W-Y |
+| BE | 285 (24%) | 11 regions replaced: Antwerpen BE21x -> BE26x, Oost-Vlaanderen BE23x -> BE27x, Limburg BE223/BE224 -> BE226/BE227 |
+| IT | 147 (3%) | Sardinia: ITG2D/E/F/H -> ITG2I-O (4 -> 7); ITG2G unchanged |
+| DE | 282 (3%) | 4 regions replaced by 5 (DE719 -> DE71F/G; DEG06/09/0R -> DEG0W-Y). DEB3A also disappears from the data, but that is a TERCET defect (see below) |
 | PL | 917 (4%) | PL613 split into PL61A/PL61B |
 
 Other countries only show reassignments of individual codes (SK 149, SE 113,
 PT 113, LT 101, AT 81, HR 79, CH 35, ES 33, ...) plus new codes (LT +9,916,
 NL +6,811, PT +4,849, DE +2,871, TR +1,716). IS, LI, MT, MK, RO, LU, CY, SI
-are unchanged apart from added codes.
+are unchanged apart from added codes. The 13 dropped codes look like clean-ups
+(e.g. Monaco `98000`, Saint-Barthélemy `97133`).
 
-### Format changes and quirks in the 2027 files
+Not all reassignments are improvements. About 1,930 codes moved between NUTS3
+regions that NUTS 2027 does not touch. A cross-check against GeoNames
+municipality data (not an authoritative reference) suggests:
 
-The only real defect is in the **BG** file: the zip contains a directory entry
-before the CSV, and 175 lines lack the opening quote (`BG510';'1000'`). The
-data parses fine once the loader picks the `.csv` member and strips quotes
-leniently. Everything else below is a format change or a deliberate mapping.
+- **DE:** about 145 of 207 such codes were right in 2024 and are wrong in 2027,
+  against 17 corrections. Examples: `81479` München -> Landkreis München,
+  `89233` Neu-Ulm -> Ulm, `40489` Düsseldorf -> Duisburg.
+- **SE:** about 81 of 113, including 12 Hässelby codes (`165 xx`) moved from
+  Stockholm to Södermanland.
+- Smaller numbers in ES, IT, CZ, EE and FI. The SK, PL and CH reassignments are
+  mostly corrections.
+- **NL:** 644 Weesp codes (`1381`-`1384`) moved NL327 -> NL32B with no NL entry
+  in the Eurostat change list; possibly intentional.
+
+So 2027 lookups will be different, and not always better, for border postcodes.
+These points have been raised with ESTAT GISCO.
+
+### Defects and format changes in the 2027 files
+
+Checked against the 2024 files as a baseline: properties the 2024 files share
+(missing ME/AL/UK, zip layout, encoding, HTTP 200 for missing files) are not
+listed here. Genuine 2027 defects, which the loader has to tolerate:
+
+- **BG:** 175 rows (lines 2-176, all Sofia) lack the opening quote
+  (`BG510';'1000'`); the 2024 files have no malformed rows. The CSV is also
+  nested in a folder inside the zip (DE 2024 had the same). It parses fine with
+  lenient quote handling and by picking the `.csv` member.
+- **Combined file** `PCODE_2026_NUTS-2027_v1.0.zip` has `BG511`, which is not
+  a NUTS 2027 code, on the same 175 rows. Use the per-country files.
+- **DEB3A** (Zweibrücken) is unchanged in NUTS 2027 but has no postcode: its
+  only code, `66482`, moved to DEB3K. It is the only NUTS3 region among the 34
+  countries without a postcode.
+- **SK:** 3 duplicate rows (`97401`, `97602`, `97634` alongside `974 01`,
+  `976 02`, `976 34`, all SK032). Harmless after normalisation.
 
 **Postal code formats.** Comparing the raw code shapes of 2024 and 2027, four
 countries changed:
 
 | Country | 2024 | 2027 | Impact |
 |---|---|---|---|
-| EL | `14100` | `141 00` | none - `normalize_postal_code` strips the space |
-| SK | `999 99` | `999 99`, plus 3 without space | none |
+| EL | `14100` | `141 00` (the format the 2024 notes already document) | none - `normalize_postal_code` strips the space |
+| SK | `999 99` | `999 99`, plus 3 duplicates without space | none |
 | IE | `A75` (routing key) | `A75 XXXX` (routing key + placeholder) | **all 139 IE lookups miss** if loaded as-is |
 | MT | `ATD` (locality prefix) | `ATD 0000` (prefix + placeholder) | **all 74 MT lookups miss** if loaded as-is |
 
@@ -99,12 +134,12 @@ files were run through `extract_postal_code`:
 Only comments and test docstrings citing "TERCET NUTS-2024"
 (`tests/test_postal_patterns.py`) would need version-neutral wording.
 
-**Cross-border NUTS3 codes** (deliberate, not errors): NL `5111 WB` -> `BE263`
-(Baarle enclave), RS `38218`/`38220` -> `XK002` (Eurostat's Kosovo codes),
-TR `99xxx` (3 codes) -> `CY000` (Northern Cyprus, consistent with the EU
-treating the whole island as CY). The loader should accept them, but
-NUTS1/NUTS2 derivation and name lookup must not assume the NUTS prefix matches
-the request country.
+**Cross-border NUTS3 codes** (new in 2027; the 2024 files have none, and the
+2024 notes say codes are matched to regions of the same country): NL `5111 WB`
+-> `BE263` (Baarle enclave, NL415 in 2024), RS `38218`/`38220` -> `XK002`, TR
+`99000`/`99460`/`99628` -> `CY000`. These are plausible, but may be revised.
+The loader should accept them, but NUTS1/NUTS2 derivation and name lookup must
+not assume the NUTS prefix matches the request country.
 
 ## Design
 
@@ -154,8 +189,8 @@ measurement on the real image before enabling 2027 in production
 
 1. Default version: stay on 2024 until 1 January 2027 (or until names and
    polygons exist), then switch? Or require callers to opt in for good?
-2. Is 2027 without region names acceptable for a first release, or wait for
-   GISCO names?
+2. Load 2027 region names from the Eurostat correspondence workbook, or wait
+   for GISCO's `NUTS_AT_2027.csv`?
 3. Estimates for 2027: regenerate with the same geocoding pipeline once
    polygons exist, or derive via the 2024->2027 correspondence?
 4. Should responses for reassigned codes carry a hint (e.g. `changed_since`)?
@@ -167,4 +202,5 @@ measurement on the real image before enabling 2027 in production
 2. Add the parameter + 2027 TERCET loading (lookup only, no names/PIP),
    behind `PC2NUTS_NUTS_VERSIONS`.
 3. Measure memory on the prod image; enable 2027.
-4. Add names, polygons and estimates for 2027 when GISCO publishes them.
+4. Add polygons and estimates for 2027 when GISCO publishes the boundaries;
+   re-download the TERCET files if GISCO corrects the defects above.
