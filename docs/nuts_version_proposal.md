@@ -64,18 +64,47 @@ PT 113, LT 101, AT 81, HR 79, CH 35, ES 33, ...) plus new codes (LT +9,916,
 NL +6,811, PT +4,849, DE +2,871, TR +1,716). IS, LI, MT, MK, RO, LU, CY, SI
 are unchanged apart from added codes.
 
-### Data-quality issues in the 2027 files the loader must handle
+### Format changes and quirks in the 2027 files
 
-- **BG zip** contains a directory entry before the CSV, and 175 lines lack the
-  opening quote (`BG510';'1000'`). The loader must pick the `.csv` member and
-  parse quotes leniently.
-- **Format changes:** IE now uses `A75 XXXX` (routing key + placeholder), MT
-  `ATD 0000`, EL `141 00` (space). Normalisation must reduce these to the
-  2024 keys, or IE/MT lookups silently miss.
-- **Cross-border NUTS3 codes:** NL `5111 WB` -> `BE263` (Baarle enclave),
-  RS `38218`/`38220` -> `XK002`, TR `99xxx` (3 codes) -> `CY000`. The loader
-  should accept them, but NUTS1/NUTS2 derivation and name lookup must not
-  assume the country prefix matches the request country.
+The only real defect is in the **BG** file: the zip contains a directory entry
+before the CSV, and 175 lines lack the opening quote (`BG510';'1000'`). The
+data parses fine once the loader picks the `.csv` member and strips quotes
+leniently. Everything else below is a format change or a deliberate mapping.
+
+**Postal code formats.** Comparing the raw code shapes of 2024 and 2027, four
+countries changed:
+
+| Country | 2024 | 2027 | Impact |
+|---|---|---|---|
+| EL | `14100` | `141 00` | none - `normalize_postal_code` strips the space |
+| SK | `999 99` | `999 99`, plus 3 without space | none |
+| IE | `A75` (routing key) | `A75 XXXX` (routing key + placeholder) | **all 139 IE lookups miss** if loaded as-is |
+| MT | `ATD` (locality prefix) | `ATD 0000` (prefix + placeholder) | **all 74 MT lookups miss** if loaded as-is |
+
+User input is reduced to the TERCET key by the `tercet_map` rule in
+`app/postal_patterns.json` (IE `truncate:3`: `D02 X285` -> `D02`; MT
+`keep_alpha`: `VLT 1010` -> `VLT`), so it never matches a stored key of
+`A75XXXX` / `ATD0000`. Fix in the loader: run TERCET keys through the same
+`tercet_map` at load time, which yields exactly the 2024 keys. With that, the
+2027 IE and MT data match 2024 apart from 5 IE reassignments.
+
+**`postal_patterns.json` needs no change.** All 859,085 codes in the 2027
+files were run through `extract_postal_code`:
+
+- every 2027 code passes its country's regex (in 2024 the 139 IE and 74 MT
+  entries, being bare routing keys, did not);
+- the extracted key equals the stored key for every code except IE/MT, which
+  is the loader fix above.
+
+Only comments and test docstrings citing "TERCET NUTS-2024"
+(`tests/test_postal_patterns.py`) would need version-neutral wording.
+
+**Cross-border NUTS3 codes** (deliberate, not errors): NL `5111 WB` -> `BE263`
+(Baarle enclave), RS `38218`/`38220` -> `XK002` (Eurostat's Kosovo codes),
+TR `99xxx` (3 codes) -> `CY000` (Northern Cyprus, consistent with the EU
+treating the whole island as CY). The loader should accept them, but
+NUTS1/NUTS2 derivation and name lookup must not assume the NUTS prefix matches
+the request country.
 
 ## Design
 
