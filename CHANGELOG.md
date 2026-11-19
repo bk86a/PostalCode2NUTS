@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.3.3] - 2026-11-19
+
+### Security
+
+- `requirements.lock` pins opentelemetry-api 1.45.2 (CVE-2026-126360).
+
+### Changed
+
+- Dependency bumps (#214, #215). `requirements.lock` now pins fastapi
+  0.163.1 and pydantic-settings 2.16.3; other pins unchanged.
+
 ## [3.3.2] - 2026-11-12
 
 ### Changed
