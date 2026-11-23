@@ -706,3 +706,19 @@ class TestAlbaniaEndpoint:
         resp = client.get("/lookup", params={"postal_code": "AL-1001", "country": "AL"})
         assert resp.status_code == 200
         assert resp.json()["nuts3"] == "AL022"
+
+
+class TestSecurityHeaders:
+    def test_headers_on_success(self, client):
+        resp = client.get("/health")
+        assert resp.headers["x-content-type-options"] == "nosniff"
+        assert resp.headers["cross-origin-resource-policy"] == "same-origin"
+
+    def test_headers_on_error(self, client):
+        resp = client.get("/lookup", params={"country": "DE"})  # missing postal_code -> 422
+        assert resp.status_code >= 400
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    def test_headers_on_openapi(self, client):
+        resp = client.get("/openapi.json")
+        assert resp.headers["x-content-type-options"] == "nosniff"

@@ -164,7 +164,9 @@ def refresh_db_tokens(db) -> None:
     except Exception as exc:  # noqa: BLE001 — caller passes a duck-typed client
         import logging
 
-        logging.getLogger(__name__).warning("token DB refresh failed: %s", exc)
+        # Log the exception type only: a driver error message can echo the
+        # connection URL or auth token, which must never reach the logs.
+        logging.getLogger(__name__).warning("token DB refresh failed: %s", type(exc).__name__)
         _token_db_stale = True
         return
     _db_tokens = frozenset(r["value"] for r in rows if r.get("value"))

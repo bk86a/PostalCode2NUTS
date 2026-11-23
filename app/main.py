@@ -109,6 +109,22 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Set hardening headers on every response.
+
+    nosniff stops browsers MIME-sniffing JSON into something executable;
+    Cross-Origin-Resource-Policy blocks cross-site no-cors embedding of
+    responses. CORP does not apply to CORS fetches, so the CORS-enabled
+    public API keeps working from other origins.
+    """
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Loading TERCET data (NUTS %s)...", settings.nuts_version)
@@ -318,6 +334,7 @@ if settings.cors_origins:
 
 app.add_middleware(AuthMiddleware)
 app.add_middleware(AccessLogMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 def _available_countries_str() -> str:
