@@ -41,3 +41,13 @@ def test_register_docs_on_custom_paths():
     assert "swagger-ui-bundle.js" in tc.get("/d").text
     assert "redoc.standalone.js" in tc.get("/r").text
     assert tc.get("/docs").status_code == 404
+
+
+def test_docs_schema_url_honours_root_path():
+    app = FastAPI(docs_url=None, redoc_url=None)
+    docs.register_docs(app, "/d", "/r")
+    tc = TestClient(app, root_path="/pc2n")
+    assert "url: '/pc2n/openapi.json'" in tc.get("/d").text
+    assert 'spec-url="/pc2n/openapi.json"' in tc.get("/r").text
+    plain = TestClient(app)
+    assert "url: '/openapi.json'" in plain.get("/d").text

@@ -10,7 +10,7 @@ To bump a version, update the URL and recompute its hash:
     curl -sL <url> | openssl dgst -sha384 -binary | base64 -w0
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
@@ -41,12 +41,16 @@ def _with_integrity(response: HTMLResponse, assets: tuple[tuple[str, str], ...])
 def register_docs(app: FastAPI, docs_url: str, redoc_url: str) -> None:
     """Serve Swagger UI at *docs_url* and ReDoc at *redoc_url* (app built with both None)."""
     title = app.title
-    openapi_url = app.openapi_url
+
+    def _openapi_url(request: Request) -> str:
+        # Same as FastAPI's built-in handlers: honour root_path so the schema
+        # loads when the app sits behind a prefix-stripping proxy or mount.
+        return request.scope.get("root_path", "").rstrip("/") + app.openapi_url
 
     @app.get(docs_url, include_in_schema=False)
-    def swagger_ui() -> HTMLResponse:
+    def swagger_ui(request: Request) -> HTMLResponse:
         page = get_swagger_ui_html(
-            openapi_url=openapi_url,
+            openapi_url=_openapi_url(request),
             title=f"{title} - Swagger UI",
             swagger_js_url=SWAGGER_JS[0],
             swagger_css_url=SWAGGER_CSS[0],
@@ -54,11 +58,11 @@ def register_docs(app: FastAPI, docs_url: str, redoc_url: str) -> None:
         return _with_integrity(page, (SWAGGER_JS, SWAGGER_CSS))
 
     @app.get(redoc_url, include_in_schema=False)
-    def redoc() -> HTMLResponse:
+    def redoc(request: Request) -> HTMLResponse:
         # Google Fonts CSS is generated per user agent, so it cannot carry an
         # integrity hash; ReDoc falls back to system fonts without it.
         page = get_redoc_html(
-            openapi_url=openapi_url,
+            openapi_url=_openapi_url(request),
             title=f"{title} - ReDoc",
             redoc_js_url=REDOC_JS[0],
             with_google_fonts=False,
