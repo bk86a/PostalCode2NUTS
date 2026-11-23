@@ -778,6 +778,7 @@ All settings are overridable via environment variables prefixed with `PC2NUTS_`:
 | `PC2NUTS_TOKEN_DB_AUTH_TOKEN` | `""` (unset) | Bearer JWT presented to the trusted-token database. Required when the provider enforces auth. |
 | `PC2NUTS_TOKEN_REFRESH_SECONDS` | `60` (min `1`) | How often the running service reloads the active trusted-token set from the DB. |
 | `PC2NUTS_DOCS_ENABLED` | `true` | Set to `false` to disable Swagger UI (`/documentation`) and ReDoc (`/redoc`) in production. |
+| `PC2NUTS_PUBLIC_BASE_URL` | _(empty)_ | Canonical external URL (e.g. `https://api.example.org`) used for the links in `GET /`. Unset, links follow the request `Host` header and the response carries `Vary: Host`; set it in production behind a shared cache or CDN. |
 | `PC2NUTS_DOCS_URL` | `/documentation` | Path for the interactive API docs UI. |
 | `PC2NUTS_CORS_ORIGINS` | `*` | Comma-separated list of allowed CORS origins. The wildcard default suits the public read-only API; **set a specific origin (e.g. `https://example.com`) for any internal or LAN deployment**, where `*` would let any site the operator visits query the service through their browser. Empty string disables CORS middleware. Credentials are never allowed cross-origin. |
 | `PC2NUTS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Which peers may set `X-Forwarded-For` / `X-Forwarded-Proto`. Set it to the address or CIDR of the reverse proxy in front of the service (e.g. `172.17.0.1`, `10.0.0.0/8`). **Never `*`** — see [Reverse proxies](#deployment-notes). Read by the container `CMD`, not by the app. |

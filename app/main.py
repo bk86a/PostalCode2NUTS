@@ -569,7 +569,13 @@ def resolve_endpoint(
 )
 def root(request: Request, response: Response):
     response.headers["Cache-Control"] = f"public, max-age={settings.cache_max_age}"
-    base = str(request.base_url).rstrip("/")
+    if settings.public_base_url:
+        base = settings.public_base_url.rstrip("/")
+    else:
+        # Links derive from the client-supplied Host header: keep shared caches
+        # from serving one Host's links to clients using another.
+        response.headers["Vary"] = "Host"
+        base = str(request.base_url).rstrip("/")
     return {
         "service": "PostalCode2NUTS",
         "version": __version__,
