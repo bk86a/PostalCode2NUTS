@@ -22,6 +22,7 @@ from app import __version__, config as _config
 from app.auth import AuthMiddleware, is_trusted_request
 from app.estimates_refresh import get_refresh_stale as _get_estimates_refresh_stale
 from app.config import settings
+from app.docs import register_docs
 from app.limiter import limiter
 from app.data_loader import (
     get_data_loaded_at,
@@ -258,9 +259,12 @@ app = FastAPI(
     ),
     version=__version__,
     lifespan=lifespan,
-    docs_url=settings.docs_url if settings.docs_enabled else None,
-    redoc_url="/redoc" if settings.docs_enabled else None,
+    # Docs pages are served by app.docs (pinned, SRI-checked CDN assets).
+    docs_url=None,
+    redoc_url=None,
 )
+if settings.docs_enabled:
+    register_docs(app, settings.docs_url, "/redoc")
 app.state.limiter = limiter
 
 
