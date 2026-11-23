@@ -228,6 +228,24 @@ class TestRootEndpoint:
         assert "health" in data["links"]
         assert data["links"]["source"] == "https://github.com/bk86a/PostalCode2NUTS"
 
+    def test_root_links_ignore_host_when_public_base_url_set(self, client, monkeypatch):
+        from app import main
+
+        monkeypatch.setattr(main.settings, "public_base_url", "https://api.example.org/")
+        resp = client.get("/", headers={"Host": "evil.example"})
+        links = resp.json()["links"]
+        assert links["openapi"] == "https://api.example.org/openapi.json"
+        assert "evil.example" not in resp.text
+        assert "host" not in resp.headers.get("vary", "").lower()
+
+    def test_root_varies_on_host_without_public_base_url(self, client, monkeypatch):
+        from app import main
+
+        monkeypatch.setattr(main.settings, "public_base_url", "")
+        resp = client.get("/", headers={"Host": "other.example"})
+        assert resp.json()["links"]["openapi"] == "http://other.example/openapi.json"
+        assert "host" in resp.headers["vary"].lower()  # CORS may append Origin
+
     def test_root_not_in_schema(self, client):
         # include_in_schema=False — must not appear in /openapi.json paths
         resp = client.get("/openapi.json")

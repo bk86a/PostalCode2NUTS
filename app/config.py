@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     max_download_mb: int = Field(default=512, ge=1)
     max_estimates_download_mb: int = Field(default=64, ge=1)
     docs_enabled: bool = True
+    # Canonical external URL (e.g. https://api.example.org) used for links in GET /.
+    # When unset, links follow the request Host header and the response is marked Vary: Host.
+    public_base_url: str = ""
     # NSPL (UK postcode → ITL3) — optional, no-op when unset (TERCET-only deployment)
     nspl_url: str = _defaults.get("nspl_url", "")
     # Override for the bundled LAD→ITL bridge (app/uk_lad_itl.csv). Point at a
