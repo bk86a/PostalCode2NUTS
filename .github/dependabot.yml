@@ -1,9 +1,14 @@
 version: 2
+# cooldown: hold version updates until a release is 7 days old, so a
+# compromised or quickly-yanked release is unlikely to reach a PR. Security
+# updates are not delayed.
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     # Grouped so a week's bumps arrive as one reviewable PR instead of one per
     # package. Production and development are kept apart because they carry
     # different follow-up work: production bumps also need requirements.lock
@@ -26,6 +31,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       docker:
         applies-to: version-updates
@@ -36,6 +43,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         applies-to: version-updates
