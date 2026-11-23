@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.lock ./requirements.lock
-RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 RUN useradd -r -s /bin/false appuser \
     && mkdir -p /app/data \
