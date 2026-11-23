@@ -425,6 +425,20 @@ class TestRefreshDBTokens:
         assert auth._db_tokens == frozenset({"keepme"})  # unchanged
         assert auth._token_db_stale is True
 
+    def test_refresh_failure_log_omits_exception_message(self, monkeypatch, caplog):
+        from app import auth
+        from app.token_db import TokenDBError
+
+        class LeakyDB:
+            def list_active(self):
+                raise TokenDBError("auth failed for libsql://db?authToken=s3cr3t")
+
+        monkeypatch.setattr(auth, "_token_db_stale", False)
+        with caplog.at_level("WARNING"):
+            auth.refresh_db_tokens(LeakyDB())
+        assert "s3cr3t" not in caplog.text
+        assert "TokenDBError" in caplog.text
+
     def test_refresh_recovery_clears_stale(self, monkeypatch):
         from app import auth
 

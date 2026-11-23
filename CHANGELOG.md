@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.3.5] - 2026-11-23
+
+### Security
+
+- Every response now carries `X-Content-Type-Options: nosniff` and
+  `Cross-Origin-Resource-Policy: same-origin` (flagged by an OWASP ZAP API
+  scan). CORP does not apply to CORS requests, so cross-origin API use via
+  `PC2NUTS_CORS_ORIGINS` is unaffected.
+- A failed token-DB refresh now logs only the exception type, not its
+  message, so a driver error that echoes the connection URL or auth token
+  cannot leak it into logs (flagged by Semgrep).
+
 ## [3.3.4] - 2026-11-19
 
 ### Changed
