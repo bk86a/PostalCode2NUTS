@@ -1247,7 +1247,7 @@ For the simplest setup (single worker, no Redis, no persistence) drop both the `
 |------|---------|
 | Base image | `python:3.14-slim` |
 | User at runtime | `appuser` (non-root, switched by the entrypoint via `gosu`) |
-| Dependencies | Pinned via `requirements.lock` |
+| Dependencies | Pinned and hash-verified via `requirements.lock` (`pip install --require-hashes`); base image pinned by digest |
 | Estimates CSV | Included (`tercet_missing_codes.csv`) |
 | Entrypoint | `/usr/local/bin/docker-entrypoint.sh` (chowns `/app/data`, drops privileges) |
 | uvicorn flags | `--proxy-headers --forwarded-allow-ips "${PC2NUTS_FORWARDED_ALLOW_IPS:-127.0.0.1}" --no-access-log` (proxy headers honoured only from the listed peers — set `PC2NUTS_FORWARDED_ALLOW_IPS` to your proxy; access log disabled so `/resolve` street/city query params never reach stdout — use `PC2NUTS_ACCESS_LOG_FILE` for sanitized access logging) |
