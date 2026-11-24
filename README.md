@@ -1245,7 +1245,7 @@ For the simplest setup (single worker, no Redis, no persistence) drop both the `
 
 | Item | Details |
 |------|---------|
-| Base image | `python:3.14-slim` |
+| Base image | `python:3.15-slim` |
 | User at runtime | `appuser` (non-root, switched by the entrypoint via `gosu`) |
 | Dependencies | Pinned and hash-verified via `requirements.lock` (`pip install --require-hashes`); base image pinned by digest |
 | Estimates CSV | Included (`tercet_missing_codes.csv`) |
