@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [3.3.5] - 2026-11-23
+## [3.3.5] - 2026-11-24
 
 ### Security
 
@@ -17,6 +17,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - A failed token-DB refresh now logs only the exception type, not its
   message, so a driver error that echoes the connection URL or auth token
   cannot leak it into logs (flagged by Semgrep).
+- `GET /` no longer builds its links from the request `Host` header, which
+  a client could spoof. Set the new `PC2NUTS_PUBLIC_BASE_URL` to the
+  service's public URL; when it is unset the old behaviour remains, with
+  `Vary: Host` added (#221).
+- Swagger UI (`/documentation`) and ReDoc (`/redoc`) now load exact
+  versions (swagger-ui-dist 5.34.1, redoc 2.5.4) from jsDelivr with
+  Subresource Integrity, instead of floating `@5`/`@2` tags. ReDoc no longer
+  loads Google Fonts. Both pages honour `root_path` (#223).
+
+### Changed
+
+- Docker base image pinned by digest; `requirements.lock` is now hash-locked
+  and installed with `pip --require-hashes`. Pinned versions are unchanged
+  (#222).
+- CI actions pinned to commit SHAs; Dependabot waits 7 days before
+  proposing new releases (#220).
 
 ## [3.3.4] - 2026-11-19
 
