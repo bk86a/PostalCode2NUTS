@@ -35,8 +35,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      python: ${{ steps.python.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Gate jobs run the Python version of the production image, read from the
+      # Dockerfile's FROM line, so a Dependabot base-image bump is tested on the
+      # new interpreter without a separate edit here.
+      - id: python
+        run: |
+          v=$(sed -nE '1,/^FROM/s/^FROM python:([0-9]+\.[0-9]+).*/\1/p' Dockerfile)
+          [ -n "$v" ] || { echo "::error::cannot read Python version from Dockerfile"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
@@ -64,7 +73,7 @@ jobs:
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.changes.outputs.python }}
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pip install ruff
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
@@ -84,9 +93,9 @@ jobs:
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.changes.outputs.python }}
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
-        run: pip install -r requirements.txt
+        run: pip install --require-hashes -r requirements.lock
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: python -c "from app.main import app; print('imports OK')"
       - if: needs.changes.outputs.code != 'true' && !startsWith(github.ref, 'refs/tags/v')
@@ -102,7 +111,7 @@ jobs:
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.changes.outputs.python }}
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pip install -r requirements.txt
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
@@ -124,9 +133,11 @@ jobs:
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.changes.outputs.python }}
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
-        run: pip install -r requirements-dev.txt
+        run: |
+          pip install --require-hashes -r requirements.lock
+          pip install -r requirements-dev.txt
       - if: needs.changes.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/v')
         run: pytest tests/ -v
       - if: needs.changes.outputs.code != 'true' && !startsWith(github.ref, 'refs/tags/v')
