@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.3.6] - 2026-11-24
+
+### Changed
+
+- Docker base image moved to `python:3.15-slim`, pinned by digest (#224).
+- `requirements.lock` pins httpx2 and httpcore2 2.16.2, matching the raised
+  `httpx2>=2.16.2` floor in `requirements.txt` (#225), and is now compiled
+  for Python 3.15. Other pins unchanged.
+
 ## [3.3.5] - 2026-11-24
 
 ### Security
